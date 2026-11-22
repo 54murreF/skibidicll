@@ -265,6 +265,7 @@ local SkyColor = Color3.fromRGB(50, 150, 255)
 local Keys = {
 	VRSwing = Enum.UserInputType.MouseButton1,
 	VRCarry = Enum.KeyCode.G,
+	VRGrab = Enum.KeyCode.G,
 	ESP = Enum.KeyCode.Unknown, Hitbox = Enum.KeyCode.Unknown, SUK = Enum.KeyCode.Unknown, 
 	NoRecoil = Enum.KeyCode.Unknown, AntiCC = Enum.KeyCode.Unknown, 
 	Spin = Enum.KeyCode.Unknown, Fly = Enum.KeyCode.Unknown, WalkSpeed = Enum.KeyCode.Unknown, 
@@ -2716,6 +2717,14 @@ function setVREnabled(on, fromUser)
 					end)
 				end
 				if live then pcall(vrInitCharacter, live) end
+				-- v11.4: one Grabmove on VR enable
+				pcall(function()
+					if not SwingRemote then
+						local r = ReplicatedStorage:FindFirstChild("Remotes")
+						SwingRemote = r and r:FindFirstChild("Swing")
+					end
+					if SwingRemote then SwingRemote:FireServer("Grabmove", "RIGHT_ARM") end
+				end)
 			end)
 		end
 	else
@@ -4324,7 +4333,7 @@ function buildKeybinds()
 	label({ Text = "KEYBINDS", Font = Enum.Font.GothamMedium, TextSize = 12, TextColor3 = Theme.Dim, Size = UDim2.fromOffset(200, 20), Position = UDim2.fromOffset(14, 12), Parent = panel })
 	local list = new("ScrollingFrame", { Size = UDim2.new(1, -16, 1, -44), Position = UDim2.fromOffset(8, 36), BackgroundTransparency = 1, BorderSizePixel = 0, ScrollBarThickness = 2, CanvasSize = UDim2.new(), AutomaticCanvasSize = Enum.AutomaticSize.Y, Parent = panel }, { new("UIListLayout", { Padding = UDim.new(0, 4), SortOrder = Enum.SortOrder.LayoutOrder }), new("UIPadding", { PaddingTop = UDim.new(0, 4), PaddingBottom = UDim.new(0, 8), PaddingLeft = UDim.new(0, 6), PaddingRight = UDim.new(0, 6) }) })
 	local bindRows = {
-		{ "Menu", "Menu" }, { "SUK", "SUK" }, { "VR Carry", "VRCarry" }, { "No Recoil", "NoRecoil" }, { "Anti-CC", "AntiCC" },
+		{ "Menu", "Menu" }, { "SUK", "SUK" }, { "VR Carry", "VRGrab" }, { "No Recoil", "NoRecoil" }, { "Anti-CC", "AntiCC" },
 		{ "ESP", "ESP" }, { "Hitbox", "Hitbox" }, { "Fly", "Fly" }, { "Walk Speed", "WalkSpeed" }, { "Jump Power", "JumpPower" },
 		{ "Heal", "Heal" }, { "Silent Aim", "SilentAim" }, { "China Hat", "ChinaHat" }, { "Wings", "Wings" }, { "Anti-Lag", "AntiLag" }, { "Spin", "Spin" },
         { "Teleport Heal", "TeleportHeal" }, { "Teleport Cursor", "TeleportCursor" }, { "Combo", "Combo" }, { "Reload Spas", "ReloadSpas" }
@@ -5839,7 +5848,7 @@ end
 
 
 
--- VR Carry (not punch): dump Keybinds G → Grabmove with arm while VREnabled
+-- VR Carry — same as v11.4: needs VR on + victim Character as 3rd arg
 local function DoVRCarry()
 	if not ST.VREnabled then return end
 	if not SwingRemote then
@@ -5851,9 +5860,43 @@ local function DoVRCarry()
 	if not SwingRemote then return end
 	if os.clock() - (_G.CLL_CarryAt or 0) < 0.15 then return end
 	_G.CLL_CarryAt = os.clock()
-	-- dump: VR grab path uses arm strings; both arms = hold/drag, not Kick
-	pcall(function() SwingRemote:FireServer("Grabmove", "RIGHT_ARM") end)
-	pcall(function() SwingRemote:FireServer("Grabmove", "LEFT_ARM") end)
+
+	-- 1) VR selection list (v11.4)
+	local victim = nil
+	pcall(function()
+		local targets = GetVRTargets and GetVRTargets() or {}
+		if targets[1] and targets[1].char then
+			victim = targets[1].char
+		end
+	end)
+	-- 2) nearest living player if list empty
+	if not victim then
+		local my = LocalPlayer.Character
+		local root = my and (my:FindFirstChild("HumanoidRootPart") or my:FindFirstChild("Torso"))
+		local origin = root and root.Position
+		local best, bestD = nil, 18
+		if origin then
+			for _, plr in ipairs(Players:GetPlayers()) do
+				if plr ~= LocalPlayer and plr.Character then
+					local char = plr.Character
+					local hum = char:FindFirstChildOfClass("Humanoid")
+					local hrp = char:FindFirstChild("HumanoidRootPart") or char:FindFirstChild("Head")
+					if hum and hrp and hum.Health > 0 then
+						local d = (hrp.Position - origin).Magnitude
+						if d < bestD then
+							bestD, best = d, char
+						end
+					end
+				end
+			end
+		end
+		victim = best
+	end
+	if not victim then return end
+
+	-- v11.4 packets
+	pcall(function() SwingRemote:FireServer("Grabmove", "RIGHT_ARM", victim) end)
+	pcall(function() SwingRemote:FireServer("Grabmove", "LEFT_ARM", victim) end)
 end
 
 UIS.InputBegan:Connect(function(input, gp)
@@ -5927,7 +5970,7 @@ UIS.InputBegan:Connect(function(input, gp)
 	elseif pressed(Keys.SilentAim) then 
         ST.SilentAimEnabled = not ST.SilentAimEnabled
         updateFOVCircle()
-	elseif pressed(Keys.VRCarry) then
+	elseif pressed(Keys.VRCarry) or pressed(Keys.VRGrab) then
 		DoVRCarry()
 	elseif pressed(Keys.TeleportHeal) then 
         TeleportToHeal()
