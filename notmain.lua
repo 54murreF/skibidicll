@@ -286,7 +286,7 @@ local Keys = {
 	Spin = Enum.KeyCode.Unknown, Fly = Enum.KeyCode.Unknown, WalkSpeed = Enum.KeyCode.Unknown, 
 	JumpPower = Enum.KeyCode.Unknown, Heal = Enum.KeyCode.Unknown, SilentAim = Enum.KeyCode.Unknown,
 	ChinaHat = Enum.KeyCode.Unknown, Wings = Enum.KeyCode.Unknown, AntiLag = Enum.KeyCode.Unknown,
-	Menu = Enum.KeyCode.RightShift, VRGrab = Enum.KeyCode.G, TeleportHeal = Enum.KeyCode.Unknown,
+	Menu = Enum.KeyCode.RightShift, TeleportHeal = Enum.KeyCode.Unknown,
 	Combo = Enum.KeyCode.Unknown, ReloadSpas = Enum.KeyCode.Unknown, TeleportCursor = Enum.KeyCode.Unknown
 }
 
@@ -4346,7 +4346,7 @@ function buildKeybinds()
 	label({ Text = "KEYBINDS", Font = Enum.Font.GothamMedium, TextSize = 12, TextColor3 = Theme.Dim, Size = UDim2.fromOffset(200, 20), Position = UDim2.fromOffset(14, 12), Parent = panel })
 	local list = new("ScrollingFrame", { Size = UDim2.new(1, -16, 1, -44), Position = UDim2.fromOffset(8, 36), BackgroundTransparency = 1, BorderSizePixel = 0, ScrollBarThickness = 2, CanvasSize = UDim2.new(), AutomaticCanvasSize = Enum.AutomaticSize.Y, Parent = panel }, { new("UIListLayout", { Padding = UDim.new(0, 4), SortOrder = Enum.SortOrder.LayoutOrder }), new("UIPadding", { PaddingTop = UDim.new(0, 4), PaddingBottom = UDim.new(0, 8), PaddingLeft = UDim.new(0, 6), PaddingRight = UDim.new(0, 6) }) })
 	local bindRows = {
-		{ "Menu", "Menu" }, { "SUK", "SUK" }, { "VR Grab (Q)", "VRGrab" }, { "No Recoil", "NoRecoil" }, { "Anti-CC", "AntiCC" },
+		{ "Menu", "Menu" }, { "SUK", "SUK" }, { "No Recoil", "NoRecoil" }, { "Anti-CC", "AntiCC" },
 		{ "ESP", "ESP" }, { "Hitbox", "Hitbox" }, { "Fly", "Fly" }, { "Walk Speed", "WalkSpeed" }, { "Jump Power", "JumpPower" },
 		{ "Heal", "Heal" }, { "Silent Aim", "SilentAim" }, { "China Hat", "ChinaHat" }, { "Wings", "Wings" }, { "Anti-Lag", "AntiLag" }, { "Spin", "Spin" },
         { "Teleport Heal", "TeleportHeal" }, { "Teleport Cursor", "TeleportCursor" }, { "Combo", "Combo" }, { "Reload Spas", "ReloadSpas" }
@@ -5979,59 +5979,19 @@ function pinArmsToVictim(victim)
 end
 
 function DoGrab()
-	-- Dump Keybinds:
-	--   VR on:  Swing:FireServer("Grabmove", "RIGHT_ARM") / "LEFT_ARM"
-	--   VR off: Swing:FireServer("Grabmove", nil)  -- G key glory grab, server picks nearby body
-	-- Never pass Character as 3rd arg (not in dump; can break server).
-	local remote = ensureSwingRemote and ensureSwingRemote() or SwingRemote
-	if not remote then
-		pcall(function()
-			local r = ReplicatedStorage:FindFirstChild("Remotes")
-			remote = r and (r:FindFirstChild("Swing") or r:FindFirstChild("swing"))
-			SwingRemote = remote
-		end)
-	end
-	if not remote then return false end
-	if os.clock() - (_G.CLL_GrabSentAt or 0) < 0.12 then return true end
-	_G.CLL_GrabSentAt = os.clock()
-
-	-- Carry is Grabmove (not ProximityPrompt). Tool in hands is allowed (v29 behavior).
-	if ST.VREnabled then
-		pcall(function() remote:FireServer("Grabmove", "RIGHT_ARM") end)
-		pcall(function() remote:FireServer("Grabmove", "LEFT_ARM") end)
-	else
-		-- dump non-VR G: Grabmove with nil
-		pcall(function() remote:FireServer("Grabmove", nil) end)
-	end
-	return true
+	-- disabled: no custom pickup bind; use game native G / VR Keybinds
+	return false
 end
 
 function ComboQ()
-	DoGrab()
+	-- custom grab bind removed: game handles Grabmove (G) itself
 end
 
 do
 	local CAS = game:GetService("ContextActionService")
 	function refreshGrabSink()
+		-- no custom grab sink — leave Q/G to the game
 		pcall(function() CAS:UnbindAction("CLL_GrabPickup") end)
-		-- sink the grab key only in VR, so desktop Q still kicks
-		if not ST.VREnabled then return end
-		local key = Keys.VRGrab
-		if typeof(key) ~= "EnumItem" or key.EnumType ~= Enum.KeyCode or key == Enum.KeyCode.Unknown then
-			return
-		end
-		CAS:BindActionAtPriority("CLL_GrabPickup", function(_, state)
-			if ST.isUnloaded or ST.isBinding or UIS:GetFocusedTextBox() then
-				return Enum.ContextActionResult.Pass
-			end
-			if not ST.VREnabled then
-				return Enum.ContextActionResult.Pass
-			end
-			if state == Enum.UserInputState.Begin then
-				DoGrab()
-			end
-			return Enum.ContextActionResult.Sink
-		end, false, 4000, key)
 	end
 	refreshGrabSink()
 end
@@ -6053,7 +6013,6 @@ UIS.InputBegan:Connect(function(input, gp)
 			if bindTarget then
 				Keys[bindTarget.keyName] = input.KeyCode
 				bindTarget.btn.Text = input.KeyCode.Name
-				if bindTarget.keyName == "VRGrab" and refreshGrabSink then refreshGrabSink() end
 			end
 			ST.isBinding = false
 			bindTarget = nil
@@ -6108,8 +6067,6 @@ UIS.InputBegan:Connect(function(input, gp)
 	elseif pressed(Keys.SilentAim) then 
         ST.SilentAimEnabled = not ST.SilentAimEnabled
         updateFOVCircle()
-	elseif pressed(Keys.VRGrab) then
-		DoGrab()
 	elseif pressed(Keys.TeleportHeal) then 
         TeleportToHeal()
 	elseif pressed(Keys.TeleportCursor) then
