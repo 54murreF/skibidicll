@@ -265,7 +265,6 @@ local SkyColor = Color3.fromRGB(50, 150, 255)
 local Keys = {
 	VRSwing = Enum.UserInputType.MouseButton1,
 	VRCarry = Enum.KeyCode.G,
-	VRGrab = Enum.KeyCode.G,
 	ESP = Enum.KeyCode.Unknown, Hitbox = Enum.KeyCode.Unknown, SUK = Enum.KeyCode.Unknown, 
 	NoRecoil = Enum.KeyCode.Unknown, AntiCC = Enum.KeyCode.Unknown, 
 	Spin = Enum.KeyCode.Unknown, Fly = Enum.KeyCode.Unknown, WalkSpeed = Enum.KeyCode.Unknown, 
@@ -4333,7 +4332,7 @@ function buildKeybinds()
 	label({ Text = "KEYBINDS", Font = Enum.Font.GothamMedium, TextSize = 12, TextColor3 = Theme.Dim, Size = UDim2.fromOffset(200, 20), Position = UDim2.fromOffset(14, 12), Parent = panel })
 	local list = new("ScrollingFrame", { Size = UDim2.new(1, -16, 1, -44), Position = UDim2.fromOffset(8, 36), BackgroundTransparency = 1, BorderSizePixel = 0, ScrollBarThickness = 2, CanvasSize = UDim2.new(), AutomaticCanvasSize = Enum.AutomaticSize.Y, Parent = panel }, { new("UIListLayout", { Padding = UDim.new(0, 4), SortOrder = Enum.SortOrder.LayoutOrder }), new("UIPadding", { PaddingTop = UDim.new(0, 4), PaddingBottom = UDim.new(0, 8), PaddingLeft = UDim.new(0, 6), PaddingRight = UDim.new(0, 6) }) })
 	local bindRows = {
-		{ "Menu", "Menu" }, { "SUK", "SUK" }, { "VR Carry", "VRGrab" }, { "No Recoil", "NoRecoil" }, { "Anti-CC", "AntiCC" },
+		{ "Menu", "Menu" }, { "SUK", "SUK" }, { "VR Carry", "VRCarry" }, { "No Recoil", "NoRecoil" }, { "Anti-CC", "AntiCC" },
 		{ "ESP", "ESP" }, { "Hitbox", "Hitbox" }, { "Fly", "Fly" }, { "Walk Speed", "WalkSpeed" }, { "Jump Power", "JumpPower" },
 		{ "Heal", "Heal" }, { "Silent Aim", "SilentAim" }, { "China Hat", "ChinaHat" }, { "Wings", "Wings" }, { "Anti-Lag", "AntiLag" }, { "Spin", "Spin" },
         { "Teleport Heal", "TeleportHeal" }, { "Teleport Cursor", "TeleportCursor" }, { "Combo", "Combo" }, { "Reload Spas", "ReloadSpas" }
@@ -5849,6 +5848,7 @@ end
 
 
 -- VR Carry — same as v11.4: needs VR on + victim Character as 3rd arg
+-- VRCarry only: pick up player into hands (not punch). VR must be on.
 local function DoVRCarry()
 	if not ST.VREnabled then return end
 	if not SwingRemote then
@@ -5858,23 +5858,22 @@ local function DoVRCarry()
 		end)
 	end
 	if not SwingRemote then return end
-	if os.clock() - (_G.CLL_CarryAt or 0) < 0.15 then return end
+	if os.clock() - (_G.CLL_CarryAt or 0) < 0.12 then return end
 	_G.CLL_CarryAt = os.clock()
 
-	-- 1) VR selection list (v11.4)
+	local my = LocalPlayer.Character
+	if not my then return end
+
+	-- nearest living player (or VR target list first)
 	local victim = nil
 	pcall(function()
-		local targets = GetVRTargets and GetVRTargets() or {}
-		if targets[1] and targets[1].char then
-			victim = targets[1].char
-		end
+		local t = GetVRTargets and GetVRTargets() or {}
+		if t[1] and t[1].char then victim = t[1].char end
 	end)
-	-- 2) nearest living player if list empty
 	if not victim then
-		local my = LocalPlayer.Character
-		local root = my and (my:FindFirstChild("HumanoidRootPart") or my:FindFirstChild("Torso"))
+		local root = my:FindFirstChild("HumanoidRootPart") or my:FindFirstChild("Torso")
 		local origin = root and root.Position
-		local best, bestD = nil, 18
+		local bestD = 20
 		if origin then
 			for _, plr in ipairs(Players:GetPlayers()) do
 				if plr ~= LocalPlayer and plr.Character then
@@ -5884,23 +5883,60 @@ local function DoVRCarry()
 					if hum and hrp and hum.Health > 0 then
 						local d = (hrp.Position - origin).Magnitude
 						if d < bestD then
-							bestD, best = d, char
+							bestD, victim = d, char
 						end
 					end
 				end
 			end
 		end
-		victim = best
 	end
 	if not victim then return end
 
-	-- v11.4 packets
+	local head = victim:FindFirstChild("Head") or victim:FindFirstChild("HumanoidRootPart")
+	if not head then return end
+	local hp = head.Position
+	local right = CFrame.new(hp + Vector3.new(0.4, 0.05, 0.1))
+	local left = CFrame.new(hp + Vector3.new(-0.4, 0.05, 0.1))
+	local headCF = CFrame.new(hp + Vector3.new(0, 1.1, 0))
+
+	-- put local + server arms on the body so distance checks pass
+	pcall(function()
+		my:SetAttribute("DID_VR", true)
+		my:SetAttribute("VR", true)
+		my:SetAttribute("VR_RIGHT_ARM_CFRAME", right)
+		my:SetAttribute("VR_LEFT_ARM_CFRAME", left)
+		my:SetAttribute("VR_HEAD_CFRAME", headCF)
+		local ra, la = my:FindFirstChild("Right Arm"), my:FindFirstChild("Left Arm")
+		if ra and ra:IsA("BasePart") then ra.Anchored = true; ra.CFrame = right end
+		if la and la:IsA("BasePart") then la.Anchored = true; la.CFrame = left end
+	end)
+	if FxRemote then
+		pcall(function()
+			FxRemote:FireServer("VR_UPDATE", {
+				VR_RIGHT_ARM_CFRAME = right,
+				VR_LEFT_ARM_CFRAME = left,
+				VR_HEAD_CFRAME = headCF,
+			})
+		end)
+	end
+
+	-- dump-style arm grab (server uses VR arm CFrames)
+	pcall(function() SwingRemote:FireServer("Grabmove", "RIGHT_ARM") end)
+	pcall(function() SwingRemote:FireServer("Grabmove", "LEFT_ARM") end)
+	-- v11.4 also passed victim Model
 	pcall(function() SwingRemote:FireServer("Grabmove", "RIGHT_ARM", victim) end)
 	pcall(function() SwingRemote:FireServer("Grabmove", "LEFT_ARM", victim) end)
 end
 
 UIS.InputBegan:Connect(function(input, gp)
 	if ST.isUnloaded then return end
+	-- VRCarry BEFORE gp-check: game often marks G as processed
+	if ST.VREnabled and not ST.isBinding and not UIS:GetFocusedTextBox() then
+		local bind = Keys.VRCarry
+		if bind and bind ~= Enum.KeyCode.Unknown and input.KeyCode == bind then
+			DoVRCarry()
+		end
+	end
 	-- keybind capture runs even if gameProcessed (ESC must always reset)
 	if ST.isBinding then
 		if input.KeyCode == Enum.KeyCode.Escape then
@@ -5970,8 +6006,6 @@ UIS.InputBegan:Connect(function(input, gp)
 	elseif pressed(Keys.SilentAim) then 
         ST.SilentAimEnabled = not ST.SilentAimEnabled
         updateFOVCircle()
-	elseif pressed(Keys.VRCarry) or pressed(Keys.VRGrab) then
-		DoVRCarry()
 	elseif pressed(Keys.TeleportHeal) then 
         TeleportToHeal()
 	elseif pressed(Keys.TeleportCursor) then
