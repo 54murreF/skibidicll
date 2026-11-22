@@ -5849,83 +5849,142 @@ end
 
 -- VR Carry — same as v11.4: needs VR on + victim Character as 3rd arg
 -- VRCarry only: pick up player into hands (not punch). VR must be on.
+-- VRCarry: mirror game path exactly (Keybinds u107 + mobile Helper "Grab")
 local function DoVRCarry()
 	if not ST.VREnabled then return end
-	if not SwingRemote then
+	local my = LocalPlayer.Character
+	if not my then return end
+	local hum = my:FindFirstChildOfClass("Humanoid")
+	if not hum or hum.Health <= 0 then return end
+	if os.clock() - (_G.CLL_CarryAt or 0) < 0.1 then return end
+	_G.CLL_CarryAt = os.clock()
+
+	-- dump u107 blockers — clear so grab is allowed
+	pcall(function()
+		my:SetAttribute("GloryKillCooldown", nil)
+		my:SetAttribute("Stunned", nil)
+		my:SetAttribute("Dropkick", nil)
+		my:SetAttribute("Downed", nil)
+		hum:SetAttribute("Stunned", nil)
+		hum.PlatformStand = false
+		hum.Sit = false
+	end)
+
+	-- resolve Swing remote
+	if not SwingRemote or not SwingRemote.Parent then
 		pcall(function()
-			local r = ReplicatedStorage:FindFirstChild("Remotes")
+			local r = ReplicatedStorage:FindFirstChild("Remotes") or ReplicatedStorage:WaitForChild("Remotes", 2)
 			SwingRemote = r and (r:FindFirstChild("Swing") or r:FindFirstChild("swing"))
 		end)
 	end
-	if not SwingRemote then return end
-	if os.clock() - (_G.CLL_CarryAt or 0) < 0.12 then return end
-	_G.CLL_CarryAt = os.clock()
 
-	local my = LocalPlayer.Character
-	if not my then return end
-
-	-- nearest living player (or VR target list first)
-	local victim = nil
+	-- nearest player for arm placement (server range)
+	local victim, head
 	pcall(function()
 		local t = GetVRTargets and GetVRTargets() or {}
-		if t[1] and t[1].char then victim = t[1].char end
+		if t[1] and t[1].char then
+			victim = t[1].char
+			head = t[1].head or victim:FindFirstChild("Head")
+		end
 	end)
 	if not victim then
-		local root = my:FindFirstChild("HumanoidRootPart") or my:FindFirstChild("Torso")
+		local root = my:FindFirstChild("HumanoidRootPart")
 		local origin = root and root.Position
-		local bestD = 20
+		local bestD = 25
 		if origin then
 			for _, plr in ipairs(Players:GetPlayers()) do
 				if plr ~= LocalPlayer and plr.Character then
 					local char = plr.Character
-					local hum = char:FindFirstChildOfClass("Humanoid")
+					local h = char:FindFirstChildOfClass("Humanoid")
 					local hrp = char:FindFirstChild("HumanoidRootPart") or char:FindFirstChild("Head")
-					if hum and hrp and hum.Health > 0 then
+					if h and hrp and h.Health > 0 then
 						local d = (hrp.Position - origin).Magnitude
 						if d < bestD then
-							bestD, victim = d, char
+							bestD, victim, head = d, char, char:FindFirstChild("Head") or hrp
 						end
 					end
 				end
 			end
 		end
 	end
-	if not victim then return end
 
-	local head = victim:FindFirstChild("Head") or victim:FindFirstChild("HumanoidRootPart")
-	if not head then return end
-	local hp = head.Position
-	local right = CFrame.new(hp + Vector3.new(0.4, 0.05, 0.1))
-	local left = CFrame.new(hp + Vector3.new(-0.4, 0.05, 0.1))
-	local headCF = CFrame.new(hp + Vector3.new(0, 1.1, 0))
-
-	-- put local + server arms on the body so distance checks pass
-	pcall(function()
-		my:SetAttribute("DID_VR", true)
-		my:SetAttribute("VR", true)
-		my:SetAttribute("VR_RIGHT_ARM_CFRAME", right)
-		my:SetAttribute("VR_LEFT_ARM_CFRAME", left)
-		my:SetAttribute("VR_HEAD_CFRAME", headCF)
-		local ra, la = my:FindFirstChild("Right Arm"), my:FindFirstChild("Left Arm")
-		if ra and ra:IsA("BasePart") then ra.Anchored = true; ra.CFrame = right end
-		if la and la:IsA("BasePart") then la.Anchored = true; la.CFrame = left end
-	end)
-	if FxRemote then
+	if victim and head then
+		local hp = head.Position
+		local right = CFrame.lookAt(hp + Vector3.new(0.35, 0, 0.2), hp)
+		local left = CFrame.lookAt(hp + Vector3.new(-0.35, 0, 0.2), hp)
+		local headCF = CFrame.new(hp + Vector3.new(0, 1.2, 0))
+		local root = my:FindFirstChild("HumanoidRootPart")
+		local rootCF = root and root.CFrame or CFrame.new(hp)
 		pcall(function()
-			FxRemote:FireServer("VR_UPDATE", {
-				VR_RIGHT_ARM_CFRAME = right,
-				VR_LEFT_ARM_CFRAME = left,
-				VR_HEAD_CFRAME = headCF,
-			})
+			my:SetAttribute("DID_VR", true)
+			my:SetAttribute("VR", true)
+			my:SetAttribute("VR_RIGHT_ARM_CFRAME", right)
+			my:SetAttribute("VR_LEFT_ARM_CFRAME", left)
+			my:SetAttribute("VR_HEAD_CFRAME", headCF)
+			my:SetAttribute("VR_ROOTPART_CFRAME", rootCF)
+			local ra, la = my:FindFirstChild("Right Arm"), my:FindFirstChild("Left Arm")
+			if ra then ra.Anchored = true; ra.CFrame = right end
+			if la then la.Anchored = true; la.CFrame = left end
+		end)
+		if FxRemote then
+			pcall(function()
+				FxRemote:FireServer("VR_UPDATE", {
+					VR_RIGHT_ARM_CFRAME = right,
+					VR_LEFT_ARM_CFRAME = left,
+					VR_HEAD_CFRAME = headCF,
+					VR_ROOTPART_CFRAME = rootCF,
+				})
+			end)
+		end
+	else
+		-- still ensure DID_VR
+		pcall(function()
+			if not my:GetAttribute("DID_VR") then
+				my:SetAttribute("DID_VR", true)
+				my:SetAttribute("VR", true)
+			end
 		end)
 	end
 
-	-- dump-style arm grab (server uses VR arm CFrames)
-	pcall(function() SwingRemote:FireServer("Grabmove", "RIGHT_ARM") end)
-	pcall(function() SwingRemote:FireServer("Grabmove", "LEFT_ARM") end)
-	-- v11.4 also passed victim Model
-	pcall(function() SwingRemote:FireServer("Grabmove", "RIGHT_ARM", victim) end)
-	pcall(function() SwingRemote:FireServer("Grabmove", "LEFT_ARM", victim) end)
+	-- 1) exact game mobile/desktop entry
+	pcall(function()
+		if HelperFire then HelperFire("Grab") end
+	end)
+	pcall(function()
+		local h = HelperBE or (LocalPlayer:FindFirstChild("PlayerScripts") and LocalPlayer.PlayerScripts:FindFirstChild("Helper"))
+		if h then h:Fire("Grab") end
+	end)
+
+	-- 2) dump packets when VREnabled (spoofed): LEFT_ARM = G, RIGHT_ARM = VR kick/grab
+	if SwingRemote then
+		pcall(function() SwingRemote:FireServer("Grabmove", "LEFT_ARM") end)
+		pcall(function() SwingRemote:FireServer("Grabmove", "RIGHT_ARM") end)
+	end
+end
+
+
+do
+	local CAS = game:GetService("ContextActionService")
+	local function bindVRCarry()
+		pcall(function() CAS:UnbindAction("CLL_VRCarry") end)
+		if not ST.VREnabled then return end
+		local key = Keys.VRCarry
+		if typeof(key) ~= "EnumItem" or key == Enum.KeyCode.Unknown then
+			key = Enum.KeyCode.G
+		end
+		if key.EnumType ~= Enum.KeyCode then return end
+		CAS:BindActionAtPriority("CLL_VRCarry", function(_, state)
+			if state ~= Enum.UserInputState.Begin then return Enum.ContextActionResult.Pass end
+			if ST.isUnloaded or ST.isBinding or UIS:GetFocusedTextBox() then
+				return Enum.ContextActionResult.Pass
+			end
+			if not ST.VREnabled then return Enum.ContextActionResult.Pass end
+			DoVRCarry()
+			return Enum.ContextActionResult.Sink
+		end, false, 3000, key)
+	end
+	_G.CLL_BindVRCarry = bindVRCarry
+	task.defer(bindVRCarry)
 end
 
 UIS.InputBegan:Connect(function(input, gp)
