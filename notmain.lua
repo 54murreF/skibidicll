@@ -182,21 +182,11 @@ local AnimPresets = {
 --// ==================== STATE ====================
 
 
-
-
-
-
 local FriendsList = {}
 local RefreshFriendsUI = nil -- set by Settings page
 local SelectedTargets = {}
 local VRSelectedTargets = {}
 local HitboxSelectedTargets = {}  -- multi-select: only these get hitbox expand
-
-
-
-
-
-
 
 
 local CustomKillSoundId = ""
@@ -247,7 +237,6 @@ local AntiCC_Flags = {
 -- per-category tracers (self / others / friends)
 
 
-
 -- ST.ColorSelf -> ST.ColorSelf
 -- ST.ColorOthers -> ST.ColorOthers
 -- ST.ColorFriends -> ST.ColorFriends
@@ -264,12 +253,6 @@ end
 -- VR State
 
 
-
-
-
-
-
-
 local VRService = game:GetService("VRService")
 local VRWantEnabled = false -- user intent; survives death for auto re-toggle
 local VRToggleSetUI = nil -- mini-toggle setter from VR page
@@ -280,20 +263,20 @@ local SkyColor = Color3.fromRGB(50, 150, 255)
 
 -- Keybind State
 local Keys = {
-	VRSwing = Enum.UserInputType.MouseButton1, 
+	VRSwing = Enum.UserInputType.MouseButton1,
+	VRCarry = Enum.KeyCode.G,
 	ESP = Enum.KeyCode.Unknown, Hitbox = Enum.KeyCode.Unknown, SUK = Enum.KeyCode.Unknown, 
 	NoRecoil = Enum.KeyCode.Unknown, AntiCC = Enum.KeyCode.Unknown, 
 	Spin = Enum.KeyCode.Unknown, Fly = Enum.KeyCode.Unknown, WalkSpeed = Enum.KeyCode.Unknown, 
 	JumpPower = Enum.KeyCode.Unknown, Heal = Enum.KeyCode.Unknown, SilentAim = Enum.KeyCode.Unknown,
 	ChinaHat = Enum.KeyCode.Unknown, Wings = Enum.KeyCode.Unknown, AntiLag = Enum.KeyCode.Unknown,
 	Menu = Enum.KeyCode.RightShift, TeleportHeal = Enum.KeyCode.Unknown,
-	Combo = Enum.KeyCode.Unknown, ReloadSpas = Enum.KeyCode.Unknown, TeleportCursor = Enum.KeyCode.Unknown
+	ReloadSpas = Enum.KeyCode.Unknown, TeleportCursor = Enum.KeyCode.Unknown
 }
 
 
 local bindTarget = nil
 local UI_Keybinds = {}
-
 
 
 local healConnection, antiVelocityConnection
@@ -314,26 +297,6 @@ local Hitbox_Config = { Enabled = false, IncludeNPCs = false, Size = 5, Material
 local Hitbox_Cache = {}
 local NPC_List = {}
 local last_npc_scan = 0
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 
 local Connections = {}
@@ -378,7 +341,6 @@ function HelperFire(...)
 		HelperBE:Fire(unpackFn(a))
 	end)
 end
-
 
 
 --// ==================== COSMETICS (China Hat + Wings from old v2) ====================
@@ -799,8 +761,6 @@ function tracerColorForCharacter(char)
 end
 
 
-
-
 --// ==================== WORLD TRACERS (muzzle → impact, local + others) ====================
 local tracedBullets = setmetatable({}, { __mode = "k" })
 
@@ -955,18 +915,37 @@ end)
 --// ==================== INSTANT INTERACT ====================
 -- Instant interact for world props only.
 -- Skip downed / revive / carry / player prompts (they must keep normal hold — was auto-drop / bad carry).
-function disableHoldDuration(obj)
-	if not obj or not obj:IsA("ProximityPrompt") then return end
-	local n = (obj.Name .. " " .. tostring(obj.ActionText) .. " " .. tostring(obj.ObjectText)):lower()
-	if n:find("down") or n:find("revive") or n:find("carry") or n:find("grab")
-		or n:find("pick up player") or n:find("help") or n:find("body") then
-		return
+-- Instant interact: HoldDuration=0 everywhere EXCEPT downed-player pickup
+local function isDownedPlayerPrompt(obj)
+	if not obj or not obj:IsA("ProximityPrompt") then return false end
+	local n = (tostring(obj.Name) .. " " .. tostring(obj.ActionText) .. " " .. tostring(obj.ObjectText)):lower()
+	-- explicit downed / revive / help-up wording
+	if n:find("down") or n:find("revive") or n:find("help up") or n:find("pickup player")
+		or n:find("pick up player") or n:find("carry player") then
+		return true
 	end
-	-- parent is a player character?
+	-- prompt under a player character that is Downed/Ragdoll
 	local model = obj:FindFirstAncestorOfClass("Model")
-	if model and Players:GetPlayerFromCharacter(model) then
-		return
+	if model then
+		local plr = Players:GetPlayerFromCharacter(model)
+		if plr then
+			local d = model:GetAttribute("Downed")
+			local r = model:GetAttribute("Ragdoll")
+			if d == true or d == 1 or r == true or r == 1 then
+				return true
+			end
+			local hum = model:FindFirstChildOfClass("Humanoid")
+			if hum and hum.Health <= 0 then
+				return true
+			end
+		end
 	end
+	return false
+end
+
+local function disableHoldDuration(obj)
+	if not obj or not obj:IsA("ProximityPrompt") then return end
+	if isDownedPlayerPrompt(obj) then return end
 	obj.HoldDuration = 0
 end
 task.spawn(function()
@@ -1941,7 +1920,6 @@ RunService.RenderStepped:Connect(function()
 end)
 
 
-
 --// ==================== WEATHER (dump: Modules.Fx.Systems.Weather Rain onStart/onStop) ====================
 local WeatherActive = false
 local WeatherConn = nil
@@ -2718,7 +2696,7 @@ function setVREnabled(on, fromUser)
 		return
 	end
 	ST.VREnabled = on
-	if refreshGrabSink then pcall(refreshGrabSink) end
+	
 	if VRToggleSetUI then pcall(VRToggleSetUI, on) end
 	if on then
 		_G.CLL_VR_SPAWN_GRACE = os.clock() + 2.0
@@ -2762,7 +2740,7 @@ function setVREnabled(on, fromUser)
 				end
 			end
 		end)
-		if refreshGrabSink then pcall(refreshGrabSink) end
+		
 	end
 end
 
@@ -4346,7 +4324,7 @@ function buildKeybinds()
 	label({ Text = "KEYBINDS", Font = Enum.Font.GothamMedium, TextSize = 12, TextColor3 = Theme.Dim, Size = UDim2.fromOffset(200, 20), Position = UDim2.fromOffset(14, 12), Parent = panel })
 	local list = new("ScrollingFrame", { Size = UDim2.new(1, -16, 1, -44), Position = UDim2.fromOffset(8, 36), BackgroundTransparency = 1, BorderSizePixel = 0, ScrollBarThickness = 2, CanvasSize = UDim2.new(), AutomaticCanvasSize = Enum.AutomaticSize.Y, Parent = panel }, { new("UIListLayout", { Padding = UDim.new(0, 4), SortOrder = Enum.SortOrder.LayoutOrder }), new("UIPadding", { PaddingTop = UDim.new(0, 4), PaddingBottom = UDim.new(0, 8), PaddingLeft = UDim.new(0, 6), PaddingRight = UDim.new(0, 6) }) })
 	local bindRows = {
-		{ "Menu", "Menu" }, { "SUK", "SUK" }, { "No Recoil", "NoRecoil" }, { "Anti-CC", "AntiCC" },
+		{ "Menu", "Menu" }, { "SUK", "SUK" }, { "VR Carry", "VRCarry" }, { "No Recoil", "NoRecoil" }, { "Anti-CC", "AntiCC" },
 		{ "ESP", "ESP" }, { "Hitbox", "Hitbox" }, { "Fly", "Fly" }, { "Walk Speed", "WalkSpeed" }, { "Jump Power", "JumpPower" },
 		{ "Heal", "Heal" }, { "Silent Aim", "SilentAim" }, { "China Hat", "ChinaHat" }, { "Wings", "Wings" }, { "Anti-Lag", "AntiLag" }, { "Spin", "Spin" },
         { "Teleport Heal", "TeleportHeal" }, { "Teleport Cursor", "TeleportCursor" }, { "Combo", "Combo" }, { "Reload Spas", "ReloadSpas" }
@@ -5860,140 +5838,22 @@ function TeleportToHeal()
 end
 
 
-function ensureSwingRemote()
-	if SwingRemote and SwingRemote.Parent then return SwingRemote end
-	pcall(function()
-		local r = ReplicatedStorage:FindFirstChild("Remotes")
-		if not r then r = ReplicatedStorage:WaitForChild("Remotes", 2) end
-		if r then
-			SwingRemote = r:FindFirstChild("Swing") or r:FindFirstChild("swing")
-			if not SwingRemote then
-				for _, c in ipairs(r:GetChildren()) do
-					if string.lower(c.Name) == "swing" then SwingRemote = c break end
-				end
-			end
-		end
-	end)
-	return SwingRemote
-end
 
--- grab victim independent of SUK list
-function GetGrabVictim(maxDist)
-	-- Q is a plain grab: who you look at, else whoever is near the CAMERA (VR HRP is often far away).
-	-- SUK / VR target lists are not used.
-	maxDist = maxDist or 80
-	local cam = workspace.CurrentCamera
-	local origin = cam and cam.CFrame.Position
-	local look = cam and cam.CFrame.LookVector
-	local myChar = LocalPlayer.Character
-	if not origin then
-		local root = myChar and myChar:FindFirstChild("HumanoidRootPart")
-		origin = root and root.Position
-		look = root and root.CFrame.LookVector
-	end
-	if not origin then return nil end
-
-	local function aliveChar(char)
-		if not char or char == myChar then return nil end
-		local hum = char:FindFirstChildOfClass("Humanoid")
-		local hrp = char:FindFirstChild("HumanoidRootPart") or char:FindFirstChild("Torso") or char:FindFirstChild("Head")
-		if hum and hrp and hum.Health > 0 then return hrp end
-		return nil
-	end
-
-	-- look-ray first (v29 grabbed whoever the arms/camera were on, not a tiny HRP radius)
-	if look then
-		local params = RaycastParams.new()
-		params.FilterType = Enum.RaycastFilterType.Exclude
-		params.FilterDescendantsInstances = { myChar }
-		local hit = workspace:Raycast(origin, look * 250, params)
-		if hit and hit.Instance then
-			local model = hit.Instance:FindFirstAncestorOfClass("Model")
-			if aliveChar(model) then return model end
-		end
-	end
-
-	local best, bestD = nil, maxDist
-	local function consider(char)
-		local hrp = aliveChar(char)
-		if not hrp then return end
-		local d = (hrp.Position - origin).Magnitude
-		if look then
-			local rel = hrp.Position - origin
-			if rel.Magnitude > 0.1 and look:Dot(rel.Unit) < 0.15 then
-				d = d + 40 -- behind camera, only if nothing else
-			end
-		end
-		if d < bestD then
-			best, bestD = char, d
-		end
-	end
-	for _, plr in ipairs(Players:GetPlayers()) do
-		consider(plr.Character)
-	end
-	for _, inst in ipairs(workspace:GetChildren()) do
-		if inst:IsA("Model") and not Players:GetPlayerFromCharacter(inst) then
-			consider(inst)
-		end
-	end
-	return best
-end
-
--- pin local VR arms onto victim so server distance checks pass
-function pinArmsToVictim(victim)
-	local char = LocalPlayer.Character
-	if not char or not victim then return end
-	local head = victim:FindFirstChild("Head") or victim:FindFirstChild("HumanoidRootPart")
-	if not head then return end
-	local hp = head.Position
-	local right = CFrame.new(hp + Vector3.new(0.45, 0.1, 0.15))
-	local left = CFrame.new(hp + Vector3.new(-0.45, 0.1, 0.15))
-	pcall(function()
-		char:SetAttribute("DID_VR", true)
-		char:SetAttribute("VR", true)
-		char:SetAttribute("VR_RIGHT_ARM_CFRAME", right)
-		char:SetAttribute("VR_LEFT_ARM_CFRAME", left)
-		char:SetAttribute("VR_HEAD_CFRAME", CFrame.new(hp + Vector3.new(0, 1.2, 0)))
-	end)
-	local ra = char:FindFirstChild("Right Arm")
-	local la = char:FindFirstChild("Left Arm")
-	if ra and ra:IsA("BasePart") then
-		ra.Anchored = true
-		ra:SetAttribute("CLL_VR_Anchored", true)
-		ra.CFrame = right
-	end
-	if la and la:IsA("BasePart") then
-		la.Anchored = true
-		la:SetAttribute("CLL_VR_Anchored", true)
-		la.CFrame = left
-	end
-	if FxRemote then
+-- VR Carry (not punch): dump Keybinds G → Grabmove with arm while VREnabled
+local function DoVRCarry()
+	if not ST.VREnabled then return end
+	if not SwingRemote then
 		pcall(function()
-			FxRemote:FireServer("VR_UPDATE", {
-				VR_RIGHT_ARM_CFRAME = right,
-				VR_LEFT_ARM_CFRAME = left,
-				VR_HEAD_CFRAME = CFrame.new(hp + Vector3.new(0, 1.2, 0)),
-			})
+			local r = ReplicatedStorage:FindFirstChild("Remotes")
+			SwingRemote = r and (r:FindFirstChild("Swing") or r:FindFirstChild("swing"))
 		end)
 	end
-end
-
-function DoGrab()
-	-- disabled: no custom pickup bind; use game native G / VR Keybinds
-	return false
-end
-
-function ComboQ()
-	-- custom grab bind removed: game handles Grabmove (G) itself
-end
-
-do
-	local CAS = game:GetService("ContextActionService")
-	function refreshGrabSink()
-		-- no custom grab sink — leave Q/G to the game
-		pcall(function() CAS:UnbindAction("CLL_GrabPickup") end)
-	end
-	refreshGrabSink()
+	if not SwingRemote then return end
+	if os.clock() - (_G.CLL_CarryAt or 0) < 0.15 then return end
+	_G.CLL_CarryAt = os.clock()
+	-- dump: VR grab path uses arm strings; both arms = hold/drag, not Kick
+	pcall(function() SwingRemote:FireServer("Grabmove", "RIGHT_ARM") end)
+	pcall(function() SwingRemote:FireServer("Grabmove", "LEFT_ARM") end)
 end
 
 UIS.InputBegan:Connect(function(input, gp)
@@ -6067,12 +5927,12 @@ UIS.InputBegan:Connect(function(input, gp)
 	elseif pressed(Keys.SilentAim) then 
         ST.SilentAimEnabled = not ST.SilentAimEnabled
         updateFOVCircle()
+	elseif pressed(Keys.VRCarry) then
+		DoVRCarry()
 	elseif pressed(Keys.TeleportHeal) then 
         TeleportToHeal()
 	elseif pressed(Keys.TeleportCursor) then
 		TeleportToCursor()
-    elseif pressed(Keys.Combo) then 
-        ComboQ() 
     elseif pressed(Keys.ReloadSpas) then 
         local t = GetSpas()
         if t then InstantReload(t) end 
@@ -6136,7 +5996,7 @@ RunService.RenderStepped:Connect(function()
 end)
 
 ST.VREnabled = false
-if refreshGrabSink then pcall(refreshGrabSink) end
+
 
 selectTab("Combat")
 setOpen(true)
