@@ -2716,14 +2716,6 @@ function setVREnabled(on, fromUser)
 					end)
 				end
 				if live then pcall(vrInitCharacter, live) end
-				-- v11.4: one Grabmove on VR enable
-				pcall(function()
-					if not SwingRemote then
-						local r = ReplicatedStorage:FindFirstChild("Remotes")
-						SwingRemote = r and r:FindFirstChild("Swing")
-					end
-					if SwingRemote then SwingRemote:FireServer("Grabmove", "RIGHT_ARM") end
-				end)
 			end)
 		end
 	else
@@ -5850,42 +5842,43 @@ end
 -- VR Carry — same as v11.4: needs VR on + victim Character as 3rd arg
 -- VRCarry only: pick up player into hands (not punch). VR must be on.
 -- VRCarry: mirror game path exactly (Keybinds u107 + mobile Helper "Grab")
+-- VRCarry: PlayerGui.Helper:Fire("Grab") → Character Keybinds u107 → Grabmove LEFT_ARM
+-- NEVER PlayerScripts.Helper (that is FX → "Unknown FX Mapping:Grab")
+local function getGuiHelper()
+	local pg = LocalPlayer:FindFirstChild("PlayerGui")
+	if not pg then return nil end
+	local h = pg:FindFirstChild("Helper")
+	if h then return h end
+	pcall(function()
+		h = pg:WaitForChild("Helper", 2)
+	end)
+	return h
+end
+
 local function DoVRCarry()
 	if not ST.VREnabled then return end
 	local my = LocalPlayer.Character
 	if not my then return end
 	local hum = my:FindFirstChildOfClass("Humanoid")
 	if not hum or hum.Health <= 0 then return end
-	if os.clock() - (_G.CLL_CarryAt or 0) < 0.1 then return end
+	if os.clock() - (_G.CLL_CarryAt or 0) < 0.12 then return end
 	_G.CLL_CarryAt = os.clock()
 
-	-- dump u107 blockers — clear so grab is allowed
+	-- dump u107 blockers
 	pcall(function()
 		my:SetAttribute("GloryKillCooldown", nil)
 		my:SetAttribute("Stunned", nil)
 		my:SetAttribute("Dropkick", nil)
-		my:SetAttribute("Downed", nil)
 		hum:SetAttribute("Stunned", nil)
 		hum.PlatformStand = false
 		hum.Sit = false
 	end)
 
-	-- resolve Swing remote
-	if not SwingRemote or not SwingRemote.Parent then
-		pcall(function()
-			local r = ReplicatedStorage:FindFirstChild("Remotes") or ReplicatedStorage:WaitForChild("Remotes", 2)
-			SwingRemote = r and (r:FindFirstChild("Swing") or r:FindFirstChild("swing"))
-		end)
-	end
-
-	-- nearest player for arm placement (server range)
+	-- arms near nearest target for server distance
 	local victim, head
 	pcall(function()
 		local t = GetVRTargets and GetVRTargets() or {}
-		if t[1] and t[1].char then
-			victim = t[1].char
-			head = t[1].head or victim:FindFirstChild("Head")
-		end
+		if t[1] then victim, head = t[1].char, t[1].head end
 	end)
 	if not victim then
 		local root = my:FindFirstChild("HumanoidRootPart")
@@ -5907,14 +5900,13 @@ local function DoVRCarry()
 			end
 		end
 	end
-
 	if victim and head then
 		local hp = head.Position
 		local right = CFrame.lookAt(hp + Vector3.new(0.35, 0, 0.2), hp)
 		local left = CFrame.lookAt(hp + Vector3.new(-0.35, 0, 0.2), hp)
 		local headCF = CFrame.new(hp + Vector3.new(0, 1.2, 0))
 		local root = my:FindFirstChild("HumanoidRootPart")
-		local rootCF = root and root.CFrame or CFrame.new(hp)
+		local rootCF = root and root.CFrame or CFrame.new()
 		pcall(function()
 			my:SetAttribute("DID_VR", true)
 			my:SetAttribute("VR", true)
@@ -5936,26 +5928,21 @@ local function DoVRCarry()
 				})
 			end)
 		end
-	else
-		-- still ensure DID_VR
-		pcall(function()
-			if not my:GetAttribute("DID_VR") then
-				my:SetAttribute("DID_VR", true)
-				my:SetAttribute("VR", true)
-			end
-		end)
 	end
 
-	-- 1) exact game mobile/desktop entry
-	pcall(function()
-		if HelperFire then HelperFire("Grab") end
-	end)
-	pcall(function()
-		local h = HelperBE or (LocalPlayer:FindFirstChild("PlayerScripts") and LocalPlayer.PlayerScripts:FindFirstChild("Helper"))
-		if h then h:Fire("Grab") end
-	end)
+	-- CORRECT helper: PlayerGui.Helper (Keybinds), not PlayerScripts.Helper (FX)
+	local guiHelper = getGuiHelper()
+	if guiHelper then
+		pcall(function() guiHelper:Fire("Grab") end)
+	end
 
-	-- 2) dump packets when VREnabled (spoofed): LEFT_ARM = G, RIGHT_ARM = VR kick/grab
+	-- dump direct: VR → LEFT_ARM (G path) + RIGHT_ARM (VR grab path)
+	if not SwingRemote or not SwingRemote.Parent then
+		pcall(function()
+			local r = ReplicatedStorage:FindFirstChild("Remotes")
+			SwingRemote = r and r:FindFirstChild("Swing")
+		end)
+	end
 	if SwingRemote then
 		pcall(function() SwingRemote:FireServer("Grabmove", "LEFT_ARM") end)
 		pcall(function() SwingRemote:FireServer("Grabmove", "RIGHT_ARM") end)
