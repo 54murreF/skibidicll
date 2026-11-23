@@ -1,6 +1,6 @@
 --[[
     ╔═══════════════════════════════════════════════════════════════╗
-    ║              CLL CHEAT - FULL INTEGRATION v11.52-w (native Q/G grab mirror + VR restore)                ║
+    ║              CLL CHEAT - FULL INTEGRATION v11.54-y (native Q/G grab mirror + VR restore)                ║
     ╠═══════════════════════════════════════════════════════════════╣
     ║  SUK head-hit, real crosshair, tracers, ESP outline nick,     ║
     ║  ChinaHat/Wings fix, VR hands, anti-flash/shake, antibypass   ║
@@ -111,7 +111,6 @@ local ST = {
 	ESPShowTool = true,
 	ESPShowReload = true,
 	ESPShowRagdoll = true,
-	GrenadeESPEnabled = false,
 
 	TracerDuration = 0.5,
 	TracerSelfEnabled = true,
@@ -1100,67 +1099,83 @@ end
 
 local lastSpasPickup = 0
 function EnsureSpasEquipped()
-	-- non-blocking: never workspace:GetDescendants / never task.wait (was freezing SUK + client)
+	-- find Spas by NAME only (FindFirstChild), not workspace:GetDescendants
 	local tool = GetSpas()
 	local char = LocalPlayer.Character
 	local hum = char and char:FindFirstChildOfClass("Humanoid")
-	if not char or not hum then return nil end
+	local root = char and char:FindFirstChild("HumanoidRootPart")
+	if not char or not hum or not root then return nil end
 	if tool and tool.Parent == char then return tool end
 	if tool and tool.Parent ~= char then
 		pcall(function() hum:EquipTool(tool) end)
-		return (tool.Parent == char) and tool or GetSpas()
+		return GetSpas()
 	end
-	-- soft world pickup (tables only, rate-limited) — async so MultiFireAt never stalls
-	if os.clock() - (lastSpasPickup or 0) < 1.2 then return nil end
+	if os.clock() - (lastSpasPickup or 0) < 0.75 then return nil end
 	lastSpasPickup = os.clock()
-	task.spawn(function()
-		local root = char:FindFirstChild("HumanoidRootPart")
-		if not root then return end
-		local spasObj = nil
-		local tables = workspace:FindFirstChild("Map") and workspace.Map:FindFirstChild("Weapon Tables")
-		if not tables then tables = workspace:FindFirstChild("Weapon Tables") end
-		if tables then
-			for _, d in ipairs(tables:GetDescendants()) do
-				if d:IsA("Tool") and string.lower(d.Name):find("spas") then
-					spasObj = d
-					break
-				elseif d.Name == "Spas 12" or d.Name == "Spas12" then
-					spasObj = d
-					break
-				end
-			end
+
+	local function findSpasByName(parent)
+		if not parent then return nil end
+		-- recursive name lookup (engine stops at first match)
+		return parent:FindFirstChild("Spas 12", true)
+			or parent:FindFirstChild("Spas12", true)
+			or parent:FindFirstChild("SPAS 12", true)
+	end
+
+	local map = workspace:FindFirstChild("Map")
+	local tables = (map and map:FindFirstChild("Weapon Tables")) or workspace:FindFirstChild("Weapon Tables")
+	local spasObj = findSpasByName(tables)
+		or findSpasByName(map)
+		or findSpasByName(workspace:FindFirstChild("Weapons"))
+		or findSpasByName(workspace:FindFirstChild("WeaponTables"))
+	if not spasObj then return nil end
+
+	local pos = nil
+	if spasObj:IsA("BasePart") then
+		pos = spasObj.Position
+	elseif spasObj:IsA("Model") then
+		pos = spasObj.PrimaryPart and spasObj.PrimaryPart.Position
+		if not pos then
+			local h = spasObj:FindFirstChild("Handle", true)
+			pos = h and h:IsA("BasePart") and h.Position
 		end
-		if not spasObj then return end
-		local pos = spasObj:IsA("BasePart") and spasObj.Position
-			or (spasObj.PrimaryPart and spasObj.PrimaryPart.Position)
-			or (spasObj:FindFirstChild("Handle") and spasObj.Handle.Position)
-		if not pos then return end
-		local saved = root.CFrame
-		pcall(function()
-			root.CFrame = CFrame.new(pos + Vector3.new(0, 2.5, 0))
-		end)
-		task.wait(0.1)
-		pcall(function()
-			for _, d in ipairs(spasObj:GetDescendants()) do
-				if d:IsA("ProximityPrompt") then
-					if fireproximityprompt then fireproximityprompt(d) end
-				end
-			end
-		end)
-		task.wait(0.15)
-		local t = GetSpas()
-		if t then
-			pcall(function()
-				local h = LocalPlayer.Character and LocalPlayer.Character:FindFirstChildOfClass("Humanoid")
-				if h then h:EquipTool(t) end
-			end)
-		end
-		pcall(function()
-			local live = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
-			if live and saved then live.CFrame = saved end
-		end)
+	elseif spasObj:IsA("Tool") then
+		local h = spasObj:FindFirstChild("Handle")
+		pos = h and h.Position
+	end
+	if not pos then
+		local pp = spasObj:FindFirstChildWhichIsA("BasePart", true)
+		pos = pp and pp.Position
+	end
+	if not pos then return nil end
+
+	local saved = root.CFrame
+	pcall(function()
+		root.CFrame = CFrame.new(pos + Vector3.new(0, 2.5, 0))
 	end)
-	return nil
+	task.wait(0.08)
+	pcall(function()
+		local prompt = spasObj:FindFirstChildWhichIsA("ProximityPrompt", true)
+		if prompt and fireproximityprompt then
+			fireproximityprompt(prompt)
+		elseif prompt then
+			prompt:InputHoldBegin()
+			task.wait(0.05)
+			prompt:InputHoldEnd()
+		end
+	end)
+	task.wait(0.12)
+	tool = GetSpas()
+	if tool then
+		pcall(function()
+			local h = LocalPlayer.Character and LocalPlayer.Character:FindFirstChildOfClass("Humanoid")
+			if h then h:EquipTool(tool) end
+		end)
+	end
+	pcall(function()
+		local live = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
+		if live and saved then live.CFrame = saved end
+	end)
+	return GetSpas()
 end
 
 
@@ -1287,12 +1302,7 @@ function MultiFireAt()
 	end
 	if not FireRemote then return end
 
-	-- equip from backpack / kick async world-pickup (never blocks this tick)
-	local tool = GetSpas()
-	if not tool or tool.Parent ~= LocalPlayer.Character then
-		pcall(EnsureSpasEquipped)
-		tool = GetSpas()
-	end
+	local tool = EnsureSpasEquipped()
 	if not tool or tool.Parent ~= LocalPlayer.Character then return end
 
 	local cur, maxA = ReadAmmo(tool)
@@ -2281,16 +2291,6 @@ RunService.RenderStepped:Connect(function()
 									end)
 									if reloading then bits[#bits+1] = "RELOAD" end
 								end
-								if ESP_Config.ShowRagdoll then
-									local rag = char:GetAttribute("Ragdoll") == true or char:GetAttribute("Downed") == true
-									if rag then
-										if not data.RagdollSince then data.RagdollSince = os.clock() end
-										local elapsed = os.clock() - data.RagdollSince
-										bits[#bits+1] = string.format("RAGDOLL %.1fs", elapsed)
-									else
-										data.RagdollSince = nil
-									end
-								end
 								if ESP_Config.Enabled and #bits > 0 then
 									data.Status.Visible = true
 									data.Status.Text = table.concat(bits, " · ")
@@ -2982,16 +2982,16 @@ function setVREnabled(on, fromUser)
 		-- user request: short RMB hold, then LMB, then tear down VR so classic cam returns
 		pcall(function()
 			local vim = VirtualInputManager
-			-- RMB down
+			-- hold RMB longer so game registers free-look release
 			vim:SendMouseButtonEvent(0, 0, 1, true, game, 1)
-			task.wait(0.12)
-			-- RMB up
+			task.wait(0.35)
 			vim:SendMouseButtonEvent(0, 0, 1, false, game, 1)
-			task.wait(0.04)
-			-- LMB click
+			task.wait(0.15)
+			-- then LMB
 			vim:SendMouseButtonEvent(0, 0, 0, true, game, 1)
-			task.wait(0.05)
+			task.wait(0.12)
 			vim:SendMouseButtonEvent(0, 0, 0, false, game, 1)
+			task.wait(0.08)
 		end)
 		pcall(vrHideHeadAccessories, LocalPlayer.Character, false)
 		pcall(vrShutdown)
@@ -4036,7 +4036,7 @@ fit(); workspace.CurrentCamera:GetPropertyChangedSignal("ViewportSize"):Connect(
 local header = new("Frame", { Size = UDim2.new(1, 0, 0, 62), BackgroundTransparency = 1, Parent = window })
 local logoLabel = label({ Text = "CLL", Font = Enum.Font.Michroma, TextSize = 26, TextTruncate = Enum.TextTruncate.AtEnd, Size = UDim2.fromOffset(100, 62), Position = UDim2.fromOffset(23, 0), Parent = header })
 logoLabel.TextColor3 = Color3.fromRGB(255, 255, 255) -- Always white
-local verLabel = label({ Text = "v11.52-w", Font = Enum.Font.GothamBold, TextSize = 12, TextColor3 = Theme.Dim, Size = UDim2.fromOffset(50, 62), Position = UDim2.fromOffset(85, 2), Parent = header })
+local verLabel = label({ Text = "v11.54-y", Font = Enum.Font.GothamBold, TextSize = 12, TextColor3 = Theme.Dim, Size = UDim2.fromOffset(50, 62), Position = UDim2.fromOffset(85, 2), Parent = header })
 local timeLabel = label({ Text = "Session: 00:00", Font = Enum.Font.GothamMedium, TextSize = 13, TextColor3 = Theme.Dim, Size = UDim2.fromOffset(150, 62), Position = UDim2.fromOffset(150, 0), Parent = header })
 task.spawn(function()
 	while not ST.isUnloaded do
@@ -4617,12 +4617,7 @@ function buildCombat()
 			end)
 			refreshHB()
 		end },
-		{ name = "Auto Block", initial = false, getState = function() return ST.AutoBlockEnabled end, onToggle = function(v) ST.AutoBlockEnabled = v end, buildDetail = function(d)
-		detailSlider(d, 1, "Range", 4, 30, ST.AutoBlockRange or 12, 0.5, function(v) ST.AutoBlockRange = v end)
-		detailSlider(d, 2, "Hold (s)", 0.1, 1.2, ST.AutoBlockHold or 0.35, 0.05, function(v) ST.AutoBlockHold = v end)
-		detailSlider(d, 3, "Cooldown", 0.2, 2, ST.AutoBlockCooldown or 0.55, 0.05, function(v) ST.AutoBlockCooldown = v end)
-	end },
-	{ name = "No Recoil", initial = false, getState = function() return ST.NoRecoilEnabled end, onToggle = function(v) ST.NoRecoilEnabled = v end, buildDetail = nil },
+		{ name = "No Recoil", initial = false, getState = function() return ST.NoRecoilEnabled end, onToggle = function(v) ST.NoRecoilEnabled = v end, buildDetail = nil },
 		{ name = "Firerate", initial = false, onToggle = function(v) end, buildDetail = function(d) detailSlider(d, 1, "RPS (1-30)", 1, 30, ST.SUK_FIRERATE_RPS, 1, function(v) ST.SUK_FIRERATE_RPS = v end); detailSlider(d, 2, "Fire Delay", 0.01, 0.5, ST.SUK_FireDelay, 0.01, function(v) ST.SUK_FireDelay = v end) end },
 		{ name = "No Spread (Spas/Remington)", initial = false, getState = function() return ST.NoSpreadEnabled end, onToggle = function(v) ST.NoSpreadEnabled = v end, buildDetail = nil },
 		{ name = "Local Invis", initial = false, getState = function() return ST.LocalInvisEnabled end, onToggle = function(v)
@@ -4942,12 +4937,6 @@ function buildSettings()
 		gridPrev.BackgroundColor3 = ST.MenuGridColor
 	end)
 	y += 36
-	toggle(leftScroll, y, "BG Pattern", function(v) ST.BgPatternEnabled = v; if _G.CLL_RebuildBgPattern then _G.CLL_RebuildBgPattern() end end, ST.BgPatternEnabled == true, function() return ST.BgPatternEnabled end)
-	y += 44
-	slider(leftScroll, y, "BG Density", 0.05, 1, ST.BgPatternDensity or 0.4, 0.05, function(v) ST.BgPatternDensity = v; if _G.CLL_RebuildBgPattern then _G.CLL_RebuildBgPattern() end end, function() return ST.BgPatternDensity or 0.4 end)
-	y += 58
-	slider(leftScroll, y, "BG Scale", 0.4, 3, ST.BgPatternScale or 1, 0.1, function(v) ST.BgPatternScale = v; if _G.CLL_RebuildBgPattern then _G.CLL_RebuildBgPattern() end end, function() return ST.BgPatternScale or 1 end)
-	y += 58
 	toggle(leftScroll, y, "Watermark Main", function(v) ST.WatermarkMainVisible = v; if watermarkMain then watermarkMain.Visible = v end end, true, function() return ST.WatermarkMainVisible end); y += 48
 	toggle(leftScroll, y, "Watermark Binds", function(v) ST.WatermarkBindsVisible = v; watermarkBinds.Visible = v end, true, function() return ST.WatermarkBindsVisible end); y += 48
 	toggle(leftScroll, y, "Watermark World", function(v) ST.WatermarkWorldVisible = v; watermarkWorld.Visible = v end, true); y += 48
@@ -5796,8 +5785,7 @@ buildFeaturePage(pages.Movement, "MOVEMENT", {
 -- Visuals
 buildFeaturePage(pages.Visual, "VISUAL", {
 	
-		{ name = "Grenade / C4 ESP", initial = false, getState = function() return ST.GrenadeESPEnabled end, onToggle = function(v) ST.GrenadeESPEnabled = v end, buildDetail = nil },
-{ name = "ESP", initial = false, onToggle = function(v) ESP_Config.Enabled = v end, buildDetail = function(d)
+	{ name = "ESP", initial = false, onToggle = function(v) ESP_Config.Enabled = v end, buildDetail = function(d)
 		detailSlider(d, 1, "Max Distance", 100, 2000, ESP_Config.MaxDist, 50, function(v) ESP_Config.MaxDist = v end)
 		detailToggle(d, 2, "Box", ESP_Config.Box, function(v) ESP_Config.Box = v end)
 		detailToggle(d, 3, "Name", ESP_Config.Name, function(v) ESP_Config.Name = v end)
@@ -5805,7 +5793,6 @@ buildFeaturePage(pages.Visual, "VISUAL", {
 		detailToggle(d, 5, "Distance", ESP_Config.Distance, function(v) ESP_Config.Distance = v end)
 		detailToggle(d, 6, "Tool in hand", ESP_Config.ShowTool ~= false, function(v) ESP_Config.ShowTool = v end)
 		detailToggle(d, 7, "Reload status", ESP_Config.ShowReload ~= false, function(v) ESP_Config.ShowReload = v end)
-		detailToggle(d, 8, "Ragdoll timer", ESP_Config.ShowRagdoll ~= false, function(v) ESP_Config.ShowRagdoll = v end)
 		detailColor(d, 9, "ESP Color", function() return ESP_Config.ChamsColor end, function(c) ESP_Config.ChamsColor = c end)
 		detailColor(d, 10, "Friend Color", function() return ESP_Config.FriendColor end, function(c) ESP_Config.FriendColor = c end)
 	end },
@@ -5970,21 +5957,23 @@ rebuildMenuGrid = function()
 		end
 		local t0 = os.clock()
 		menuGridConn = RunService.RenderStepped:Connect(function()
-			if ST.isUnloaded or not ST.MenuGridEnabled or not isOpen or not folder.Parent then
-				if menuGridConn then menuGridConn:Disconnect() end
+			if ST.isUnloaded or not ST.MenuGridEnabled or not folder.Parent then
 				return
 			end
+			if not isOpen then return end -- pause animation, keep conn
 			local spd = math.clamp(ST.MenuGridSpeed or 1, 0.05, 8)
 			local off = ((os.clock() - t0) * spd * 12) % spacing
 			local c = ST.MenuGridColor or col
 			local tr2 = math.clamp(ST.MenuGridTransparency or tr, 0.2, 0.98)
 			for _, d in ipairs(lines) do
-				d.ln.BackgroundColor3 = c
-				d.ln.BackgroundTransparency = tr2
-				if d.axis == "v" then
-					d.ln.Position = UDim2.fromOffset(d.i * spacing - off, -20)
-				else
-					d.ln.Position = UDim2.fromOffset(-20, d.i * spacing - off)
+				if d.ln and d.ln.Parent then
+					d.ln.BackgroundColor3 = c
+					d.ln.BackgroundTransparency = tr2
+					if d.axis == "v" then
+						d.ln.Position = UDim2.fromOffset(d.i * spacing - off, -20)
+					else
+						d.ln.Position = UDim2.fromOffset(-20, d.i * spacing - off)
+					end
 				end
 			end
 		end)
@@ -6469,69 +6458,6 @@ ST.VREnabled = false
 
 
 
--- ==================== AUTO BLOCK (dropkick flying AT you only) ====================
-task.spawn(function()
-	local lastBlock = 0
-	local function isDropkickAtMe(model, root)
-		if not model or model == LocalPlayer.Character then return false end
-		local oroot = model:FindFirstChild("HumanoidRootPart") or model:FindFirstChild("Torso")
-		local ohum = model:FindFirstChildOfClass("Humanoid")
-		if not (oroot and ohum) or ohum.Health <= 0 then return false end
-		local range = ST.AutoBlockRange or 16
-		local delta = root.Position - oroot.Position
-		local dist = delta.Magnitude
-		if dist > range or dist < 0.5 then return false end
-		local dropping = model:GetAttribute("Dropkick") or model:GetAttribute("DropKick")
-		if not dropping then return false end
-		local vel = oroot.AssemblyLinearVelocity
-		if vel.Magnitude < 25 then return false end
-		return delta.Unit:Dot(vel.Unit) > 0.65
-	end
-	while not ST.isUnloaded do
-		task.wait(0.04)
-		if not ST.AutoBlockEnabled or ST.VREnabled then continue end
-		local char = LocalPlayer.Character
-		local hum = char and char:FindFirstChildOfClass("Humanoid")
-		local root = char and char:FindFirstChild("HumanoidRootPart")
-		if not (char and hum and root) or hum.Health <= 0 then continue end
-		if char:GetAttribute("Downed") or char:GetAttribute("Ragdoll") then continue end
-		if os.clock() - lastBlock < (ST.AutoBlockCooldown or 0.4) then continue end
-		local threat = false
-		for _, plr in ipairs(Players:GetPlayers()) do
-			if plr ~= LocalPlayer and not IsProtected(plr) and isDropkickAtMe(plr.Character, root) then
-				threat = true
-				break
-			end
-		end
-		if not threat then
-			local humans = workspace:FindFirstChild("Humans")
-			if humans then
-				for _, m in ipairs(humans:GetChildren()) do
-					if m:IsA("Model") and not Players:GetPlayerFromCharacter(m) and isDropkickAtMe(m, root) then
-						threat = true
-						break
-					end
-				end
-			end
-		end
-		if threat then
-			lastBlock = os.clock()
-			pcall(function()
-				if not SwingRemote then
-					local r = ReplicatedStorage:FindFirstChild("Remotes")
-					SwingRemote = r and r:FindFirstChild("Swing")
-				end
-				if SwingRemote then
-					SwingRemote:FireServer("Block")
-					task.delay(ST.AutoBlockHold or 0.35, function()
-						pcall(function() if SwingRemote then SwingRemote:FireServer("UnBlock") end end)
-					end)
-				end
-			end)
-		end
-	end
-end)
-
 -- ==================== VR TARGET SPEED PROTECT ====================
 task.spawn(function()
 	while not ST.isUnloaded do
@@ -6595,104 +6521,6 @@ do
 	end)
 end
 
--- ==================== BG PATTERN (content only, accent, smooth fade) ====================
-do
-	local bgLayer, dots, built = nil, {}, false
-	local function ensureBg()
-		local host = contentFrame
-		if not ST.BgPatternEnabled or not host then
-			if bgLayer then
-				for _, it in ipairs(dots) do
-					if it.gui then
-						pcall(function()
-							TweenService:Create(it.gui, TweenInfo.new(0.35), { BackgroundTransparency = 1 }):Play()
-						end)
-					end
-				end
-				task.delay(0.4, function()
-					pcall(function() if bgLayer then bgLayer:Destroy() end end)
-					bgLayer, dots, built = nil, {}, false
-				end)
-			end
-			return
-		end
-		if built and bgLayer and bgLayer.Parent == host then return end
-		pcall(function()
-			if bgLayer then bgLayer:Destroy() end
-			local layer = Instance.new("Frame")
-			layer.Name = "CLL_BgPattern"
-			layer.BackgroundTransparency = 1
-			layer.Size = UDim2.fromScale(1, 1)
-			layer.ZIndex = 0
-			layer.Active = false
-			layer.ClipsDescendants = true
-			layer.Parent = host
-			bgLayer = layer
-			dots = {}
-			local dens = math.clamp(ST.BgPatternDensity or 0.55, 0.15, 1)
-			local scale = math.clamp(ST.BgPatternScale or 1, 0.5, 2)
-			local count = math.floor(70 * dens * scale)
-			local rng = Random.new(ST.BgPatternSeed or 7)
-			local col = Theme.Accent or Color3.fromRGB(80, 140, 255)
-			for _ = 1, count do
-				local d = Instance.new("Frame")
-				d.BorderSizePixel = 0
-				d.BackgroundColor3 = col
-				d.BackgroundTransparency = 1
-				local s = rng:NextNumber(4, 12) * scale
-				d.Size = UDim2.fromOffset(s, s)
-				d.Position = UDim2.fromScale(rng:NextNumber(), rng:NextNumber())
-				d.ZIndex = 0
-				d.Active = false
-				Instance.new("UICorner", d).CornerRadius = UDim.new(1, 0)
-				d.Parent = layer
-				TweenService:Create(d, TweenInfo.new(0.5), { BackgroundTransparency = 0.78 }):Play()
-				dots[#dots + 1] = {
-					gui = d,
-					ox = d.Position.X.Scale,
-					oy = d.Position.Y.Scale,
-					ph = rng:NextNumber(0, 6.28),
-					spd = rng:NextNumber(0.2, 0.55),
-					amp = rng:NextNumber(0.01, 0.03),
-				}
-			end
-			built = true
-		end)
-	end
-	_G.CLL_RebuildBgPattern = function()
-		built = false
-		ensureBg()
-	end
-	local acc = 0
-	RunService.RenderStepped:Connect(function(dt)
-		if not ST.BgPatternEnabled or not isOpen then return end
-		acc += dt
-		if acc < 0.05 then return end
-		acc = 0
-		ensureBg()
-		local t = os.clock() * (0.35 + (ST.BgPatternSpeed or 0.15))
-		local col = Theme.Accent or Color3.fromRGB(80, 140, 255)
-		for _, it in ipairs(dots) do
-			local g = it.gui
-			if g and g.Parent then
-				g.Position = UDim2.fromScale(
-					(it.ox + math.sin(t * it.spd + it.ph) * it.amp) % 1,
-					(it.oy + math.cos(t * it.spd * 0.9 + it.ph) * it.amp) % 1
-				)
-				g.BackgroundColor3 = col
-			end
-		end
-	end)
-	pcall(function()
-		subscribeTheme(function()
-			local col = Theme.Accent
-			for _, it in ipairs(dots) do
-				if it.gui then it.gui.BackgroundColor3 = col end
-			end
-		end)
-	end)
-end
-
 -- ==================== NOTIFY (toasts removed; VR death notice kept elsewhere) ====================
 local function CLL_Notify(title, body, dur)
 	-- no-op: toasts disabled (FPS / spam). VR uses showVRDeathNotice only.
@@ -6737,138 +6565,6 @@ end)
 
 
 
--- ==================== GRENADE / C4 / FLASH HIGHLIGHT ====================
-do
-	local nadeFolder = Instance.new("Folder")
-	nadeFolder.Name = "CLL_NadeHL"
-	pcall(function()
-		nadeFolder.Parent = (gethui and gethui()) or game:GetService("CoreGui")
-	end)
-	local tracked = {} -- [inst] = {hl, bb, lab}
-	local function isNadeInst(inst)
-		local n = string.lower(tostring(inst.Name or ""))
-		-- exact-ish weapon names only (NOT "table", furniture, etc.)
-		if n == "c4" or n:find("c4") then return "c4" end
-		if n:find("flash") or n:find("stun") or n:find("bang") then return "flash" end
-		if n:find("frag") or n:find("grenade") or n == "nade" or n:find("molotov") then return "nade" end
-		return nil
-	end
-	local function shouldTrack(inst)
-		if not inst or not inst.Parent then return false end
-		-- ignore huge models / furniture (tables had highlight because of loose name match before)
-		if inst:IsA("BasePart") and inst.Size.Magnitude > 12 then return false end
-		if inst:IsA("Model") then
-			local parts = 0
-			local volume = 0
-			for _, p in ipairs(inst:GetDescendants()) do
-				if p:IsA("BasePart") then
-					parts += 1
-					volume += p.Size.X * p.Size.Y * p.Size.Z
-					if parts > 12 or volume > 40 then return false end
-				end
-			end
-		end
-		-- tools in character: track only while still parented under that character as Tool
-		local char = inst:FindFirstAncestorOfClass("Model")
-		if char and Players:GetPlayerFromCharacter(char) then
-			return inst:IsA("Tool") or inst:FindFirstAncestorOfClass("Tool") ~= nil
-		end
-		return true
-	end
-	local function clearOne(inst)
-		local t = tracked[inst]
-		if not t then return end
-		pcall(function() if t.hl then t.hl:Destroy() end end)
-		pcall(function() if t.bb then t.bb:Destroy() end end)
-		tracked[inst] = nil
-	end
-	local function attach(inst, kind)
-		if tracked[inst] then return end
-		if not shouldTrack(inst) then return end
-		local part = inst:IsA("BasePart") and inst or inst:FindFirstChildWhichIsA("BasePart", true)
-		if not part then return end
-		local adornee = inst:IsA("Model") and inst or (inst:IsA("Tool") and inst or part)
-		local hl = Instance.new("Highlight")
-		hl.FillTransparency = 0.5
-		hl.OutlineTransparency = 0.15
-		hl.Adornee = adornee
-		if kind == "c4" then
-			hl.FillColor = Color3.fromRGB(255, 50, 50)
-			hl.OutlineColor = Color3.fromRGB(255, 120, 120)
-		elseif kind == "flash" then
-			hl.FillColor = Color3.fromRGB(255, 255, 180)
-			hl.OutlineColor = Color3.fromRGB(255, 255, 255)
-		else
-			hl.FillColor = Color3.fromRGB(255, 140, 40)
-			hl.OutlineColor = Color3.fromRGB(255, 200, 80)
-		end
-		hl.Parent = nadeFolder
-		local bb = Instance.new("BillboardGui")
-		bb.Size = UDim2.fromOffset(90, 26)
-		bb.AlwaysOnTop = true
-		bb.Adornee = part
-		bb.Parent = nadeFolder
-		local lab = Instance.new("TextLabel")
-		lab.BackgroundTransparency = 1
-		lab.Size = UDim2.fromScale(1, 1)
-		lab.Font = Enum.Font.GothamBold
-		lab.TextSize = 12
-		lab.TextColor3 = hl.OutlineColor
-		lab.TextStrokeTransparency = 0.35
-		lab.Text = inst.Name
-		lab.Parent = bb
-		tracked[inst] = { hl = hl, bb = bb, lab = lab, kind = kind, t0 = os.clock() }
-	end
-	local function sweep()
-		if not ST.GrenadeESPEnabled then
-			for inst in pairs(tracked) do clearOne(inst) end
-			return
-		end
-		-- prune dead
-		for inst in pairs(tracked) do
-			if not inst.Parent or not shouldTrack(inst) then
-				clearOne(inst)
-			end
-		end
-		local function consider(inst)
-			local kind = isNadeInst(inst)
-			if kind then attach(inst, kind) end
-		end
-		-- world tools / models
-		for _, inst in ipairs(workspace:GetDescendants()) do
-			if inst:IsA("Tool") or inst:IsA("Model") or inst:IsA("BasePart") then
-				if isNadeInst(inst) then consider(inst) end
-			end
-		end
-		-- update labels / timers
-		for inst, t in pairs(tracked) do
-			if t.lab then
-				local left = nil
-				pcall(function()
-					local fuse = inst:GetAttribute("Fuse") or inst:GetAttribute("Timer") or inst:GetAttribute("DetonateIn")
-					if typeof(fuse) == "number" then
-						left = (fuse > 50) and (fuse - os.clock()) or (fuse - (os.clock() - t.t0))
-					end
-					local detAt = inst:GetAttribute("DetonateAt")
-					if typeof(detAt) == "number" then left = detAt - os.clock() end
-				end)
-				if t.kind == "c4" then
-					t.lab.Text = (left and left > 0) and string.format("C4 %.1fs", left) or "C4"
-				elseif t.kind == "flash" then
-					t.lab.Text = "Flash"
-				else
-					t.lab.Text = inst.Name
-				end
-			end
-		end
-	end
-	task.spawn(function()
-		while not ST.isUnloaded do
-			task.wait(1.2)
-			if ST.GrenadeESPEnabled then pcall(sweep) end
-		end
-	end)
-end
 
 selectTab("Combat")
 setOpen(true)
