@@ -1,6 +1,6 @@
 --[[
     ╔═══════════════════════════════════════════════════════════════╗
-    ║              CLL CHEAT - FULL INTEGRATION v11.60-ae (native Q/G grab mirror + VR restore)                ║
+    ║              CLL CHEAT - FULL INTEGRATION v11.61-af (native Q/G grab mirror + VR restore)                ║
     ╠═══════════════════════════════════════════════════════════════╣
     ║  SUK head-hit, real crosshair, tracers, ESP outline nick,     ║
     ║  ChinaHat/Wings fix, VR hands, anti-flash/shake, antibypass   ║
@@ -2838,7 +2838,7 @@ UIS.InputChanged:Connect(function(input)
 	if not UIS:IsMouseButtonPressed(Enum.UserInputType.MouseButton2) then return end
 	local d = input.Delta
 	if typeof(d) ~= "Vector2" then return end
-	-- sensitivity like v11.38/53 (working free-look)
+	if d.Magnitude < 0.01 then return end
 	VR_Cam_Rotation = CFrame.Angles(0, math.rad(-d.X * 0.35), 0)
 		* VR_Cam_Rotation
 		* CFrame.Angles(math.rad(-d.Y * 0.35), 0, 0)
@@ -2943,28 +2943,14 @@ local function vrHideHeadAccessories(char, hide)
 end
 
 
---// ==================== VR ENABLED FORCE (cheap like 10.8) ====================
--- CRITICAL: never ClassName/pcall on every __index — that tanks FPS on all Instances.
+--// ==================== VR ENABLED FORCE (53-style: ONLY VREnabled) ====================
+-- GetVRFocus / UserCFrameChanged fakes made CameraModule enter real-VR path and fight Scriptable cam.
 do
 	local VRS = game:GetService("VRService")
-	local fakeEv = Instance.new("BindableEvent")
-	local function fakeFocus()
-		local cam = workspace.CurrentCamera
-		return (cam and cam.CFrame) or CFrame.new()
-	end
 	pcall(function()
 		local oldIdx
 		oldIdx = hookmetamethod(game, "__index", function(self, key)
-			-- fast path: only care about VRService keys when VR on
-			if ST.VREnabled and self == VRS then
-				if key == "VREnabled" then
-					return true
-				elseif key == "GetVRFocus" then
-					return fakeFocus
-				elseif key == "UserCFrameChanged" or key == "NavigationRayChanged" then
-					return fakeEv.Event
-				end
-			elseif key == "VREnabled" and ST.VREnabled and self == VRS then
+			if key == "VREnabled" and ST.VREnabled and self == VRS then
 				return true
 			end
 			return oldIdx(self, key)
@@ -3138,7 +3124,7 @@ UIS.InputBegan:Connect(function(input, gp)
 	VRSwingPhase = 0
 end)
 
-RunService:BindToRenderStep("CLL_VR", Enum.RenderPriority.Camera.Value + 32, function(dt)
+RunService:BindToRenderStep("CLL_VR", Enum.RenderPriority.Last.Value, function(dt)
 	if ST.isUnloaded then return end
 
 	-- Old behavior: VR off → do nothing. Forcing Motor6D.Enabled every frame
@@ -3190,20 +3176,17 @@ RunService:BindToRenderStep("CLL_VR", Enum.RenderPriority.Camera.Value + 32, fun
 
 	local looking = UIS:IsMouseButtonPressed(Enum.UserInputType.MouseButton2)
 	pcall(function()
-		UIS.MouseIconEnabled = true
-		-- same as v11.38/53 (working free-look)
-		UIS.MouseBehavior = looking and Enum.MouseBehavior.LockCurrentPosition or Enum.MouseBehavior.Default
+		-- GetMouseDelta() ONLY works with LockCenter (Roblox). LockCurrentPosition → delta always 0.
+		UIS.MouseIconEnabled = not looking
+		UIS.MouseBehavior = looking and Enum.MouseBehavior.LockCenter or Enum.MouseBehavior.Default
 	end)
-	-- also pull delta here (InputChanged alone is unreliable on some executors)
 	if looking then
-		pcall(function()
-			local d = UIS:GetMouseDelta()
-			if typeof(d) == "Vector2" and (d.X ~= 0 or d.Y ~= 0) then
-				VR_Cam_Rotation = CFrame.Angles(0, math.rad(-d.X * 0.35), 0)
-					* VR_Cam_Rotation
-					* CFrame.Angles(math.rad(-d.Y * 0.35), 0, 0)
-			end
-		end)
+		local d = UIS:GetMouseDelta()
+		if typeof(d) == "Vector2" and (math.abs(d.X) + math.abs(d.Y)) > 0 then
+			VR_Cam_Rotation = CFrame.Angles(0, math.rad(-d.X * 0.35), 0)
+				* VR_Cam_Rotation
+				* CFrame.Angles(math.rad(-d.Y * 0.35), 0, 0)
+		end
 	end
 	pcall(function()
 		hum.CameraOffset = Vector3.zero
@@ -3231,7 +3214,7 @@ RunService:BindToRenderStep("CLL_VR", Enum.RenderPriority.Camera.Value + 32, fun
 		aimPos = headPos + torsoCF.LookVector * 50
 	end
 
-	-- head + free-look camera (exact path from v11.38/53)
+	-- free-look camera (53) + LockCenter deltas
 	local headCF
 	if headPos and typeof(headPos) == "Vector3" then
 		if looking then
@@ -3240,20 +3223,16 @@ RunService:BindToRenderStep("CLL_VR", Enum.RenderPriority.Camera.Value + 32, fun
 			headCF = CFrame.new(headPos) * rot
 			if cam then
 				cam.CameraType = Enum.CameraType.Scriptable
-				cam.CameraSubject = nil
 				cam.CFrame = headCF
 				aimPos = headCF.Position + headCF.LookVector * 120
 			end
 		else
-			if cam then
-				if cam.CameraType == Enum.CameraType.Scriptable then
-					cam.CameraType = Enum.CameraType.Custom
-				end
+			if cam and cam.CameraType == Enum.CameraType.Scriptable then
+				cam.CameraType = Enum.CameraType.Custom
 				if hum then cam.CameraSubject = hum end
 			end
 			if cam then
-				local look = cam.CFrame.LookVector
-				headCF = CFrame.lookAt(headPos, headPos + look)
+				headCF = CFrame.lookAt(headPos, headPos + cam.CFrame.LookVector)
 			elseif typeof(aimPos) == "Vector3" then
 				headCF = CFrame.lookAt(headPos, aimPos)
 			else
@@ -3261,7 +3240,6 @@ RunService:BindToRenderStep("CLL_VR", Enum.RenderPriority.Camera.Value + 32, fun
 			end
 		end
 		if headPart and headPart:IsA("BasePart") and headCF then
-			-- 53 left head unanchored; we still write CFrame so server VR_HEAD sees rotation
 			headPart.Anchored = true
 			headPart.CanCollide = false
 			headPart.CFrame = headCF
@@ -3810,10 +3788,6 @@ oldNamecall = hookmetamethod(game, "__namecall", function(self, ...)
 		if setnamecallmethod then pcall(setnamecallmethod, method) end
 		return oldNamecall(self, ...)
 	end
-	if method == "GetVRFocus" then
-		local cam = workspace.CurrentCamera
-		return cam and cam.CFrame or CFrame.new()
-	end
 	if type(checkcaller) == "function" then
 		local okc, mine = pcall(checkcaller)
 		if okc and mine then
@@ -4093,7 +4067,7 @@ fit(); workspace.CurrentCamera:GetPropertyChangedSignal("ViewportSize"):Connect(
 local header = new("Frame", { Size = UDim2.new(1, 0, 0, 62), BackgroundTransparency = 1, Parent = window })
 local logoLabel = label({ Text = "CLL", Font = Enum.Font.Michroma, TextSize = 26, TextTruncate = Enum.TextTruncate.AtEnd, Size = UDim2.fromOffset(100, 62), Position = UDim2.fromOffset(23, 0), Parent = header })
 logoLabel.TextColor3 = Color3.fromRGB(255, 255, 255) -- Always white
-local verLabel = label({ Text = "v11.60-ae", Font = Enum.Font.GothamBold, TextSize = 12, TextColor3 = Theme.Dim, Size = UDim2.fromOffset(50, 62), Position = UDim2.fromOffset(85, 2), Parent = header })
+local verLabel = label({ Text = "v11.61-af", Font = Enum.Font.GothamBold, TextSize = 12, TextColor3 = Theme.Dim, Size = UDim2.fromOffset(50, 62), Position = UDim2.fromOffset(85, 2), Parent = header })
 local timeLabel = label({ Text = "Session: 00:00", Font = Enum.Font.GothamMedium, TextSize = 13, TextColor3 = Theme.Dim, Size = UDim2.fromOffset(150, 62), Position = UDim2.fromOffset(150, 0), Parent = header })
 task.spawn(function()
 	while not ST.isUnloaded do
