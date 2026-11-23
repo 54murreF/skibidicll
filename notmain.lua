@@ -1,6 +1,6 @@
 --[[
     ╔═══════════════════════════════════════════════════════════════╗
-    ║              CLL CHEAT - FULL INTEGRATION v11.48-s (native Q/G grab mirror + VR restore)                ║
+    ║              CLL CHEAT - FULL INTEGRATION v11.49-t (native Q/G grab mirror + VR restore)                ║
     ╠═══════════════════════════════════════════════════════════════╣
     ║  SUK head-hit, real crosshair, tracers, ESP outline nick,     ║
     ║  ChinaHat/Wings fix, VR hands, anti-flash/shake, antibypass   ║
@@ -1426,6 +1426,22 @@ function MultiFireAt()
 	HelperFire("Gun Base", "Shot", tool)
 	if head then HelperFire("Fx", "Hitmarker", head) end
 end
+
+
+-- SUK tick (was missing — MultiFireAt never called)
+task.spawn(function()
+	while not ST.isUnloaded do
+		if ST.isMultiSuk then
+			local rps = tonumber(ST.SUK_FIRERATE_RPS) or 10
+			local delay = tonumber(ST.SUK_FireDelay) or 0.1
+			local waitT = math.max(0.03, math.min(1 / math.max(1, rps), delay))
+			pcall(MultiFireAt)
+			task.wait(waitT)
+		else
+			task.wait(0.15)
+		end
+	end
+end)
 
 function FireNormalGun(tool)
     if not FireRemote or not tool then return end
@@ -2893,21 +2909,6 @@ do
 			return oldIdx(self, key)
 		end)
 	end)
-	-- keep classic camera while spoofed
-	RunService.RenderStepped:Connect(function()
-		if not ST.VREnabled or ST.isUnloaded then return end
-		local cam = workspace.CurrentCamera
-		if not cam then return end
-		pcall(function()
-			if cam.CameraType ~= Enum.CameraType.Custom and cam.CameraType ~= Enum.CameraType.Scriptable then
-				cam.CameraType = Enum.CameraType.Custom
-			end
-			local hum = LocalPlayer.Character and LocalPlayer.Character:FindFirstChildOfClass("Humanoid")
-			if hum and cam.CameraType == Enum.CameraType.Custom and cam.CameraSubject ~= hum then
-				cam.CameraSubject = hum
-			end
-		end)
-	end)
 	task.spawn(function()
 		while not ST.isUnloaded do
 			task.wait(0.5)
@@ -4013,7 +4014,7 @@ fit(); workspace.CurrentCamera:GetPropertyChangedSignal("ViewportSize"):Connect(
 local header = new("Frame", { Size = UDim2.new(1, 0, 0, 62), BackgroundTransparency = 1, Parent = window })
 local logoLabel = label({ Text = "CLL", Font = Enum.Font.Michroma, TextSize = 26, TextTruncate = Enum.TextTruncate.AtEnd, Size = UDim2.fromOffset(100, 62), Position = UDim2.fromOffset(23, 0), Parent = header })
 logoLabel.TextColor3 = Color3.fromRGB(255, 255, 255) -- Always white
-local verLabel = label({ Text = "v11.48-s", Font = Enum.Font.GothamBold, TextSize = 12, TextColor3 = Theme.Dim, Size = UDim2.fromOffset(50, 62), Position = UDim2.fromOffset(85, 2), Parent = header })
+local verLabel = label({ Text = "v11.49-t", Font = Enum.Font.GothamBold, TextSize = 12, TextColor3 = Theme.Dim, Size = UDim2.fromOffset(50, 62), Position = UDim2.fromOffset(85, 2), Parent = header })
 local timeLabel = label({ Text = "Session: 00:00", Font = Enum.Font.GothamMedium, TextSize = 13, TextColor3 = Theme.Dim, Size = UDim2.fromOffset(150, 62), Position = UDim2.fromOffset(150, 0), Parent = header })
 task.spawn(function()
 	while not ST.isUnloaded do
@@ -4623,7 +4624,7 @@ function buildTarget()
 	toggle(scroll, y, "Auto Healing", function(v) ST.HealEnabled = v; if v then StartHealLoop() else StopHealLoop() end end, false, function() return ST.HealEnabled end); y += 46
 	slider(scroll, y, "Heal Height", -5, 10, ST.HealFlyHeight or 3.5, 0.5, function(v) ST.HealFlyHeight = v end, function() return ST.HealFlyHeight end); y += 64
 	toggle(scroll, y, "Ignore Friends", function(v) ST.SUK_IgnoreFriends = v end, true, function() return ST.SUK_IgnoreFriends end); y += 46
-	toggle(scroll, y, "Target NPCs (with or without players)", function(v) ST.SUK_TargetNPCs = v end, false, function() return ST.SUK_TargetNPCs end); y += 46
+	toggle(scroll, y, "Target NPCs", function(v) ST.SUK_TargetNPCs = v end, false, function() return ST.SUK_TargetNPCs end); y += 46
 	toggle(scroll, y, "Equip required", function(v) ST.SUK_EquipRequired = v end, ST.SUK_EquipRequired, function() return ST.SUK_EquipRequired end)
 
 	label({ Text = "PLAYERS", Font = Enum.Font.GothamBold, TextSize = 11, TextColor3 = Theme.Dim, Size = UDim2.fromOffset(120, 18), Position = UDim2.fromOffset(14, 12), Parent = right })
@@ -5772,7 +5773,8 @@ buildFeaturePage(pages.Movement, "MOVEMENT", {
 -- Visuals
 buildFeaturePage(pages.Visual, "VISUAL", {
 	
-	{ name = "ESP", initial = false, onToggle = function(v) ESP_Config.Enabled = v end, buildDetail = function(d)
+		{ name = "Grenade / C4 ESP", initial = false, getState = function() return ST.GrenadeESPEnabled end, onToggle = function(v) ST.GrenadeESPEnabled = v end, buildDetail = nil },
+{ name = "ESP", initial = false, onToggle = function(v) ESP_Config.Enabled = v end, buildDetail = function(d)
 		detailSlider(d, 1, "Max Distance", 100, 2000, ESP_Config.MaxDist, 50, function(v) ESP_Config.MaxDist = v end)
 		detailToggle(d, 2, "Box", ESP_Config.Box, function(v) ESP_Config.Box = v end)
 		detailToggle(d, 3, "Name", ESP_Config.Name, function(v) ESP_Config.Name = v end)
@@ -5816,7 +5818,6 @@ buildFeaturePage(pages.Effects, "EFFECTS", {
 
 	{ name = "China Hat", initial = false, onToggle = function(v) ST.ChinaHatEnabled = v; pcall(function() Cosmetics.setHat(v) end) end, buildDetail = nil },
 	{ name = "Custom Wings", initial = false, onToggle = function(v) ST.WingsEnabled = v; pcall(function() Cosmetics.setWings(v) end) end, buildDetail = nil },
-	{ name = "Grenade / C4 ESP", initial = false, getState = function() return ST.GrenadeESPEnabled end, onToggle = function(v) ST.GrenadeESPEnabled = v end, buildDetail = nil },
 	{ name = "Anti-Lag", initial = false, onToggle = function(s) ST.AntiLagEnabled = s; if s then CleanDebris() end end, buildDetail = nil },
 		{ name = "Clear Rain/Weather", initial = false, onToggle = function(s)
 		-- one-shot: clear once, do not leave a laggy loop on
@@ -5830,7 +5831,11 @@ buildFeaturePage(pages.Effects, "EFFECTS", {
 			for _, v in ipairs(L:GetChildren()) do
 				if v:IsA("Atmosphere") then
 					v.Density = 0; v.Haze = 0; v.Glare = 0
-				elseif v:IsA("BloomEffect") or v:IsA("BlurEffect") or v:IsA("DepthOfFieldEffect") or v:IsA("SunRaysEffect") then
+				elseif v:IsA("BlurEffect") then
+					v.Size = 0
+					v.Enabled = false
+					pcall(function() v:Destroy() end)
+				elseif v:IsA("BloomEffect") or v:IsA("DepthOfFieldEffect") or v:IsA("SunRaysEffect") or v:IsA("ColorCorrectionEffect") then
 					v.Enabled = false
 				end
 			end
@@ -6441,82 +6446,69 @@ ST.VREnabled = false
 
 
 
--- ==================== AUTO BLOCK (players + NPCs, dropkick/melee/uber) ====================
+-- ==================== AUTO BLOCK (only active attacks, players + NPCs) ====================
 task.spawn(function()
 	local lastBlock = 0
-	local function isThreatModel(model, root)
+	local function isAttacking(model, root)
 		if not model or model == LocalPlayer.Character then return false end
 		local oroot = model:FindFirstChild("HumanoidRootPart") or model:FindFirstChild("Torso")
 		local ohum = model:FindFirstChildOfClass("Humanoid")
 		if not (oroot and ohum) or ohum.Health <= 0 then return false end
-		local range = ST.AutoBlockRange or 14
+		local range = ST.AutoBlockRange or 12
 		local delta = root.Position - oroot.Position
 		local dist = delta.Magnitude
 		if dist > range then return false end
-		local dropping = model:GetAttribute("Dropkick") or model:GetAttribute("DropKick") or model:GetAttribute("Kicking")
+		-- standing still / idle → never
 		local vel = oroot.AssemblyLinearVelocity
-		local toward = false
-		if vel.Magnitude > 14 and dist > 0.5 then
-			toward = delta.Unit:Dot(vel.Unit) > 0.3
-		end
+		local dropping = model:GetAttribute("Dropkick") or model:GetAttribute("DropKick") or model:GetAttribute("Kicking")
 		local meleeAnim = false
 		pcall(function()
 			for _, tr in ipairs(ohum:GetPlayingAnimationTracks()) do
-				local n = string.lower(tr.Name or "")
-				if n:find("punch") or n:find("kick") or n:find("swing") or n:find("uber") or n:find("attack")
-					or n:find("melee") or n:find("drop") or n:find("grab") or n:find("strike") then
-					meleeAnim = true
-					break
+				if tr.IsPlaying and tr.TimePosition > 0.02 then
+					local n = string.lower(tr.Name or "")
+					if n:find("punch") or n:find("kick") or n:find("swing") or n:find("uber") or n:find("attack")
+						or n:find("melee") or n:find("drop") or n:find("strike") or n:find("heavy") then
+						meleeAnim = true
+						break
+					end
 				end
 			end
 		end)
-		local tool = model:FindFirstChildOfClass("Tool")
-		local ranged = false
-		if tool then
-			local n = string.lower(tool.Name)
-			ranged = n:find("gun") or n:find("spas") or n:find("ak") or n:find("deagle") or n:find("p250")
-				or n:find("ar") or n:find("rifle") or n:find("shot") or n:find("pistol")
+		local toward = false
+		if vel.Magnitude > 22 and dist > 1 then
+			toward = delta.Unit:Dot(vel.Unit) > 0.55
 		end
-		-- close empty-hand or melee tool always threat
-		if dist < (range * 0.55) and not ranged then return true end
-		if dropping or toward or meleeAnim then return true end
+		-- need actual aggression signal
+		if dropping then return true end
+		if meleeAnim and dist < range then return true end
+		if toward and vel.Magnitude > 28 then return true end
 		return false
 	end
 	while not ST.isUnloaded do
-		task.wait(0.035)
+		task.wait(0.05)
 		if not ST.AutoBlockEnabled or ST.VREnabled then continue end
 		local char = LocalPlayer.Character
 		local hum = char and char:FindFirstChildOfClass("Humanoid")
 		local root = char and char:FindFirstChild("HumanoidRootPart")
 		if not (char and hum and root) or hum.Health <= 0 then continue end
 		if char:GetAttribute("Downed") or char:GetAttribute("Ragdoll") then continue end
-		if os.clock() - lastBlock < (ST.AutoBlockCooldown or 0.45) then continue end
+		if os.clock() - lastBlock < (ST.AutoBlockCooldown or 0.5) then continue end
 		local threat = false
 		for _, plr in ipairs(Players:GetPlayers()) do
-			if plr ~= LocalPlayer and not IsProtected(plr) and isThreatModel(plr.Character, root) then
+			if plr ~= LocalPlayer and not IsProtected(plr) and isAttacking(plr.Character, root) then
 				threat = true
 				break
 			end
 		end
 		if not threat then
-			-- NPCs in workspace.Humans or NPC folders
-			local folders = {}
-			local h = workspace:FindFirstChild("Humans")
-			if h then folders[#folders+1] = h end
-			local n = workspace:FindFirstChild("NPCs") or workspace:FindFirstChild("Npcs")
-			if n then folders[#folders+1] = n end
-			folders[#folders+1] = workspace
-			for _, folder in ipairs(folders) do
-				for _, m in ipairs(folder:GetChildren()) do
-					if m:IsA("Model") and m:FindFirstChildOfClass("Humanoid") then
-						local plr = Players:GetPlayerFromCharacter(m)
-						if not plr and isThreatModel(m, root) then
-							threat = true
-							break
-						end
+			local humans = workspace:FindFirstChild("Humans")
+			if humans then
+				for _, m in ipairs(humans:GetChildren()) do
+					if m:IsA("Model") and not Players:GetPlayerFromCharacter(m) and isAttacking(m, root) then
+						threat = true
+						break
 					end
 				end
-				if threat then break end
 			end
 		end
 		if threat then
@@ -6528,7 +6520,7 @@ task.spawn(function()
 				end
 				if SwingRemote then
 					SwingRemote:FireServer("Block")
-					task.delay(ST.AutoBlockHold or 0.4, function()
+					task.delay(ST.AutoBlockHold or 0.35, function()
 						pcall(function() if SwingRemote then SwingRemote:FireServer("UnBlock") end end)
 					end)
 				end
@@ -6636,7 +6628,7 @@ do
 			dots = {}
 			local dens = math.clamp(ST.BgPatternDensity or 0.55, 0.15, 1)
 			local scale = math.clamp(ST.BgPatternScale or 1, 0.5, 2)
-			local count = math.floor(42 * dens * scale)
+			local count = math.floor(70 * dens * scale)
 			local rng = Random.new(ST.BgPatternSeed or 7)
 			local col = Theme.Accent or Color3.fromRGB(80, 140, 255)
 			for _ = 1, count do
@@ -6651,7 +6643,7 @@ do
 				d.Active = false
 				Instance.new("UICorner", d).CornerRadius = UDim.new(1, 0)
 				d.Parent = layer
-				TweenService:Create(d, TweenInfo.new(0.5), { BackgroundTransparency = 0.86 }):Play()
+				TweenService:Create(d, TweenInfo.new(0.5), { BackgroundTransparency = 0.78 }):Play()
 				dots[#dots + 1] = {
 					gui = d,
 					ox = d.Position.X.Scale,
