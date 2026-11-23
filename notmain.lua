@@ -1,6 +1,6 @@
 --[[
     ╔═══════════════════════════════════════════════════════════════╗
-    ║              CLL CHEAT - FULL INTEGRATION v11.49-t (native Q/G grab mirror + VR restore)                ║
+    ║              CLL CHEAT - FULL INTEGRATION v11.50-u (native Q/G grab mirror + VR restore)                ║
     ╠═══════════════════════════════════════════════════════════════╣
     ║  SUK head-hit, real crosshair, tracers, ESP outline nick,     ║
     ║  ChinaHat/Wings fix, VR hands, anti-flash/shake, antibypass   ║
@@ -1272,12 +1272,25 @@ end
 
 local targetIndex = 1
 function MultiFireAt()
-	if not FireRemote then return end
 	if ST.reloadInProgress then return end
+	if not FireRemote or not FireRemote.Parent then
+		pcall(function()
+			local r = ReplicatedStorage:FindFirstChild("Remotes")
+			FireRemote = r and r:FindFirstChild("Fire")
+		end)
+	end
+	if not FireRemote then return end
 
-	local tool = GetSpas()
+	local tool = EnsureSpasEquipped and EnsureSpasEquipped() or GetSpas()
 	if not tool then return end
-	if tool.Parent ~= LocalPlayer.Character then return end
+	if tool.Parent ~= LocalPlayer.Character then
+		pcall(function()
+			local hum = LocalPlayer.Character and LocalPlayer.Character:FindFirstChildOfClass("Humanoid")
+			if hum then hum:EquipTool(tool) end
+		end)
+		tool = GetSpas()
+		if not tool or tool.Parent ~= LocalPlayer.Character then return end
+	end
 
 	local cur, maxA = ReadAmmo(tool)
 	maxA = maxA or tool:GetAttribute("MaxAmmo") or 8
@@ -3182,9 +3195,10 @@ RunService:BindToRenderStep("CLL_VR", Enum.RenderPriority.Camera.Value + 1, func
 		headPart.Anchored = false
 	end
 
-	if looking then
-		-- free-look orbit around head
-		headCF = CFrame.new(headPos) * VR_Cam_Rotation
+	if looking and headPos and typeof(headPos) == "Vector3" then
+		local rot = VR_Cam_Rotation
+		if typeof(rot) ~= "CFrame" then rot = CFrame.new() end
+		headCF = CFrame.new(headPos) * rot
 		if cam then
 			cam.CameraType = Enum.CameraType.Scriptable
 			cam.CFrame = headCF
@@ -3193,7 +3207,7 @@ RunService:BindToRenderStep("CLL_VR", Enum.RenderPriority.Camera.Value + 1, func
 	else
 		if cam and cam.CameraType == Enum.CameraType.Scriptable then
 			cam.CameraType = Enum.CameraType.Custom
-			cam.CameraSubject = hum
+			if hum then cam.CameraSubject = hum end
 		end
 	end
 
@@ -4014,7 +4028,7 @@ fit(); workspace.CurrentCamera:GetPropertyChangedSignal("ViewportSize"):Connect(
 local header = new("Frame", { Size = UDim2.new(1, 0, 0, 62), BackgroundTransparency = 1, Parent = window })
 local logoLabel = label({ Text = "CLL", Font = Enum.Font.Michroma, TextSize = 26, TextTruncate = Enum.TextTruncate.AtEnd, Size = UDim2.fromOffset(100, 62), Position = UDim2.fromOffset(23, 0), Parent = header })
 logoLabel.TextColor3 = Color3.fromRGB(255, 255, 255) -- Always white
-local verLabel = label({ Text = "v11.49-t", Font = Enum.Font.GothamBold, TextSize = 12, TextColor3 = Theme.Dim, Size = UDim2.fromOffset(50, 62), Position = UDim2.fromOffset(85, 2), Parent = header })
+local verLabel = label({ Text = "v11.50-u", Font = Enum.Font.GothamBold, TextSize = 12, TextColor3 = Theme.Dim, Size = UDim2.fromOffset(50, 62), Position = UDim2.fromOffset(85, 2), Parent = header })
 local timeLabel = label({ Text = "Session: 00:00", Font = Enum.Font.GothamMedium, TextSize = 13, TextColor3 = Theme.Dim, Size = UDim2.fromOffset(150, 62), Position = UDim2.fromOffset(150, 0), Parent = header })
 task.spawn(function()
 	while not ST.isUnloaded do
@@ -4919,6 +4933,7 @@ function buildSettings()
 		ST.MenuGridColor = gridPresets[gpi]
 		gridPrev.BackgroundColor3 = ST.MenuGridColor
 	end)
+	y += 36
 	toggle(leftScroll, y, "BG Pattern", function(v) ST.BgPatternEnabled = v; if _G.CLL_RebuildBgPattern then _G.CLL_RebuildBgPattern() end end, ST.BgPatternEnabled == true, function() return ST.BgPatternEnabled end)
 	y += 44
 	slider(leftScroll, y, "BG Density", 0.05, 1, ST.BgPatternDensity or 0.4, 0.05, function(v) ST.BgPatternDensity = v; if _G.CLL_RebuildBgPattern then _G.CLL_RebuildBgPattern() end end, function() return ST.BgPatternDensity or 0.4 end)
@@ -6212,7 +6227,7 @@ function setOpen(state)
 	if not window then return end
 	local A = AnimPresets[AnimName] or AnimPresets.Smooth
 	local scaleStart = (type(A.scale) == "number" and A.scale) or 0.93
-	local oi = TweenInfo.new((A.open[3] or 0.5) * 0.85, A.open[1], A.open[2])
+	local oi = TweenInfo.new(math.min(0.22, (A.open[3] or 0.5) * 0.45), A.open[1], A.open[2])
 	local ci = TweenInfo.new((A.close[3] or 0.32) * 0.9, A.close[1], A.close[2])
 	if state then
 		window.Visible = true
@@ -6446,56 +6461,36 @@ ST.VREnabled = false
 
 
 
--- ==================== AUTO BLOCK (only active attacks, players + NPCs) ====================
+-- ==================== AUTO BLOCK (dropkick flying AT you only) ====================
 task.spawn(function()
 	local lastBlock = 0
-	local function isAttacking(model, root)
+	local function isDropkickAtMe(model, root)
 		if not model or model == LocalPlayer.Character then return false end
 		local oroot = model:FindFirstChild("HumanoidRootPart") or model:FindFirstChild("Torso")
 		local ohum = model:FindFirstChildOfClass("Humanoid")
 		if not (oroot and ohum) or ohum.Health <= 0 then return false end
-		local range = ST.AutoBlockRange or 12
+		local range = ST.AutoBlockRange or 16
 		local delta = root.Position - oroot.Position
 		local dist = delta.Magnitude
-		if dist > range then return false end
-		-- standing still / idle → never
+		if dist > range or dist < 0.5 then return false end
+		local dropping = model:GetAttribute("Dropkick") or model:GetAttribute("DropKick")
+		if not dropping then return false end
 		local vel = oroot.AssemblyLinearVelocity
-		local dropping = model:GetAttribute("Dropkick") or model:GetAttribute("DropKick") or model:GetAttribute("Kicking")
-		local meleeAnim = false
-		pcall(function()
-			for _, tr in ipairs(ohum:GetPlayingAnimationTracks()) do
-				if tr.IsPlaying and tr.TimePosition > 0.02 then
-					local n = string.lower(tr.Name or "")
-					if n:find("punch") or n:find("kick") or n:find("swing") or n:find("uber") or n:find("attack")
-						or n:find("melee") or n:find("drop") or n:find("strike") or n:find("heavy") then
-						meleeAnim = true
-						break
-					end
-				end
-			end
-		end)
-		local toward = false
-		if vel.Magnitude > 22 and dist > 1 then
-			toward = delta.Unit:Dot(vel.Unit) > 0.55
-		end
-		-- need actual aggression signal
-		if dropping then return true end
-		if meleeAnim and dist < range then return true end
-		if toward and vel.Magnitude > 28 then return true end
-		return false
+		if vel.Magnitude < 25 then return false end
+		return delta.Unit:Dot(vel.Unit) > 0.65
 	end
 	while not ST.isUnloaded do
-		task.wait(0.05)
+		task.wait(0.04)
 		if not ST.AutoBlockEnabled or ST.VREnabled then continue end
 		local char = LocalPlayer.Character
 		local hum = char and char:FindFirstChildOfClass("Humanoid")
 		local root = char and char:FindFirstChild("HumanoidRootPart")
 		if not (char and hum and root) or hum.Health <= 0 then continue end
 		if char:GetAttribute("Downed") or char:GetAttribute("Ragdoll") then continue end
-		if os.clock() - lastBlock < (ST.AutoBlockCooldown or 0.5) then continue end
+		if os.clock() - lastBlock < (ST.AutoBlockCooldown or 0.4) then continue end
 		local threat = false
 		for _, plr in ipairs(Players:GetPlayers()) do
-			if plr ~= LocalPlayer and not IsProtected(plr) and isAttacking(plr.Character, root) then
+			if plr ~= LocalPlayer and not IsProtected(plr) and isDropkickAtMe(plr.Character, root) then
 				threat = true
 				break
 			end
@@ -6504,7 +6499,7 @@ task.spawn(function()
 			local humans = workspace:FindFirstChild("Humans")
 			if humans then
 				for _, m in ipairs(humans:GetChildren()) do
-					if m:IsA("Model") and not Players:GetPlayerFromCharacter(m) and isAttacking(m, root) then
+					if m:IsA("Model") and not Players:GetPlayerFromCharacter(m) and isDropkickAtMe(m, root) then
 						threat = true
 						break
 					end
@@ -6952,7 +6947,7 @@ do
 end
 
 selectTab("Combat")
-setOpen(true)
+-- setOpen(true) deferred: open with keybind to avoid inject freeze
 fireTheme()
 updateFOVCircle()
 
