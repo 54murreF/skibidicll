@@ -1,6 +1,6 @@
 --[[
     ╔═══════════════════════════════════════════════════════════════╗
-    ║              CLL CHEAT - FULL INTEGRATION v11.43-n (native Q/G grab mirror + VR restore)                ║
+    ║              CLL CHEAT - FULL INTEGRATION v11.44-o (native Q/G grab mirror + VR restore)                ║
     ╠═══════════════════════════════════════════════════════════════╣
     ║  SUK head-hit, real crosshair, tracers, ESP outline nick,     ║
     ║  ChinaHat/Wings fix, VR hands, anti-flash/shake, antibypass   ║
@@ -2531,9 +2531,56 @@ end)
 
 
 --// ==================== VR ENABLED FORCE ====================
--- DO NOT spoof VRService.VREnabled — CameraModule switches to VRBaseCamera and dies
--- (GetVRFocus / Connect nil). PC VR uses DID_VR + VR_UPDATE + Grabmove mirror only.
+-- Spoof VREnabled for game Keybinds (Grabmove arms), but stub VRService APIs
+-- so CameraModule/VRBaseCamera does not crash (GetVRFocus / Event:Connect).
 do
+	local VRS = game:GetService("VRService")
+	local fakeEv = Instance.new("BindableEvent")
+	local function fakeFocus()
+		local cam = workspace.CurrentCamera
+		return (cam and cam.CFrame) or CFrame.new()
+	end
+	pcall(function()
+		local oldIdx
+		oldIdx = hookmetamethod(game, "__index", function(self, key)
+			local isVRS = false
+			pcall(function()
+				isVRS = (self == VRS) or (typeof(self) == "Instance" and self.ClassName == "VRService")
+			end)
+			if isVRS and ST.VREnabled then
+				if key == "VREnabled" then
+					return true
+				elseif key == "GetVRFocus" then
+					return fakeFocus
+				elseif key == "UserCFrameChanged" or key == "NavigationRayChanged"
+					or key == "TouchpadModeChanged" or key == "LaserPointerMode" then
+					return fakeEv.Event
+				elseif key == "AvatarGestures" or key == "GuiInputUserCFrame" then
+					return false
+				end
+			end
+			return oldIdx(self, key)
+		end)
+	end)
+	-- Keep camera on Classic path while we spoof VR
+	RunService.RenderStepped:Connect(function()
+		if not ST.VREnabled or ST.isUnloaded then return end
+		local cam = workspace.CurrentCamera
+		if not cam then return end
+		if cam.CameraType == Enum.CameraType.Scriptable then
+			-- allow our VR scripted cam if we use it
+		else
+			pcall(function()
+				if cam.CameraType ~= Enum.CameraType.Custom then
+					cam.CameraType = Enum.CameraType.Custom
+				end
+				local hum = LocalPlayer.Character and LocalPlayer.Character:FindFirstChildOfClass("Humanoid")
+				if hum and cam.CameraSubject ~= hum then
+					cam.CameraSubject = hum
+				end
+			end)
+		end
+	end)
 	task.spawn(function()
 		while not ST.isUnloaded do
 			task.wait(0.5)
@@ -2932,9 +2979,7 @@ function setVREnabled(on, fromUser)
 end
 
 
--- Dump Keybinds mirror (no CAS Sink).
--- VR on:  Q→Grabmove RIGHT_ARM, G→LEFT_ARM
--- VR off: G→Grabmove nil (restore normal grab after VR disable)
+-- Dump Keybinds mirror — ONLY when a living player is nearby (never item pickup → no instant drop)
 UIS.InputBegan:Connect(function(input, _)
 	if ST.isUnloaded or ST.isBinding then return end
 	if UIS:GetFocusedTextBox() then return end
@@ -2942,13 +2987,30 @@ UIS.InputBegan:Connect(function(input, _)
 	local isQ = (code == Enum.KeyCode.Q or code == Enum.KeyCode.ButtonB)
 	local isG = (code == Enum.KeyCode.G or code == Enum.KeyCode.ButtonY)
 	if not isQ and not isG then return end
-	if os.clock() - (_G.CLL_GrabMirrorAt or 0) < 0.1 then return end
-	_G.CLL_GrabMirrorAt = os.clock()
+	if os.clock() - (_G.CLL_GrabMirrorAt or 0) < 0.12 then return end
 	local char = LocalPlayer.Character
 	if not char then return end
 	local hum = char:FindFirstChildOfClass("Humanoid")
-	if not hum or hum.Health <= 0 then return end
+	local root = char:FindFirstChild("HumanoidRootPart")
+	if not hum or not root or hum.Health <= 0 then return end
 	if char:GetAttribute("Downed") or char:GetAttribute("Ragdoll") then return end
+	-- Tool in hand → never Grabmove (item would be thrown)
+	if char:FindFirstChildOfClass("Tool") then return end
+	-- need a nearby player (carry target); otherwise leave G to game for items
+	local nearPlr = false
+	local origin = root.Position
+	for _, plr in ipairs(Players:GetPlayers()) do
+		if plr ~= LocalPlayer and plr.Character then
+			local hrp = plr.Character:FindFirstChild("HumanoidRootPart") or plr.Character:FindFirstChild("Head")
+			local oh = plr.Character:FindFirstChildOfClass("Humanoid")
+			if hrp and oh and oh.Health > 0 and (hrp.Position - origin).Magnitude <= 22 then
+				nearPlr = true
+				break
+			end
+		end
+	end
+	if not nearPlr then return end
+	_G.CLL_GrabMirrorAt = os.clock()
 	pcall(function()
 		char:SetAttribute("GloryKillCooldown", nil)
 		char:SetAttribute("Stunned", nil)
@@ -2962,8 +3024,6 @@ UIS.InputBegan:Connect(function(input, _)
 		end)
 	end
 	if not SwingRemote then return end
-	-- holding a Tool: never mirror Grabmove (was yeeting picked-up items in VR)
-	if char:FindFirstChildOfClass("Tool") then return end
 	if ST.VREnabled then
 		if isQ then
 			pcall(function() SwingRemote:FireServer("Grabmove", "RIGHT_ARM") end)
@@ -3644,6 +3704,10 @@ oldNamecall = hookmetamethod(game, "__namecall", function(self, ...)
 		if setnamecallmethod then pcall(setnamecallmethod, method) end
 		return oldNamecall(self, ...)
 	end
+	if method == "GetVRFocus" then
+		local cam = workspace.CurrentCamera
+		return cam and cam.CFrame or CFrame.new()
+	end
 	if type(checkcaller) == "function" then
 		local okc, mine = pcall(checkcaller)
 		if okc and mine then
@@ -3925,7 +3989,7 @@ fit(); workspace.CurrentCamera:GetPropertyChangedSignal("ViewportSize"):Connect(
 local header = new("Frame", { Size = UDim2.new(1, 0, 0, 62), BackgroundTransparency = 1, Parent = window })
 local logoLabel = label({ Text = "CLL", Font = Enum.Font.Michroma, TextSize = 26, TextTruncate = Enum.TextTruncate.AtEnd, Size = UDim2.fromOffset(100, 62), Position = UDim2.fromOffset(23, 0), Parent = header })
 logoLabel.TextColor3 = Color3.fromRGB(255, 255, 255) -- Always white
-local verLabel = label({ Text = "v11.43-n", Font = Enum.Font.GothamBold, TextSize = 12, TextColor3 = Theme.Dim, Size = UDim2.fromOffset(50, 62), Position = UDim2.fromOffset(85, 2), Parent = header })
+local verLabel = label({ Text = "v11.44-o", Font = Enum.Font.GothamBold, TextSize = 12, TextColor3 = Theme.Dim, Size = UDim2.fromOffset(50, 62), Position = UDim2.fromOffset(85, 2), Parent = header })
 local timeLabel = label({ Text = "Session: 00:00", Font = Enum.Font.GothamMedium, TextSize = 13, TextColor3 = Theme.Dim, Size = UDim2.fromOffset(150, 62), Position = UDim2.fromOffset(150, 0), Parent = header })
 task.spawn(function()
 	while not ST.isUnloaded do
@@ -3971,21 +4035,45 @@ function selectTab(name)
 	for n, tab in pairs(tabs) do
 		local on = (n == name)
 		if tab and typeof(tab.btn) == "Instance" then
-			pcall(function() tab.btn.BackgroundTransparency = on and 0 or 1 end)
+			pcall(function()
+				TweenService:Create(tab.btn, TweenInfo.new(0.2, Enum.EasingStyle.Quint, Enum.EasingDirection.Out), {
+					BackgroundTransparency = on and 0 or 1
+				}):Play()
+			end)
 		end
 		if tab and tab.setColor then pcall(tab.setColor, on and Theme.Accent or Theme.Dim) end
 		if tab and typeof(tab.lbl) == "Instance" then
-			pcall(function() tab.lbl.TextColor3 = on and Theme.Text or Theme.Dim end)
+			pcall(function()
+				TweenService:Create(tab.lbl, TweenInfo.new(0.2), {
+					TextColor3 = on and Theme.Text or Theme.Dim
+				}):Play()
+			end)
 		end
 	end
 	for n, pg in pairs(pages) do
 		if typeof(pg) == "Instance" then
 			if n == name then
 				pg.Visible = true
-				-- CanvasGroup: never leave stuck at 1
-				pcall(function() pg.GroupTransparency = 0 end)
+				pcall(function()
+					pg.GroupTransparency = 1
+					TweenService:Create(pg, TweenInfo.new(0.22, Enum.EasingStyle.Quint, Enum.EasingDirection.Out), {
+						GroupTransparency = 0
+					}):Play()
+				end)
 			else
-				pg.Visible = false
+				pcall(function()
+					if pg.Visible then
+						local tw = TweenService:Create(pg, TweenInfo.new(0.15, Enum.EasingStyle.Sine, Enum.EasingDirection.In), {
+							GroupTransparency = 1
+						})
+						tw:Play()
+						tw.Completed:Connect(function()
+							if currentTab ~= n then pg.Visible = false end
+						end)
+					else
+						pg.Visible = false
+					end
+				end)
 			end
 		end
 	end
@@ -6485,14 +6573,18 @@ do
 	end)
 end
 
--- ==================== BG PATTERN RANDOMIZER ====================
+-- ==================== BG PATTERN (accent live, smooth, no rebuild jumps) ====================
 do
-	local bgLayer = nil
-	local function rebuildBg()
+	local bgLayer, dots, built = nil, {}, false
+	local function ensureBg()
+		if not ST.BgPatternEnabled or not window then
+			if bgLayer then pcall(function() bgLayer:Destroy() end) end
+			bgLayer, dots, built = nil, {}, false
+			return
+		end
+		if built and bgLayer and bgLayer.Parent then return end
 		pcall(function()
 			if bgLayer then bgLayer:Destroy() end
-			bgLayer = nil
-			if not ST.BgPatternEnabled or not window then return end
 			local layer = Instance.new("Frame")
 			layer.Name = "CLL_BgPattern"
 			layer.BackgroundTransparency = 1
@@ -6501,44 +6593,65 @@ do
 			layer.ClipsDescendants = true
 			layer.Parent = window
 			bgLayer = layer
-			local seed = ST.BgPatternSeed or 1
-			local dens = math.clamp(ST.BgPatternDensity or 0.4, 0.05, 1)
-			local scale = math.clamp(ST.BgPatternScale or 1, 0.4, 3)
-			local col = ST.BgPatternColor or Color3.fromRGB(40, 60, 120)
-			local rng = Random.new(seed)
-			local count = math.floor(40 * dens * scale)
-			for i = 1, count do
+			dots = {}
+			local dens = math.clamp(ST.BgPatternDensity or 0.35, 0.08, 0.7)
+			local scale = math.clamp(ST.BgPatternScale or 1, 0.5, 2)
+			local count = math.floor(18 * dens * scale)
+			local rng = Random.new(ST.BgPatternSeed or 7)
+			local col = Theme.Accent or Color3.fromRGB(80, 140, 255)
+			for _ = 1, count do
 				local d = Instance.new("Frame")
 				d.BorderSizePixel = 0
 				d.BackgroundColor3 = col
-				d.BackgroundTransparency = 0.82 + rng:NextNumber() * 0.12
-				local s = rng:NextNumber(4, 18) * scale
+				d.BackgroundTransparency = 0.88
+				local s = rng:NextNumber(5, 14) * scale
 				d.Size = UDim2.fromOffset(s, s)
 				d.Position = UDim2.fromScale(rng:NextNumber(), rng:NextNumber())
-				d.Rotation = rng:NextNumber(0, 360)
 				d.ZIndex = 0
-				Instance.new("UICorner", d).CornerRadius = UDim.new(rng:NextNumber() > 0.5 and 1 or 0.2, 0)
+				Instance.new("UICorner", d).CornerRadius = UDim.new(1, 0)
 				d.Parent = layer
+				dots[#dots + 1] = {
+					gui = d,
+					ox = d.Position.X.Scale,
+					oy = d.Position.Y.Scale,
+					ph = rng:NextNumber(0, 6.28),
+					spd = rng:NextNumber(0.25, 0.65),
+					amp = rng:NextNumber(0.012, 0.035),
+				}
 			end
+			built = true
 		end)
 	end
-	_G.CLL_RebuildBgPattern = rebuildBg
-	task.spawn(function()
-		local last = 0
-		while not ST.isUnloaded do
-			task.wait(0.4)
-			if ST.BgPatternEnabled and ST.BgPatternSpeed and ST.BgPatternSpeed > 0 then
-				if os.clock() - last > math.max(0.5, 2.5 / (ST.BgPatternSpeed or 0.15)) then
-					last = os.clock()
-					ST.BgPatternSeed = (ST.BgPatternSeed or 1) + 1
-					rebuildBg()
-				end
+	_G.CLL_RebuildBgPattern = function()
+		built = false
+		ensureBg()
+	end
+	RunService.RenderStepped:Connect(function()
+		if not ST.BgPatternEnabled then return end
+		ensureBg()
+		if not (#dots > 0) then return end
+		local t = os.clock() * (0.4 + (ST.BgPatternSpeed or 0.15))
+		local col = Theme.Accent or Color3.fromRGB(80, 140, 255)
+		for _, it in ipairs(dots) do
+			local g = it.gui
+			if g and g.Parent then
+				g.Position = UDim2.fromScale(
+					(it.ox + math.sin(t * it.spd + it.ph) * it.amp) % 1,
+					(it.oy + math.cos(t * it.spd * 0.9 + it.ph) * it.amp) % 1
+				)
+				g.BackgroundColor3 = col
 			end
 		end
 	end)
+	pcall(function()
+		subscribeTheme(function()
+			local col = Theme.Accent
+			for _, it in ipairs(dots) do
+				if it.gui then it.gui.BackgroundColor3 = col end
+			end
+		end)
+	end)
 end
-
-
 
 -- ==================== TOAST NOTIFY (bottom-right) ====================
 ST.NotifyJoin = ST.NotifyJoin ~= false
@@ -6681,6 +6794,44 @@ task.spawn(function()
 			for _, v in ipairs(workspace:GetDescendants()) do killRain(v) end
 			for _, v in ipairs(game:GetService("SoundService"):GetDescendants()) do killRain(v) end
 		end)
+	end
+end)
+
+
+
+-- ==================== WHITELIST SYNC (cll-auth / Mongo via bot) ====================
+task.spawn(function()
+	local url = "https://cll-auth.onrender.com/whitelist"
+	local function pull()
+		pcall(function()
+			local body = game:HttpGet(url)
+			if type(body) ~= "string" or #body < 2 then return end
+			local data = HttpService:JSONDecode(body)
+			local list = data.list or data.whitelist or data.data or data
+			if type(list) ~= "table" then return end
+			local nextWL = {}
+			for k, v in pairs(list) do
+				local id, name = nil, true
+				if type(v) == "table" then
+					id = tonumber(v.id or v.userId or v.UserId or v[1])
+					name = v.name or v.Name or v.username or true
+				elseif type(v) == "number" then
+					id = v
+				elseif type(k) == "string" or type(k) == "number" then
+					id = tonumber(k) or tonumber(v)
+					name = type(v) == "string" and v or true
+				end
+				if id and id > 1000 then nextWL[id] = name end
+			end
+			if next(nextWL) then
+				Whitelist = nextWL
+			end
+		end)
+	end
+	pull()
+	while not ST.isUnloaded do
+		task.wait(45)
+		pull()
 	end
 end)
 
