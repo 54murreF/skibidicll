@@ -1,6 +1,6 @@
 --[[
     ╔═══════════════════════════════════════════════════════════════╗
-    ║              CLL CHEAT - FULL INTEGRATION v11.61-af (native Q/G grab mirror + VR restore)                ║
+    ║              CLL CHEAT - FULL INTEGRATION v11.62-ag (native Q/G grab mirror + VR restore)                ║
     ╠═══════════════════════════════════════════════════════════════╣
     ║  SUK head-hit, real crosshair, tracers, ESP outline nick,     ║
     ║  ChinaHat/Wings fix, VR hands, anti-flash/shake, antibypass   ║
@@ -2832,17 +2832,8 @@ function vrShutdown()
 	vrShoulders = {}
 end
 
-UIS.InputChanged:Connect(function(input)
-	if not ST.VREnabled then return end
-	if input.UserInputType ~= Enum.UserInputType.MouseMovement then return end
-	if not UIS:IsMouseButtonPressed(Enum.UserInputType.MouseButton2) then return end
-	local d = input.Delta
-	if typeof(d) ~= "Vector2" then return end
-	if d.Magnitude < 0.01 then return end
-	VR_Cam_Rotation = CFrame.Angles(0, math.rad(-d.X * 0.35), 0)
-		* VR_Cam_Rotation
-		* CFrame.Angles(math.rad(-d.Y * 0.35), 0, 0)
-end)
+-- VR look uses mouse-position delta in CLL_VR (no cursor lock, no double-apply)
+
 
 
 -- Center toast: VR disabled on death
@@ -3124,6 +3115,8 @@ UIS.InputBegan:Connect(function(input, gp)
 	VRSwingPhase = 0
 end)
 
+local vrLastMousePos = nil
+local vrWasLooking = false
 RunService:BindToRenderStep("CLL_VR", Enum.RenderPriority.Last.Value, function(dt)
 	if ST.isUnloaded then return end
 
@@ -3175,18 +3168,31 @@ RunService:BindToRenderStep("CLL_VR", Enum.RenderPriority.Last.Value, function(d
 	end
 
 	local looking = UIS:IsMouseButtonPressed(Enum.UserInputType.MouseButton2)
+	-- NEVER LockCenter / LockCurrentPosition: that yanks the cursor to the middle.
 	pcall(function()
-		-- GetMouseDelta() ONLY works with LockCenter (Roblox). LockCurrentPosition → delta always 0.
-		UIS.MouseIconEnabled = not looking
-		UIS.MouseBehavior = looking and Enum.MouseBehavior.LockCenter or Enum.MouseBehavior.Default
+		UIS.MouseIconEnabled = true
+		UIS.MouseBehavior = Enum.MouseBehavior.Default
 	end)
+	if looking and not vrWasLooking and cam then
+		-- start free-look from the camera you already have (identity rot looks only along world -Z)
+		local cf = cam.CFrame
+		VR_Cam_Rotation = cf - cf.Position
+	end
+	vrWasLooking = looking
 	if looking then
-		local d = UIS:GetMouseDelta()
-		if typeof(d) == "Vector2" and (math.abs(d.X) + math.abs(d.Y)) > 0 then
-			VR_Cam_Rotation = CFrame.Angles(0, math.rad(-d.X * 0.35), 0)
-				* VR_Cam_Rotation
-				* CFrame.Angles(math.rad(-d.Y * 0.35), 0, 0)
+		local pos = UIS:GetMouseLocation()
+		if vrLastMousePos then
+			local dx = pos.X - vrLastMousePos.X
+			local dy = pos.Y - vrLastMousePos.Y
+			if math.abs(dx) + math.abs(dy) > 0 then
+				VR_Cam_Rotation = CFrame.Angles(0, math.rad(-dx * 0.22), 0)
+					* VR_Cam_Rotation
+					* CFrame.Angles(math.rad(-dy * 0.22), 0, 0)
+			end
 		end
+		vrLastMousePos = pos
+	else
+		vrLastMousePos = nil
 	end
 	pcall(function()
 		hum.CameraOffset = Vector3.zero
@@ -3214,7 +3220,7 @@ RunService:BindToRenderStep("CLL_VR", Enum.RenderPriority.Last.Value, function(d
 		aimPos = headPos + torsoCF.LookVector * 50
 	end
 
-	-- free-look camera (53) + LockCenter deltas
+	-- free-look: RMB rotates from current view, cursor stays free
 	local headCF
 	if headPos and typeof(headPos) == "Vector3" then
 		if looking then
@@ -4067,7 +4073,7 @@ fit(); workspace.CurrentCamera:GetPropertyChangedSignal("ViewportSize"):Connect(
 local header = new("Frame", { Size = UDim2.new(1, 0, 0, 62), BackgroundTransparency = 1, Parent = window })
 local logoLabel = label({ Text = "CLL", Font = Enum.Font.Michroma, TextSize = 26, TextTruncate = Enum.TextTruncate.AtEnd, Size = UDim2.fromOffset(100, 62), Position = UDim2.fromOffset(23, 0), Parent = header })
 logoLabel.TextColor3 = Color3.fromRGB(255, 255, 255) -- Always white
-local verLabel = label({ Text = "v11.61-af", Font = Enum.Font.GothamBold, TextSize = 12, TextColor3 = Theme.Dim, Size = UDim2.fromOffset(50, 62), Position = UDim2.fromOffset(85, 2), Parent = header })
+local verLabel = label({ Text = "v11.62-ag", Font = Enum.Font.GothamBold, TextSize = 12, TextColor3 = Theme.Dim, Size = UDim2.fromOffset(50, 62), Position = UDim2.fromOffset(85, 2), Parent = header })
 local timeLabel = label({ Text = "Session: 00:00", Font = Enum.Font.GothamMedium, TextSize = 13, TextColor3 = Theme.Dim, Size = UDim2.fromOffset(150, 62), Position = UDim2.fromOffset(150, 0), Parent = header })
 task.spawn(function()
 	while not ST.isUnloaded do
