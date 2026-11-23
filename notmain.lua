@@ -1,6 +1,6 @@
 --[[
     ╔═══════════════════════════════════════════════════════════════╗
-    ║              CLL CHEAT - FULL INTEGRATION v11.38-h (vr grab only, any-death hl, suk burst)                ║
+    ║              CLL CHEAT - FULL INTEGRATION v11.39-i (native Q/G grab mirror + VR restore)                ║
     ╠═══════════════════════════════════════════════════════════════╣
     ║  SUK head-hit, real crosshair, tracers, ESP outline nick,     ║
     ║  ChinaHat/Wings fix, VR hands, anti-flash/shake, antibypass   ║
@@ -2581,15 +2581,17 @@ function vrRestoreShoulders()
 	end
 end
 
-function vrInitCharacter(char)
+function vrInitCharacter(char, force)
 	if not char then return end
 	local hum = char:FindFirstChildOfClass("Humanoid")
 	if not hum or hum.Health <= 0 then return end
 	if char:GetAttribute("Ragdoll") or char:GetAttribute("Downed") then return end
-	-- don't re-init within spawn grace (stops death-loop after respawn)
-	local spawnT = char:GetAttribute("CLL_SpawnT")
-	if typeof(spawnT) == "number" and (tick() - spawnT) < 2.5 then
-		return
+	-- spawn grace only for auto paths (manual VR toggle passes force=true)
+	if not force then
+		local spawnT = char:GetAttribute("CLL_SpawnT")
+		if typeof(spawnT) == "number" and (tick() - spawnT) < 1.0 then
+			return
+		end
 	end
 	pcall(function()
 		local hrp = char:FindFirstChild("HumanoidRootPart")
@@ -2759,7 +2761,7 @@ function setVREnabled(on, fromUser)
 		-- still refresh UI
 		if VRToggleSetUI then pcall(VRToggleSetUI, on) end
 		if on and LocalPlayer.Character and not vrDidInit then
-			pcall(vrInitCharacter, LocalPlayer.Character)
+			pcall(vrInitCharacter, LocalPlayer.Character, true)
 		end
 		return
 	end
@@ -2783,7 +2785,7 @@ function setVREnabled(on, fromUser)
 						rr.AssemblyAngularVelocity = Vector3.zero
 					end)
 				end
-				if live then pcall(vrInitCharacter, live) end
+				if live then pcall(vrInitCharacter, live, true) end
 			end)
 		end
 	else
@@ -2811,6 +2813,45 @@ function setVREnabled(on, fromUser)
 		
 	end
 end
+
+
+-- Dump Keybinds mirror (no CAS Sink): Q=Kick→Grabmove RIGHT_ARM, G=Grab→LEFT_ARM when VR on
+-- Fires even if gameProcessed, because GUI/other can block Character.Keybinds
+UIS.InputBegan:Connect(function(input, _)
+	if ST.isUnloaded or not ST.VREnabled or ST.isBinding then return end
+	if UIS:GetFocusedTextBox() then return end
+	local code = input.KeyCode
+	local isQ = (code == Enum.KeyCode.Q or code == Enum.KeyCode.ButtonB)
+	local isG = (code == Enum.KeyCode.G or code == Enum.KeyCode.ButtonY)
+	if not isQ and not isG then return end
+	if os.clock() - (_G.CLL_GrabMirrorAt or 0) < 0.1 then return end
+	_G.CLL_GrabMirrorAt = os.clock()
+	local char = LocalPlayer.Character
+	if not char then return end
+	local hum = char:FindFirstChildOfClass("Humanoid")
+	if not hum or hum.Health <= 0 then return end
+	if char:GetAttribute("Downed") or char:GetAttribute("Ragdoll") then return end
+	-- clear dump u107 blockers only
+	pcall(function()
+		char:SetAttribute("GloryKillCooldown", nil)
+		char:SetAttribute("Stunned", nil)
+		char:SetAttribute("Dropkick", nil)
+		hum:SetAttribute("Stunned", nil)
+	end)
+	if not SwingRemote or not SwingRemote.Parent then
+		pcall(function()
+			local r = ReplicatedStorage:FindFirstChild("Remotes")
+			SwingRemote = r and (r:FindFirstChild("Swing") or r:FindFirstChild("swing"))
+		end)
+	end
+	if not SwingRemote then return end
+	-- exact dump packets
+	if isQ then
+		pcall(function() SwingRemote:FireServer("Grabmove", "RIGHT_ARM") end)
+	else
+		pcall(function() SwingRemote:FireServer("Grabmove", "LEFT_ARM") end)
+	end
+end)
 
 -- VR swing input: start fist animation (no Grabmove)
 local VRSwingSide = 1
@@ -3762,7 +3803,7 @@ fit(); workspace.CurrentCamera:GetPropertyChangedSignal("ViewportSize"):Connect(
 local header = new("Frame", { Size = UDim2.new(1, 0, 0, 62), BackgroundTransparency = 1, Parent = window })
 local logoLabel = label({ Text = "CLL", Font = Enum.Font.Michroma, TextSize = 26, TextTruncate = Enum.TextTruncate.AtEnd, Size = UDim2.fromOffset(100, 62), Position = UDim2.fromOffset(23, 0), Parent = header })
 logoLabel.TextColor3 = Color3.fromRGB(255, 255, 255) -- Always white
-local verLabel = label({ Text = "v11.38", Font = Enum.Font.GothamBold, TextSize = 12, TextColor3 = Theme.Dim, Size = UDim2.fromOffset(50, 62), Position = UDim2.fromOffset(85, 2), Parent = header })
+local verLabel = label({ Text = "v11.39-i", Font = Enum.Font.GothamBold, TextSize = 12, TextColor3 = Theme.Dim, Size = UDim2.fromOffset(50, 62), Position = UDim2.fromOffset(85, 2), Parent = header })
 local timeLabel = label({ Text = "Session: 00:00", Font = Enum.Font.GothamMedium, TextSize = 13, TextColor3 = Theme.Dim, Size = UDim2.fromOffset(150, 62), Position = UDim2.fromOffset(150, 0), Parent = header })
 task.spawn(function()
 	while not ST.isUnloaded do
