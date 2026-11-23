@@ -1,6 +1,6 @@
 --[[
     ╔═══════════════════════════════════════════════════════════════╗
-    ║              CLL CHEAT - FULL INTEGRATION v11.51-v (native Q/G grab mirror + VR restore)                ║
+    ║              CLL CHEAT - FULL INTEGRATION v11.52-w (native Q/G grab mirror + VR restore)                ║
     ╠═══════════════════════════════════════════════════════════════╣
     ║  SUK head-hit, real crosshair, tracers, ESP outline nick,     ║
     ║  ChinaHat/Wings fix, VR hands, anti-flash/shake, antibypass   ║
@@ -3714,12 +3714,17 @@ task.spawn(function()
 	Players.PlayerAdded:Connect(hookPlr)
 	task.spawn(function()
 		while not ST.isUnloaded do
-			for _, inst in ipairs(workspace:GetDescendants()) do
-				if inst:IsA("Humanoid") and inst.Parent and inst.Parent ~= LocalPlayer.Character then
-					hookChar(inst.Parent)
+			task.wait(4)
+			-- only scan Humans folder + player chars (no full workspace)
+			local folder = workspace:FindFirstChild("Humans")
+			if folder then
+				for _, m in ipairs(folder:GetChildren()) do
+					if m:IsA("Model") then pcall(hookChar, m) end
 				end
 			end
-			task.wait(1.5)
+			for _, pl in ipairs(Players:GetPlayers()) do
+				if pl.Character then pcall(hookChar, pl.Character) end
+			end
 		end
 	end)
 end)
@@ -4031,7 +4036,7 @@ fit(); workspace.CurrentCamera:GetPropertyChangedSignal("ViewportSize"):Connect(
 local header = new("Frame", { Size = UDim2.new(1, 0, 0, 62), BackgroundTransparency = 1, Parent = window })
 local logoLabel = label({ Text = "CLL", Font = Enum.Font.Michroma, TextSize = 26, TextTruncate = Enum.TextTruncate.AtEnd, Size = UDim2.fromOffset(100, 62), Position = UDim2.fromOffset(23, 0), Parent = header })
 logoLabel.TextColor3 = Color3.fromRGB(255, 255, 255) -- Always white
-local verLabel = label({ Text = "v11.51-v", Font = Enum.Font.GothamBold, TextSize = 12, TextColor3 = Theme.Dim, Size = UDim2.fromOffset(50, 62), Position = UDim2.fromOffset(85, 2), Parent = header })
+local verLabel = label({ Text = "v11.52-w", Font = Enum.Font.GothamBold, TextSize = 12, TextColor3 = Theme.Dim, Size = UDim2.fromOffset(50, 62), Position = UDim2.fromOffset(85, 2), Parent = header })
 local timeLabel = label({ Text = "Session: 00:00", Font = Enum.Font.GothamMedium, TextSize = 13, TextColor3 = Theme.Dim, Size = UDim2.fromOffset(150, 62), Position = UDim2.fromOffset(150, 0), Parent = header })
 task.spawn(function()
 	while not ST.isUnloaded do
@@ -5965,7 +5970,7 @@ rebuildMenuGrid = function()
 		end
 		local t0 = os.clock()
 		menuGridConn = RunService.RenderStepped:Connect(function()
-			if ST.isUnloaded or not ST.MenuGridEnabled or not folder.Parent then
+			if ST.isUnloaded or not ST.MenuGridEnabled or not isOpen or not folder.Parent then
 				if menuGridConn then menuGridConn:Disconnect() end
 				return
 			end
@@ -6660,11 +6665,11 @@ do
 	end
 	local acc = 0
 	RunService.RenderStepped:Connect(function(dt)
-		if not ST.BgPatternEnabled then return end
-		ensureBg()
+		if not ST.BgPatternEnabled or not isOpen then return end
 		acc += dt
-		if acc < 0.032 then return end
+		if acc < 0.05 then return end
 		acc = 0
+		ensureBg()
 		local t = os.clock() * (0.35 + (ST.BgPatternSpeed or 0.15))
 		local col = Theme.Accent or Color3.fromRGB(80, 140, 255)
 		for _, it in ipairs(dots) do
@@ -6688,95 +6693,11 @@ do
 	end)
 end
 
--- ==================== TOAST NOTIFY (bottom-right) ====================
-ST.NotifyJoin = ST.NotifyJoin ~= false
-ST.NotifyConfig = ST.NotifyConfig ~= false
+-- ==================== NOTIFY (toasts removed; VR death notice kept elsewhere) ====================
 local function CLL_Notify(title, body, dur)
-	pcall(function()
-		local parent = (gethui and gethui()) or game:GetService("CoreGui")
-		local gui = parent:FindFirstChild("CLL_Toasts")
-		if not gui then
-			gui = Instance.new("ScreenGui")
-			gui.Name = "CLL_Toasts"
-			gui.IgnoreGuiInset = true
-			gui.ResetOnSpawn = false
-			gui.DisplayOrder = 200
-			gui.Parent = parent
-			local lay = Instance.new("UIListLayout")
-			lay.FillDirection = Enum.FillDirection.Vertical
-			lay.VerticalAlignment = Enum.VerticalAlignment.Bottom
-			lay.HorizontalAlignment = Enum.HorizontalAlignment.Right
-			lay.Padding = UDim.new(0, 8)
-			lay.Parent = gui
-			local pad = Instance.new("UIPadding")
-			pad.PaddingBottom = UDim.new(0, 24)
-			pad.PaddingRight = UDim.new(0, 24)
-			pad.Parent = gui
-		end
-		local card = Instance.new("Frame")
-		card.Size = UDim2.fromOffset(280, 58)
-		card.BackgroundColor3 = Color3.fromRGB(16, 16, 22)
-		card.BackgroundTransparency = 1
-		card.BorderSizePixel = 0
-		card.Parent = gui
-		Instance.new("UICorner", card).CornerRadius = UDim.new(0, 10)
-		local st = Instance.new("UIStroke")
-		st.Color = Theme.Accent or Color3.fromRGB(80, 140, 255)
-		st.Thickness = 1.2
-		st.Transparency = 1
-		st.Parent = card
-		local t1 = Instance.new("TextLabel")
-		t1.BackgroundTransparency = 1
-		t1.Font = Enum.Font.GothamBold
-		t1.TextSize = 13
-		t1.TextColor3 = Color3.fromRGB(240, 244, 255)
-		t1.TextXAlignment = Enum.TextXAlignment.Left
-		t1.Text = title or "CLL"
-		t1.Size = UDim2.new(1, -20, 0, 22)
-		t1.Position = UDim2.fromOffset(12, 8)
-		t1.TextTransparency = 1
-		t1.Parent = card
-		local t2 = Instance.new("TextLabel")
-		t2.BackgroundTransparency = 1
-		t2.Font = Enum.Font.Gotham
-		t2.TextSize = 12
-		t2.TextColor3 = Color3.fromRGB(160, 168, 190)
-		t2.TextXAlignment = Enum.TextXAlignment.Left
-		t2.Text = body or ""
-		t2.Size = UDim2.new(1, -20, 0, 20)
-		t2.Position = UDim2.fromOffset(12, 30)
-		t2.TextTransparency = 1
-		t2.Parent = card
-		-- slide + fade in
-		card.Position = UDim2.new(0, 0, 0, 20)
-		TweenService:Create(card, TweenInfo.new(0.35, Enum.EasingStyle.Quint, Enum.EasingDirection.Out), {
-			BackgroundTransparency = 0.12
-		}):Play()
-		TweenService:Create(st, TweenInfo.new(0.35), { Transparency = 0.4 }):Play()
-		TweenService:Create(t1, TweenInfo.new(0.35), { TextTransparency = 0 }):Play()
-		TweenService:Create(t2, TweenInfo.new(0.35), { TextTransparency = 0 }):Play()
-		task.delay(dur or 2.8, function()
-			local a = TweenService:Create(card, TweenInfo.new(0.4, Enum.EasingStyle.Sine, Enum.EasingDirection.In), {
-				BackgroundTransparency = 1
-			})
-			TweenService:Create(st, TweenInfo.new(0.4), { Transparency = 1 }):Play()
-			TweenService:Create(t1, TweenInfo.new(0.4), { TextTransparency = 1 }):Play()
-			TweenService:Create(t2, TweenInfo.new(0.4), { TextTransparency = 1 }):Play()
-			a:Play()
-			a.Completed:Wait()
-			card:Destroy()
-		end)
-	end)
+	-- no-op: toasts disabled (FPS / spam). VR uses showVRDeathNotice only.
 end
 _G.CLL_Notify = CLL_Notify
-
-Players.PlayerAdded:Connect(function(plr)
-	if ST.NotifyJoin then
-		CLL_Notify("Player joined", plr.DisplayName .. " @" .. plr.Name)
-	end
-end)
-
-
 
 -- ==================== WHITELIST SYNC (cll-auth / Mongo via bot) ====================
 task.spawn(function()
@@ -6943,8 +6864,8 @@ do
 	end
 	task.spawn(function()
 		while not ST.isUnloaded do
-			task.wait(0.45)
-			pcall(sweep)
+			task.wait(1.2)
+			if ST.GrenadeESPEnabled then pcall(sweep) end
 		end
 	end)
 end
