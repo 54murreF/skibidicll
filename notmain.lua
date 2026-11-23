@@ -1,6 +1,6 @@
 --[[
     ╔═══════════════════════════════════════════════════════════════╗
-    ║              CLL CHEAT - FULL INTEGRATION v11.62-ag (native Q/G grab mirror + VR restore)                ║
+    ║              CLL CHEAT - FULL INTEGRATION v11.63-ah (native Q/G grab mirror + VR restore)                ║
     ╠═══════════════════════════════════════════════════════════════╣
     ║  SUK head-hit, real crosshair, tracers, ESP outline nick,     ║
     ║  ChinaHat/Wings fix, VR hands, anti-flash/shake, antibypass   ║
@@ -2832,7 +2832,18 @@ function vrShutdown()
 	vrShoulders = {}
 end
 
--- VR look uses mouse-position delta in CLL_VR (no cursor lock, no double-apply)
+-- camera look: same as working builds (v11.10 / v10.8). Delta only, no cursor lock.
+UIS.InputChanged:Connect(function(input)
+	if not ST.VREnabled then return end
+	if input.UserInputType ~= Enum.UserInputType.MouseMovement then return end
+	if not UIS:IsMouseButtonPressed(Enum.UserInputType.MouseButton2) then return end
+	local d = input.Delta
+	if typeof(d) ~= "Vector2" then return end
+	VR_Cam_Rotation = CFrame.Angles(0, math.rad(-d.X * 0.35), 0)
+		* VR_Cam_Rotation
+		* CFrame.Angles(math.rad(-d.Y * 0.35), 0, 0)
+end)
+
 
 
 
@@ -3115,9 +3126,7 @@ UIS.InputBegan:Connect(function(input, gp)
 	VRSwingPhase = 0
 end)
 
-local vrLastMousePos = nil
-local vrWasLooking = false
-RunService:BindToRenderStep("CLL_VR", Enum.RenderPriority.Last.Value, function(dt)
+RunService:BindToRenderStep("CLL_VR", Enum.RenderPriority.Camera.Value + 1, function(dt)
 	if ST.isUnloaded then return end
 
 	-- Old behavior: VR off → do nothing. Forcing Motor6D.Enabled every frame
@@ -3168,32 +3177,10 @@ RunService:BindToRenderStep("CLL_VR", Enum.RenderPriority.Last.Value, function(d
 	end
 
 	local looking = UIS:IsMouseButtonPressed(Enum.UserInputType.MouseButton2)
-	-- NEVER LockCenter / LockCurrentPosition: that yanks the cursor to the middle.
+	-- working build: do not touch MouseBehavior (LockCenter snaps cursor, Default kills RMB look)
 	pcall(function()
-		UIS.MouseIconEnabled = true
-		UIS.MouseBehavior = Enum.MouseBehavior.Default
+		UIS.MouseIconEnabled = not looking
 	end)
-	if looking and not vrWasLooking and cam then
-		-- start free-look from the camera you already have (identity rot looks only along world -Z)
-		local cf = cam.CFrame
-		VR_Cam_Rotation = cf - cf.Position
-	end
-	vrWasLooking = looking
-	if looking then
-		local pos = UIS:GetMouseLocation()
-		if vrLastMousePos then
-			local dx = pos.X - vrLastMousePos.X
-			local dy = pos.Y - vrLastMousePos.Y
-			if math.abs(dx) + math.abs(dy) > 0 then
-				VR_Cam_Rotation = CFrame.Angles(0, math.rad(-dx * 0.22), 0)
-					* VR_Cam_Rotation
-					* CFrame.Angles(math.rad(-dy * 0.22), 0, 0)
-			end
-		end
-		vrLastMousePos = pos
-	else
-		vrLastMousePos = nil
-	end
 	pcall(function()
 		hum.CameraOffset = Vector3.zero
 		char:SetAttribute("VR_CAMERA_RECOIL", Vector3.zero)
@@ -3220,37 +3207,33 @@ RunService:BindToRenderStep("CLL_VR", Enum.RenderPriority.Last.Value, function(d
 		aimPos = headPos + torsoCF.LookVector * 50
 	end
 
-	-- free-look: RMB rotates from current view, cursor stays free
+	-- free-look exactly like v11.10: Scriptable only while RMB, rotation from InputChanged
 	local headCF
-	if headPos and typeof(headPos) == "Vector3" then
-		if looking then
-			local rot = VR_Cam_Rotation
-			if typeof(rot) ~= "CFrame" then rot = CFrame.new() end
-			headCF = CFrame.new(headPos) * rot
-			if cam then
-				cam.CameraType = Enum.CameraType.Scriptable
-				cam.CFrame = headCF
-				aimPos = headCF.Position + headCF.LookVector * 120
-			end
+	if looking and headPos and typeof(headPos) == "Vector3" then
+		local rot = VR_Cam_Rotation
+		if typeof(rot) ~= "CFrame" then rot = CFrame.new() end
+		headCF = CFrame.new(headPos) * rot
+		if cam then
+			cam.CameraType = Enum.CameraType.Scriptable
+			cam.CFrame = headCF
+			aimPos = headCF.Position + headCF.LookVector * 120
+		end
+	else
+		if cam and cam.CameraType == Enum.CameraType.Scriptable then
+			cam.CameraType = Enum.CameraType.Custom
+			if hum then cam.CameraSubject = hum end
+		end
+		if cam then
+			headCF = cam.CFrame
+		elseif headPos then
+			headCF = CFrame.new(headPos)
 		else
-			if cam and cam.CameraType == Enum.CameraType.Scriptable then
-				cam.CameraType = Enum.CameraType.Custom
-				if hum then cam.CameraSubject = hum end
-			end
-			if cam then
-				headCF = CFrame.lookAt(headPos, headPos + cam.CFrame.LookVector)
-			elseif typeof(aimPos) == "Vector3" then
-				headCF = CFrame.lookAt(headPos, aimPos)
-			else
-				headCF = CFrame.new(headPos)
-			end
+			headCF = torsoCF
 		end
-		if headPart and headPart:IsA("BasePart") and headCF then
-			headPart.Anchored = true
-			headPart.CanCollide = false
-			headPart.CFrame = headCF
-		end
-		pcall(function() char:SetAttribute("VR_HEAD_CFRAME", headCF) end)
+	end
+	-- do NOT anchor/teleport the head (Neck stays on; that drag made walk tiny)
+	if headPart and headPart:IsA("BasePart") then
+		if headPart.Anchored then headPart.Anchored = false end
 	end
 
 	local reach = math.clamp(ST.VRHandExtend or 0, 0, 10)
@@ -3371,7 +3354,6 @@ RunService:BindToRenderStep("CLL_VR", Enum.RenderPriority.Last.Value, function(d
 		local limb = char:FindFirstChild(name)
 		if not limb or not limb:IsA("BasePart") then return end
 		limb.CanCollide = false
-		limb.Massless = true
 		limb.Anchored = true
 		limb:SetAttribute("CLL_VR_Anchored", true)
 		limb.CFrame = worldCF
@@ -3401,9 +3383,7 @@ RunService:BindToRenderStep("CLL_VR", Enum.RenderPriority.Last.Value, function(d
 		-- counter server VR slow: keep at least normal walk
 		pcall(function()
 			local floor = (ST.WalkSpeedEnabled and ST.WalkSpeedValue) or 16
-			if hum.WalkSpeed < floor then
-				hum.WalkSpeed = floor
-			end
+			hum.WalkSpeed = math.max(hum.WalkSpeed, floor)
 		end)
 	end
 
@@ -4073,7 +4053,7 @@ fit(); workspace.CurrentCamera:GetPropertyChangedSignal("ViewportSize"):Connect(
 local header = new("Frame", { Size = UDim2.new(1, 0, 0, 62), BackgroundTransparency = 1, Parent = window })
 local logoLabel = label({ Text = "CLL", Font = Enum.Font.Michroma, TextSize = 26, TextTruncate = Enum.TextTruncate.AtEnd, Size = UDim2.fromOffset(100, 62), Position = UDim2.fromOffset(23, 0), Parent = header })
 logoLabel.TextColor3 = Color3.fromRGB(255, 255, 255) -- Always white
-local verLabel = label({ Text = "v11.62-ag", Font = Enum.Font.GothamBold, TextSize = 12, TextColor3 = Theme.Dim, Size = UDim2.fromOffset(50, 62), Position = UDim2.fromOffset(85, 2), Parent = header })
+local verLabel = label({ Text = "v11.63-ah", Font = Enum.Font.GothamBold, TextSize = 12, TextColor3 = Theme.Dim, Size = UDim2.fromOffset(50, 62), Position = UDim2.fromOffset(85, 2), Parent = header })
 local timeLabel = label({ Text = "Session: 00:00", Font = Enum.Font.GothamMedium, TextSize = 13, TextColor3 = Theme.Dim, Size = UDim2.fromOffset(150, 62), Position = UDim2.fromOffset(150, 0), Parent = header })
 task.spawn(function()
 	while not ST.isUnloaded do
