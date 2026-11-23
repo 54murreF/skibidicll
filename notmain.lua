@@ -1,6 +1,6 @@
 --[[
     ╔═══════════════════════════════════════════════════════════════╗
-    ║              CLL CHEAT - FULL INTEGRATION v11.56-aa (native Q/G grab mirror + VR restore)                ║
+    ║              CLL CHEAT - FULL INTEGRATION v11.57-ab (native Q/G grab mirror + VR restore)                ║
     ╠═══════════════════════════════════════════════════════════════╣
     ║  SUK head-hit, real crosshair, tracers, ESP outline nick,     ║
     ║  ChinaHat/Wings fix, VR hands, anti-flash/shake, antibypass   ║
@@ -1324,8 +1324,18 @@ function MultiFireAt()
 	end
 	if not FireRemote then return end
 
-	local tool = EnsureSpasEquipped()
-	if not tool or tool.Parent ~= LocalPlayer.Character then return end
+	local tool = GetSpas()
+	if not tool or tool.Parent ~= LocalPlayer.Character then
+		-- never block SUK tick with TP waits
+		if not ST._spasEquipQueued then
+			ST._spasEquipQueued = true
+			task.spawn(function()
+				pcall(EnsureSpasEquipped)
+				ST._spasEquipQueued = false
+			end)
+		end
+		return
+	end
 
 	local cur, maxA = ReadAmmo(tool)
 	maxA = maxA or tool:GetAttribute("MaxAmmo") or 8
@@ -3014,20 +3024,7 @@ function setVREnabled(on, fromUser)
 			end)
 		end
 	else
-		-- user request: short RMB hold, then LMB, then tear down VR so classic cam returns
-		pcall(function()
-			local vim = VirtualInputManager
-			-- hold RMB longer so game registers free-look release
-			vim:SendMouseButtonEvent(0, 0, 1, true, game, 1)
-			task.wait(0.35)
-			vim:SendMouseButtonEvent(0, 0, 1, false, game, 1)
-			task.wait(0.15)
-			-- then LMB
-			vim:SendMouseButtonEvent(0, 0, 0, true, game, 1)
-			task.wait(0.12)
-			vim:SendMouseButtonEvent(0, 0, 0, false, game, 1)
-			task.wait(0.08)
-		end)
+		-- no auto RMB/LMB (was freezing UI thread). User: hold RMB while toggling off to restore cam.
 		pcall(vrHideHeadAccessories, LocalPlayer.Character, false)
 		pcall(vrShutdown)
 		vrDidInit = false
@@ -3222,31 +3219,43 @@ RunService:BindToRenderStep("CLL_VR", Enum.RenderPriority.Camera.Value + 1, func
 	end
 
 	-- head faces where YOU look (camera / screen center aim)
-	local headCF
-	if cam then
-		local look = cam.CFrame.LookVector
-		headCF = CFrame.lookAt(headPos, headPos + look)
-	else
-		headCF = CFrame.lookAt(headPos, aimPos)
-	end
-	if headPart and headPart:IsA("BasePart") then
-		headPart.Anchored = false
-	end
-
-	if looking and headPos and typeof(headPos) == "Vector3" then
-		local rot = VR_Cam_Rotation
-		if typeof(rot) ~= "CFrame" then rot = CFrame.new() end
-		headCF = CFrame.new(headPos) * rot
-		if cam then
-			cam.CameraType = Enum.CameraType.Scriptable
-			cam.CFrame = headCF
-			aimPos = headCF.Position + headCF.LookVector * 120
+	local headCF = nil
+	if headPos and typeof(headPos) == "Vector3" then
+		if looking then
+			local rot = VR_Cam_Rotation
+			if typeof(rot) ~= "CFrame" then rot = CFrame.new() end
+			headCF = CFrame.new(headPos) * rot
+			if cam then
+				cam.CameraType = Enum.CameraType.Scriptable
+				cam.CFrame = headCF
+				aimPos = headCF.Position + headCF.LookVector * 120
+			end
+		else
+			if cam and cam.CameraType == Enum.CameraType.Scriptable then
+				cam.CameraType = Enum.CameraType.Custom
+				if hum then cam.CameraSubject = hum end
+			end
+			local lookTarget = nil
+			if typeof(aimPos) == "Vector3" then
+				lookTarget = aimPos
+			elseif cam then
+				lookTarget = headPos + cam.CFrame.LookVector * 50
+			end
+			if lookTarget and (lookTarget - headPos).Magnitude > 0.05 then
+				headCF = CFrame.lookAt(headPos, lookTarget)
+			else
+				headCF = CFrame.new(headPos)
+			end
 		end
-	else
-		if cam and cam.CameraType == Enum.CameraType.Scriptable then
-			cam.CameraType = Enum.CameraType.Custom
-			if hum then cam.CameraSubject = hum end
+		-- APPLY head rotation (was computed but never written — head froze)
+		if headPart and headPart:IsA("BasePart") and headCF then
+			headPart.Anchored = true
+			headPart.CanCollide = false
+			headPart.CFrame = headCF
 		end
+		pcall(function()
+			char:SetAttribute("VR_HEAD_CFRAME", headCF)
+		end)
 	end
 
 	local reach = math.clamp(ST.VRHandExtend or 0, 0, 10)
@@ -3256,8 +3265,12 @@ RunService:BindToRenderStep("CLL_VR", Enum.RenderPriority.Camera.Value + 1, func
 	-- BOTH arms always track screen-center aim (with or without tool)
 	-- R6: long axis Y → -90 X so fist faces aim
 	local function fistFrom(shoulderPos, target, extra)
+		if typeof(shoulderPos) ~= "Vector3" then return CFrame.new() end
+		if typeof(target) ~= "Vector3" then target = shoulderPos + (torsoCF.LookVector * 3) end
 		local dir = target - shoulderPos
-		if dir.Magnitude < 0.05 then dir = (aimPos - shoulderPos) end
+		if dir.Magnitude < 0.05 then
+			if typeof(aimPos) == "Vector3" then dir = aimPos - shoulderPos else dir = torsoCF.LookVector end
+		end
 		if dir.Magnitude < 0.05 then dir = torsoCF.LookVector else dir = dir.Unit end
 		-- R6 arm primary axis +Y: -90 X aims fist along look, no wrist-flip
 		local cf = CFrame.lookAt(shoulderPos, shoulderPos + dir)
@@ -4071,7 +4084,7 @@ fit(); workspace.CurrentCamera:GetPropertyChangedSignal("ViewportSize"):Connect(
 local header = new("Frame", { Size = UDim2.new(1, 0, 0, 62), BackgroundTransparency = 1, Parent = window })
 local logoLabel = label({ Text = "CLL", Font = Enum.Font.Michroma, TextSize = 26, TextTruncate = Enum.TextTruncate.AtEnd, Size = UDim2.fromOffset(100, 62), Position = UDim2.fromOffset(23, 0), Parent = header })
 logoLabel.TextColor3 = Color3.fromRGB(255, 255, 255) -- Always white
-local verLabel = label({ Text = "v11.56-aa", Font = Enum.Font.GothamBold, TextSize = 12, TextColor3 = Theme.Dim, Size = UDim2.fromOffset(50, 62), Position = UDim2.fromOffset(85, 2), Parent = header })
+local verLabel = label({ Text = "v11.57-ab", Font = Enum.Font.GothamBold, TextSize = 12, TextColor3 = Theme.Dim, Size = UDim2.fromOffset(50, 62), Position = UDim2.fromOffset(85, 2), Parent = header })
 local timeLabel = label({ Text = "Session: 00:00", Font = Enum.Font.GothamMedium, TextSize = 13, TextColor3 = Theme.Dim, Size = UDim2.fromOffset(150, 62), Position = UDim2.fromOffset(150, 0), Parent = header })
 task.spawn(function()
 	while not ST.isUnloaded do
@@ -4787,6 +4800,16 @@ function buildVR()
 		end
 	end
 	y = y + 48
+	label({
+		Text = "Tip: hold RMB while turning VR off to restore camera",
+		TextSize = 11,
+		TextColor3 = Theme.Dim,
+		TextWrapped = true,
+		Size = UDim2.new(1, -24, 0, 28),
+		Position = UDim2.fromOffset(12, y),
+		Parent = scroll,
+	})
+	y = y + 32
 	toggle(scroll, y, "VR Target Mode", function(v) ST.VRTargetEnabled = v end, false)
 	y = y + 48
 	toggle(scroll, y, "Enable Hand Shake", function(v) ST.VRShakeEnabled = v end, false)
