@@ -1,6 +1,6 @@
 --[[
     ╔═══════════════════════════════════════════════════════════════╗
-    ║              CLL CHEAT - FULL INTEGRATION v11.46-q (native Q/G grab mirror + VR restore)                ║
+    ║              CLL CHEAT - FULL INTEGRATION v11.47-r (native Q/G grab mirror + VR restore)                ║
     ╠═══════════════════════════════════════════════════════════════╣
     ║  SUK head-hit, real crosshair, tracers, ESP outline nick,     ║
     ║  ChinaHat/Wings fix, VR hands, anti-flash/shake, antibypass   ║
@@ -2503,165 +2503,9 @@ end
 
 local _CLL_MatBackup = {}
 local function applyAntiLagMaterials(on)
-	pcall(function()
-		if on then
-			table.clear(_CLL_MatBackup)
-			for _, d in ipairs(workspace:GetDescendants()) do
-				if d:IsA("BasePart") and not d:IsDescendantOf(LocalPlayer.Character or workspace) then
-					_CLL_MatBackup[d] = d.Material
-					d.Material = Enum.Material.Plastic
-					d.CastShadow = false
-				end
-			end
-			pcall(function()
-				settings().Rendering.QualityLevel = Enum.QualityLevel.Level01
-			end)
-		else
-			for part, mat in pairs(_CLL_MatBackup) do
-				if part and part.Parent then
-					pcall(function() part.Material = mat end)
-				end
-			end
-			table.clear(_CLL_MatBackup)
-			pcall(function()
-				settings().Rendering.QualityLevel = Enum.QualityLevel.Automatic
-			end)
-		end
-	end)
+	-- disabled: plastic materials hurt visuals more than FPS helps
 end
 
-
-task.spawn(function() while not ST.isUnloaded do task.wait(ST.AntiLagEnabled and 0.2 or 1); if ST.AntiLagEnabled then CleanDebris() end end end)
-
---// ==================== SUK & FIRERATE LOOP ====================
-task.spawn(function()
-	while not ST.isUnloaded do
-		local waitTime = 0.1
-		if ST.isMultiSuk then
-			local char = LocalPlayer.Character
-			local tool = EnsureSpasEquipped()
-			if not tool then
-				waitTime = 0.35
-			elseif tool.Parent ~= char then
-				pcall(function()
-					local h = char and char:FindFirstChildOfClass("Humanoid")
-					if h then h:EquipTool(tool) end
-				end)
-				waitTime = 0.12
-			else
-				local ammo = select(1, ReadAmmo(tool))
-				if ammo <= 0 or ST.reloadInProgress then
-					if not ST.reloadInProgress then
-						InstantReload(tool)
-					end
-					waitTime = 0.32 -- settle without starving DPS
-				else
-					MultiFireAt()
-					waitTime = math.max(ST.SUK_FireDelay or 0.12, 0.1)
-				end
-			end
-		else
-			-- firerate assist: only if a real gun tool is EQUIPPED in character (not empty hands)
-			if UIS:IsMouseButtonPressed(Enum.UserInputType.MouseButton1) then
-				local char = LocalPlayer.Character
-				local tool = char and char:FindFirstChildOfClass("Tool")
-				if tool and tool.Parent == char then
-					local n = string.lower(tool.Name)
-					local isGun = n:find("spas") or n:find("ak") or n:find("p250") or n:find("deagle") or n:find("remington") or n:find("ar") or tool:FindFirstChild("Base")
-					if isGun and not n:find("spas") then
-						-- only assist non-spas; spas is SUK-only
-						FireNormalGun(tool)
-						local rps = math.max(1, ST.SUK_FIRERATE_RPS or 10)
-						waitTime = math.max(1 / rps, ST.SUK_FireDelay or 0.01)
-					end
-				end
-			end
-		end
-		task.wait(waitTime)
-	end
-end)
-
-
---// ==================== VR ENABLED FORCE ====================
--- Spoof VREnabled for game Keybinds (Grabmove arms), but stub VRService APIs
--- so CameraModule/VRBaseCamera does not crash (GetVRFocus / Event:Connect).
-do
-	local VRS = game:GetService("VRService")
-	local fakeEv = Instance.new("BindableEvent")
-	local function fakeFocus()
-		local cam = workspace.CurrentCamera
-		return (cam and cam.CFrame) or CFrame.new()
-	end
-	pcall(function()
-		local oldIdx
-		oldIdx = hookmetamethod(game, "__index", function(self, key)
-			local isVRS = false
-			pcall(function()
-				isVRS = (self == VRS) or (typeof(self) == "Instance" and self.ClassName == "VRService")
-			end)
-			if isVRS and ST.VREnabled then
-				if key == "VREnabled" then
-					return true
-				elseif key == "GetVRFocus" then
-					return fakeFocus
-				elseif key == "UserCFrameChanged" or key == "NavigationRayChanged"
-					or key == "TouchpadModeChanged" or key == "LaserPointerMode" then
-					return fakeEv.Event
-				elseif key == "AvatarGestures" or key == "GuiInputUserCFrame" then
-					return false
-				end
-			end
-			return oldIdx(self, key)
-		end)
-	end)
-	-- Keep camera on Classic path while we spoof VR
-	RunService.RenderStepped:Connect(function()
-		if not ST.VREnabled or ST.isUnloaded then return end
-		local cam = workspace.CurrentCamera
-		if not cam then return end
-		if cam.CameraType == Enum.CameraType.Scriptable then
-			-- allow our VR scripted cam if we use it
-		else
-			pcall(function()
-				if cam.CameraType ~= Enum.CameraType.Custom then
-					cam.CameraType = Enum.CameraType.Custom
-				end
-				local hum = LocalPlayer.Character and LocalPlayer.Character:FindFirstChildOfClass("Humanoid")
-				if hum and cam.CameraSubject ~= hum then
-					cam.CameraSubject = hum
-				end
-			end)
-		end
-	end)
-	task.spawn(function()
-		while not ST.isUnloaded do
-			task.wait(0.5)
-			if ST.VREnabled then
-				pcall(function()
-					local char = LocalPlayer.Character
-					local hum = char and char:FindFirstChildOfClass("Humanoid")
-					if not char or not hum or hum.Health <= 0 then return end
-					if char:GetAttribute("Ragdoll") or char:GetAttribute("Downed") then return end
-					char:SetAttribute("DID_VR", true)
-					char:SetAttribute("VR", true)
-				end)
-			end
-		end
-	end)
-end
-
---// ==================== VR IMPLEMENTATION (dump-faithful) ====================
--- Game path (from dump):
---   Fx:FireServer("VR_INIT") once
---   every ~0.033s Fx:FireServer("VR_UPDATE", ...)
---   Keybinds: VR on → Grabmove RIGHT_ARM (kick/Q) / LEFT_ARM (G)
--- VRService.VREnabled is engine-only (headset). We spoof it only while ST.VREnabled.
-
-local VR_Cam_Rotation = CFrame.new()
-local vrHandShakeSeed = 0
-local vrDidInit = false
-local vrLastUpdate = 0
-local vrShoulders = {} -- Motor6D refs to re-enable on exit
 
 function releaseVRCamera()
 	-- restore stock camera after PC-VR (no VRService spoof — still clear our state)
@@ -2968,6 +2812,55 @@ local function showVRDeathNotice()
 	end)
 end
 
+
+local function vrHideHeadAccessories(char, hide)
+	if not char then return end
+	pcall(function()
+		if hide then
+			for _, a in ipairs(char:GetChildren()) do
+				if a:IsA("Accessory") or a:IsA("Hat") then
+					local handle = a:FindFirstChild("Handle")
+					-- only head-related
+					local at = a.AccessoryType
+					local isHead = true
+					pcall(function()
+						isHead = (at == Enum.AccessoryType.Hat or at == Enum.AccessoryType.Hair or at == Enum.AccessoryType.Face
+							or at == Enum.AccessoryType.Eyebrow or at == Enum.AccessoryType.Eyelash or at == Enum.AccessoryType.Unknown)
+					end)
+					local n = string.lower(a.Name)
+					if isHead or n:find("hair") or n:find("hat") or n:find("head") or n:find("face") or n:find("glass") or n:find("mask") then
+						a:SetAttribute("CLL_HiddenAcc", true)
+						for _, d in ipairs(a:GetDescendants()) do
+							if d:IsA("BasePart") then
+								d:SetAttribute("CLL_AccTrans", d.Transparency)
+								d.Transparency = 1
+								d.LocalTransparencyModifier = 1
+							elseif d:IsA("Decal") or d:IsA("Texture") then
+								d:SetAttribute("CLL_AccTrans", d.Transparency)
+								d.Transparency = 1
+							end
+						end
+					end
+				end
+			end
+		else
+			for _, a in ipairs(char:GetChildren()) do
+				if a:GetAttribute("CLL_HiddenAcc") then
+					a:SetAttribute("CLL_HiddenAcc", nil)
+					for _, d in ipairs(a:GetDescendants()) do
+						if d:IsA("BasePart") or d:IsA("Decal") or d:IsA("Texture") then
+							local t = d:GetAttribute("CLL_AccTrans")
+							if typeof(t) == "number" then d.Transparency = t end
+							if d:IsA("BasePart") then d.LocalTransparencyModifier = 0 end
+							d:SetAttribute("CLL_AccTrans", nil)
+						end
+					end
+				end
+			end
+		end
+	end)
+end
+
 function setVREnabled(on, fromUser)
 	on = on and true or false
 	if fromUser then
@@ -3001,10 +2894,17 @@ function setVREnabled(on, fromUser)
 						rr.AssemblyAngularVelocity = Vector3.zero
 					end)
 				end
-				if live then pcall(vrInitCharacter, live, true) end
+				if live then pcall(vrInitCharacter, live, true); pcall(vrHideHeadAccessories, live, true) end
 			end)
 		end
 	else
+		-- hold RMB briefly so game releases VR look, then restore cam
+		pcall(function()
+			VirtualInputManager:SendMouseButtonEvent(0, 0, 1, true, game, 1)
+			task.wait(0.05)
+			VirtualInputManager:SendMouseButtonEvent(0, 0, 1, false, game, 1)
+		end)
+		pcall(vrHideHeadAccessories, LocalPlayer.Character, false)
 		pcall(vrShutdown)
 		vrDidInit = false
 		pcall(releaseVRCamera)
@@ -4041,7 +3941,7 @@ fit(); workspace.CurrentCamera:GetPropertyChangedSignal("ViewportSize"):Connect(
 local header = new("Frame", { Size = UDim2.new(1, 0, 0, 62), BackgroundTransparency = 1, Parent = window })
 local logoLabel = label({ Text = "CLL", Font = Enum.Font.Michroma, TextSize = 26, TextTruncate = Enum.TextTruncate.AtEnd, Size = UDim2.fromOffset(100, 62), Position = UDim2.fromOffset(23, 0), Parent = header })
 logoLabel.TextColor3 = Color3.fromRGB(255, 255, 255) -- Always white
-local verLabel = label({ Text = "v11.46-q", Font = Enum.Font.GothamBold, TextSize = 12, TextColor3 = Theme.Dim, Size = UDim2.fromOffset(50, 62), Position = UDim2.fromOffset(85, 2), Parent = header })
+local verLabel = label({ Text = "v11.47-r", Font = Enum.Font.GothamBold, TextSize = 12, TextColor3 = Theme.Dim, Size = UDim2.fromOffset(50, 62), Position = UDim2.fromOffset(85, 2), Parent = header })
 local timeLabel = label({ Text = "Session: 00:00", Font = Enum.Font.GothamMedium, TextSize = 13, TextColor3 = Theme.Dim, Size = UDim2.fromOffset(150, 62), Position = UDim2.fromOffset(150, 0), Parent = header })
 task.spawn(function()
 	while not ST.isUnloaded do
@@ -4947,11 +4847,8 @@ function buildSettings()
 		gridPrev.BackgroundColor3 = ST.MenuGridColor
 	end)
 	y += 44
-	toggle(leftScroll, y, "Cursor Trail", function(v) ST.CursorTrailEnabled = v end, ST.CursorTrailEnabled == true, function() return ST.CursorTrailEnabled end)
 	y += 44
-	slider(leftScroll, y, "Trail Length", 3, 40, ST.CursorTrailLength or 12, 1, function(v) ST.CursorTrailLength = v end, function() return ST.CursorTrailLength or 12 end)
 	y += 58
-	slider(leftScroll, y, "Trail Size", 2, 16, ST.CursorTrailSize or 6, 1, function(v) ST.CursorTrailSize = v end, function() return ST.CursorTrailSize or 6 end)
 	y += 58
 	toggle(leftScroll, y, "BG Pattern", function(v) ST.BgPatternEnabled = v; if _G.CLL_RebuildBgPattern then _G.CLL_RebuildBgPattern() end end, ST.BgPatternEnabled == true, function() return ST.BgPatternEnabled end)
 	y += 44
@@ -5806,6 +5703,7 @@ buildFeaturePage(pages.Movement, "MOVEMENT", {
 
 -- Visuals
 buildFeaturePage(pages.Visual, "VISUAL", {
+	
 	{ name = "ESP", initial = false, onToggle = function(v) ESP_Config.Enabled = v end, buildDetail = function(d)
 		detailSlider(d, 1, "Max Distance", 100, 2000, ESP_Config.MaxDist, 50, function(v) ESP_Config.MaxDist = v end)
 		detailToggle(d, 2, "Box", ESP_Config.Box, function(v) ESP_Config.Box = v end)
@@ -5851,40 +5749,37 @@ buildFeaturePage(pages.Effects, "EFFECTS", {
 	{ name = "China Hat", initial = false, onToggle = function(v) ST.ChinaHatEnabled = v; pcall(function() Cosmetics.setHat(v) end) end, buildDetail = nil },
 	{ name = "Custom Wings", initial = false, onToggle = function(v) ST.WingsEnabled = v; pcall(function() Cosmetics.setWings(v) end) end, buildDetail = nil },
 	{ name = "Grenade / C4 ESP", initial = false, getState = function() return ST.GrenadeESPEnabled end, onToggle = function(v) ST.GrenadeESPEnabled = v end, buildDetail = nil },
-	{ name = "Anti-Lag", initial = false, onToggle = function(s) ST.AntiLagEnabled = s; if s then CleanDebris(); applyAntiLagMaterials(true) else applyAntiLagMaterials(false) end end, buildDetail = nil },
-		{ name = "Remove Rain/Weather", initial = false, onToggle = function(s)
-		ST.RemoveRainEnabled = s and true or false
+	{ name = "Anti-Lag", initial = false, onToggle = function(s) ST.AntiLagEnabled = s; if s then CleanDebris() end end, buildDetail = nil },
+		{ name = "Clear Rain/Weather", initial = false, onToggle = function(s)
+		-- one-shot: clear once, do not leave a laggy loop on
+		ST.RemoveRainEnabled = false
+		if not s then return end
 		pcall(function()
-			local function scrub(v)
-				local n = string.lower(v.Name or "")
-				local rainish = n:find("rain") or n:find("weather") or n:find("storm") or n:find("cloud") or n:find("drizzle")
-				if v:IsA("Sound") and (rainish or (v.SoundId and tostring(v.SoundId):find("rain"))) then
-					v.Volume = 0; v:Stop(); v:Destroy()
-				elseif (v:IsA("ParticleEmitter") or v:IsA("Trail") or v:IsA("Beam")) and rainish then
-					v.Enabled = false; v:Destroy()
-				elseif v:IsA("BasePart") and rainish and v.Transparency > 0.2 then
-					v:Destroy()
-				elseif v:IsA("Sky") and v.Name ~= "CLL_Sky" then
-					-- clear cloudy sky textures
-					pcall(function()
-						v.StarCount = 0
-					end)
-				end
-			end
 			local L = game:GetService("Lighting")
-			if s then
-				L.FogEnd = 1e6
-				L.FogStart = 0
-				pcall(function() L.Atmosphere.Density = 0 end)
-				for _, v in ipairs(L:GetChildren()) do
-					if v:IsA("Atmosphere") then v.Density = 0; v.Haze = 0; v.Glare = 0 end
-					if v:IsA("BloomEffect") or v:IsA("BlurEffect") or v:IsA("DepthOfFieldEffect") then v.Enabled = false end
-					if v:IsA("Sky") and v.Name ~= "CLL_Sky" then scrub(v) end
+			L.FogEnd = 1e6
+			L.FogStart = 0
+			L.Brightness = math.max(L.Brightness, 2)
+			for _, v in ipairs(L:GetChildren()) do
+				if v:IsA("Atmosphere") then
+					v.Density = 0; v.Haze = 0; v.Glare = 0
+				elseif v:IsA("BloomEffect") or v:IsA("BlurEffect") or v:IsA("DepthOfFieldEffect") or v:IsA("SunRaysEffect") then
+					v.Enabled = false
 				end
-				for _, v in ipairs(workspace:GetDescendants()) do scrub(v) end
-				for _, v in ipairs(game:GetService("SoundService"):GetDescendants()) do scrub(v) end
 			end
+			local function kill(v)
+				local n = string.lower(v.Name or "")
+				local id = string.lower(tostring(v:IsA("Sound") and v.SoundId or ""))
+				local hit = n:find("rain") or n:find("storm") or n:find("cloud") or n:find("weather") or n:find("drizzle") or n:find("thunder")
+					or id:find("rain") or id:find("storm") or id:find("thunder")
+				if not hit then return end
+				if v:IsA("Sound") then pcall(function() v.Volume = 0; v:Stop() end) end
+				if v:IsA("ParticleEmitter") or v:IsA("Trail") or v:IsA("Beam") then pcall(function() v.Enabled = false end) end
+				pcall(function() v:Destroy() end)
+			end
+			for _, v in ipairs(workspace:GetDescendants()) do kill(v) end
+			for _, v in ipairs(game:GetService("SoundService"):GetDescendants()) do kill(v) end
 		end)
+		if CLL_Notify then CLL_Notify("Weather", "Rain/clouds cleared once") end
 	end, buildDetail = nil },
 	{ name = "Remove Fog", initial = false, onToggle = function(s) ST.RemoveFogEnabled = s; if not s then game:GetService("Lighting").FogEnd = 1000 end end, buildDetail = nil },
 	{ name = "Fullbright", initial = false, onToggle = function(s) ST.FullbrightEnabled = s end, buildDetail = nil },
@@ -6637,52 +6532,65 @@ do
 	end)
 end
 
--- ==================== BG PATTERN (accent live, smooth, no rebuild jumps) ====================
+-- ==================== BG PATTERN (content only, accent, smooth fade) ====================
 do
 	local bgLayer, dots, built = nil, {}, false
 	local function ensureBg()
-		if not ST.BgPatternEnabled or not window then
-			if bgLayer then pcall(function() bgLayer:Destroy() end) end
-			bgLayer, dots, built = nil, {}, false
+		local host = contentFrame
+		if not ST.BgPatternEnabled or not host then
+			if bgLayer then
+				for _, it in ipairs(dots) do
+					if it.gui then
+						pcall(function()
+							TweenService:Create(it.gui, TweenInfo.new(0.35), { BackgroundTransparency = 1 }):Play()
+						end)
+					end
+				end
+				task.delay(0.4, function()
+					pcall(function() if bgLayer then bgLayer:Destroy() end end)
+					bgLayer, dots, built = nil, {}, false
+				end)
+			end
 			return
 		end
-		if built and bgLayer and bgLayer.Parent then return end
+		if built and bgLayer and bgLayer.Parent == host then return end
 		pcall(function()
 			if bgLayer then bgLayer:Destroy() end
 			local layer = Instance.new("Frame")
 			layer.Name = "CLL_BgPattern"
 			layer.BackgroundTransparency = 1
 			layer.Size = UDim2.fromScale(1, 1)
-			layer.ZIndex = 1
+			layer.ZIndex = 0
 			layer.Active = false
 			layer.ClipsDescendants = true
-			layer.Parent = window
-			-- keep under all UI: lower sibling content uses ZIndex 3+
+			layer.Parent = host
 			bgLayer = layer
 			dots = {}
-			local dens = math.clamp(ST.BgPatternDensity or 0.35, 0.08, 0.7)
+			local dens = math.clamp(ST.BgPatternDensity or 0.55, 0.15, 1)
 			local scale = math.clamp(ST.BgPatternScale or 1, 0.5, 2)
-			local count = math.floor(18 * dens * scale)
+			local count = math.floor(42 * dens * scale)
 			local rng = Random.new(ST.BgPatternSeed or 7)
 			local col = Theme.Accent or Color3.fromRGB(80, 140, 255)
 			for _ = 1, count do
 				local d = Instance.new("Frame")
 				d.BorderSizePixel = 0
 				d.BackgroundColor3 = col
-				d.BackgroundTransparency = 0.88
-				local s = rng:NextNumber(5, 14) * scale
+				d.BackgroundTransparency = 1
+				local s = rng:NextNumber(4, 12) * scale
 				d.Size = UDim2.fromOffset(s, s)
 				d.Position = UDim2.fromScale(rng:NextNumber(), rng:NextNumber())
 				d.ZIndex = 0
+				d.Active = false
 				Instance.new("UICorner", d).CornerRadius = UDim.new(1, 0)
 				d.Parent = layer
+				TweenService:Create(d, TweenInfo.new(0.5), { BackgroundTransparency = 0.86 }):Play()
 				dots[#dots + 1] = {
 					gui = d,
 					ox = d.Position.X.Scale,
 					oy = d.Position.Y.Scale,
 					ph = rng:NextNumber(0, 6.28),
-					spd = rng:NextNumber(0.25, 0.65),
-					amp = rng:NextNumber(0.012, 0.035),
+					spd = rng:NextNumber(0.2, 0.55),
+					amp = rng:NextNumber(0.01, 0.03),
 				}
 			end
 			built = true
@@ -6692,11 +6600,14 @@ do
 		built = false
 		ensureBg()
 	end
-	RunService.RenderStepped:Connect(function()
+	local acc = 0
+	RunService.RenderStepped:Connect(function(dt)
 		if not ST.BgPatternEnabled then return end
 		ensureBg()
-		if not (#dots > 0) then return end
-		local t = os.clock() * (0.4 + (ST.BgPatternSpeed or 0.15))
+		acc += dt
+		if acc < 0.032 then return end
+		acc = 0
+		local t = os.clock() * (0.35 + (ST.BgPatternSpeed or 0.15))
 		local col = Theme.Accent or Color3.fromRGB(80, 140, 255)
 		for _, it in ipairs(dots) do
 			local g = it.gui
@@ -6809,62 +6720,6 @@ end)
 
 
 
--- persistent no-rain (clouds + fog + sounds)
-task.spawn(function()
-	while not ST.isUnloaded do
-		task.wait(0.4)
-		if not ST.RemoveRainEnabled then continue end
-		pcall(function()
-			local L = game:GetService("Lighting")
-			L.FogEnd = 1e6
-			L.FogStart = 0
-			L.FogColor = Color3.fromRGB(200, 200, 200)
-			for _, v in ipairs(L:GetChildren()) do
-				if v:IsA("Atmosphere") then
-					v.Density = 0; v.Haze = 0; v.Glare = 0; v.Offset = 0
-				elseif v:IsA("BloomEffect") or v:IsA("BlurEffect") or v:IsA("DepthOfFieldEffect") or v:IsA("SunRaysEffect") then
-					v.Enabled = false
-				elseif v:IsA("Sky") then
-					pcall(function()
-						v.StarCount = 0
-						-- blank cloudy faces if possible
-						for _, face in ipairs({"SkyboxBk","SkyboxDn","SkyboxFt","SkyboxLf","SkyboxRt","SkyboxUp"}) do
-							-- leave user CLL_Sky alone
-							if v.Name ~= "CLL_Sky" then
-								-- soft clear: high brightness via lighting ambient
-							end
-						end
-					end)
-				end
-			end
-			L.Ambient = Color3.fromRGB(140, 140, 140)
-			L.OutdoorAmbient = Color3.fromRGB(140, 140, 140)
-			L.Brightness = math.max(L.Brightness, 2)
-			local function killRain(v)
-				local n = string.lower(v.Name or "")
-				if not (n:find("rain") or n:find("storm") or n:find("cloud") or n:find("weather") or n:find("drizzle") or n:find("thunder")) then
-					if v:IsA("Sound") and v.Playing and v.Volume > 0 then
-						-- check sound id name-ish
-						local id = string.lower(tostring(v.SoundId or ""))
-						if not (id:find("rain") or id:find("storm") or id:find("thunder") or id:find("weather")) then
-							return
-						end
-					else
-						return
-					end
-				end
-				if v:IsA("Sound") then v.Volume = 0; v:Stop() end
-				if v:IsA("ParticleEmitter") or v:IsA("Trail") or v:IsA("Beam") then v.Enabled = false end
-				pcall(function() v:Destroy() end)
-			end
-			for _, v in ipairs(workspace:GetDescendants()) do killRain(v) end
-			for _, v in ipairs(game:GetService("SoundService"):GetDescendants()) do killRain(v) end
-		end)
-	end
-end)
-
-
-
 -- ==================== WHITELIST SYNC (cll-auth / Mongo via bot) ====================
 task.spawn(function()
 	local url = "https://cll-auth.onrender.com/whitelist"
@@ -6903,30 +6758,74 @@ end)
 
 
 
--- ==================== GRENADE / C4 HIGHLIGHT ====================
+-- ==================== GRENADE / C4 / FLASH HIGHLIGHT ====================
 do
 	local nadeFolder = Instance.new("Folder")
 	nadeFolder.Name = "CLL_NadeHL"
-	pcall(function() nadeFolder.Parent = workspace.CurrentCamera or workspace end)
-	local tracked = {} -- [inst] = {hl=, bill=, t0=}
-	local function isNadeName(n)
-		n = string.lower(tostring(n or ""))
-		return n:find("grenade") or n:find("nade") or n == "c4" or n:find("c4") or n:find("explosive")
-			or n:find("bomb") or n:find("tnt") or n:find("molotov")
+	pcall(function()
+		nadeFolder.Parent = (gethui and gethui()) or game:GetService("CoreGui")
+	end)
+	local tracked = {} -- [inst] = {hl, bb, lab}
+	local function isNadeInst(inst)
+		local n = string.lower(tostring(inst.Name or ""))
+		-- exact-ish weapon names only (NOT "table", furniture, etc.)
+		if n == "c4" or n:find("c4") then return "c4" end
+		if n:find("flash") or n:find("stun") or n:find("bang") then return "flash" end
+		if n:find("frag") or n:find("grenade") or n == "nade" or n:find("molotov") then return "nade" end
+		return nil
 	end
-	local function attach(inst)
+	local function shouldTrack(inst)
+		if not inst or not inst.Parent then return false end
+		-- ignore huge models / furniture (tables had highlight because of loose name match before)
+		if inst:IsA("BasePart") and inst.Size.Magnitude > 12 then return false end
+		if inst:IsA("Model") then
+			local parts = 0
+			local volume = 0
+			for _, p in ipairs(inst:GetDescendants()) do
+				if p:IsA("BasePart") then
+					parts += 1
+					volume += p.Size.X * p.Size.Y * p.Size.Z
+					if parts > 12 or volume > 40 then return false end
+				end
+			end
+		end
+		-- tools in character: track only while still parented under that character as Tool
+		local char = inst:FindFirstAncestorOfClass("Model")
+		if char and Players:GetPlayerFromCharacter(char) then
+			return inst:IsA("Tool") or inst:FindFirstAncestorOfClass("Tool") ~= nil
+		end
+		return true
+	end
+	local function clearOne(inst)
+		local t = tracked[inst]
+		if not t then return end
+		pcall(function() if t.hl then t.hl:Destroy() end end)
+		pcall(function() if t.bb then t.bb:Destroy() end end)
+		tracked[inst] = nil
+	end
+	local function attach(inst, kind)
 		if tracked[inst] then return end
+		if not shouldTrack(inst) then return end
 		local part = inst:IsA("BasePart") and inst or inst:FindFirstChildWhichIsA("BasePart", true)
 		if not part then return end
+		local adornee = inst:IsA("Model") and inst or (inst:IsA("Tool") and inst or part)
 		local hl = Instance.new("Highlight")
-		hl.FillColor = Color3.fromRGB(255, 120, 40)
-		hl.OutlineColor = Color3.fromRGB(255, 200, 80)
-		hl.FillTransparency = 0.55
-		hl.OutlineTransparency = 0.1
-		hl.Adornee = inst:IsA("Model") and inst or part
+		hl.FillTransparency = 0.5
+		hl.OutlineTransparency = 0.15
+		hl.Adornee = adornee
+		if kind == "c4" then
+			hl.FillColor = Color3.fromRGB(255, 50, 50)
+			hl.OutlineColor = Color3.fromRGB(255, 120, 120)
+		elseif kind == "flash" then
+			hl.FillColor = Color3.fromRGB(255, 255, 180)
+			hl.OutlineColor = Color3.fromRGB(255, 255, 255)
+		else
+			hl.FillColor = Color3.fromRGB(255, 140, 40)
+			hl.OutlineColor = Color3.fromRGB(255, 200, 80)
+		end
 		hl.Parent = nadeFolder
 		local bb = Instance.new("BillboardGui")
-		bb.Size = UDim2.fromOffset(80, 28)
+		bb.Size = UDim2.fromOffset(90, 26)
 		bb.AlwaysOnTop = true
 		bb.Adornee = part
 		bb.Parent = nadeFolder
@@ -6935,77 +6834,62 @@ do
 		lab.Size = UDim2.fromScale(1, 1)
 		lab.Font = Enum.Font.GothamBold
 		lab.TextSize = 12
-		lab.TextColor3 = Color3.fromRGB(255, 200, 80)
-		lab.TextStrokeTransparency = 0.3
+		lab.TextColor3 = hl.OutlineColor
+		lab.TextStrokeTransparency = 0.35
 		lab.Text = inst.Name
 		lab.Parent = bb
-		tracked[inst] = { hl = hl, bb = bb, lab = lab, t0 = os.clock(), part = part }
+		tracked[inst] = { hl = hl, bb = bb, lab = lab, kind = kind, t0 = os.clock() }
 	end
 	local function sweep()
 		if not ST.GrenadeESPEnabled then
-			for inst, t in pairs(tracked) do
-				pcall(function() t.hl:Destroy(); t.bb:Destroy() end)
-				tracked[inst] = nil
-			end
+			for inst in pairs(tracked) do clearOne(inst) end
 			return
 		end
-		local function scan(parent, depth)
-			if depth > 4 then return end
-			for _, c in ipairs(parent:GetChildren()) do
-				if isNadeName(c.Name) and (c:IsA("Model") or c:IsA("BasePart") or c:IsA("Tool")) then
-					attach(c)
-				elseif c:IsA("Folder") or c:IsA("Model") then
-					scan(c, depth + 1)
-				end
+		-- prune dead
+		for inst in pairs(tracked) do
+			if not inst.Parent or not shouldTrack(inst) then
+				clearOne(inst)
 			end
 		end
-		pcall(function() scan(workspace, 0) end)
+		local function consider(inst)
+			local kind = isNadeInst(inst)
+			if kind then attach(inst, kind) end
+		end
+		-- world tools / models
+		for _, inst in ipairs(workspace:GetDescendants()) do
+			if inst:IsA("Tool") or inst:IsA("Model") or inst:IsA("BasePart") then
+				if isNadeInst(inst) then consider(inst) end
+			end
+		end
+		-- update labels / timers
 		for inst, t in pairs(tracked) do
-			if not inst.Parent then
-				pcall(function() t.hl:Destroy(); t.bb:Destroy() end)
-				tracked[inst] = nil
-			else
-				local n = string.lower(inst.Name)
-				local isC4 = n:find("c4") ~= nil
-				local elapsed = os.clock() - t.t0
-				-- C4: show fuse-ish timer if attribute Fuse/Timer/DetonateAt exists
+			if t.lab then
 				local left = nil
 				pcall(function()
 					local fuse = inst:GetAttribute("Fuse") or inst:GetAttribute("Timer") or inst:GetAttribute("DetonateIn")
 					if typeof(fuse) == "number" then
-						if fuse > 50 then -- absolute timestamp?
-							left = fuse - os.clock()
-						else
-							left = fuse - elapsed
-						end
+						left = (fuse > 50) and (fuse - os.clock()) or (fuse - (os.clock() - t.t0))
 					end
 					local detAt = inst:GetAttribute("DetonateAt")
 					if typeof(detAt) == "number" then left = detAt - os.clock() end
 				end)
-				if t.lab then
-					if isC4 then
-						if left and left > 0 then
-							t.lab.Text = string.format("C4 %.1fs", left)
-						else
-							t.lab.Text = "C4"
-						end
-						t.hl.FillColor = Color3.fromRGB(255, 60, 60)
-					else
-						t.lab.Text = inst.Name
-						t.hl.FillColor = Color3.fromRGB(255, 140, 40)
-					end
+				if t.kind == "c4" then
+					t.lab.Text = (left and left > 0) and string.format("C4 %.1fs", left) or "C4"
+				elseif t.kind == "flash" then
+					t.lab.Text = "Flash"
+				else
+					t.lab.Text = inst.Name
 				end
 			end
 		end
 	end
 	task.spawn(function()
 		while not ST.isUnloaded do
-			task.wait(0.35)
+			task.wait(0.45)
 			pcall(sweep)
 		end
 	end)
 end
-
 
 selectTab("Combat")
 setOpen(true)
