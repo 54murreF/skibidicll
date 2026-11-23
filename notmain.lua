@@ -1,6 +1,6 @@
 --[[
     ╔═══════════════════════════════════════════════════════════════╗
-    ║              CLL CHEAT - FULL INTEGRATION v11.39-i (native Q/G grab mirror + VR restore)                ║
+    ║              CLL CHEAT - FULL INTEGRATION v11.40-j (native Q/G grab mirror + VR restore)                ║
     ╠═══════════════════════════════════════════════════════════════╣
     ║  SUK head-hit, real crosshair, tracers, ESP outline nick,     ║
     ║  ChinaHat/Wings fix, VR hands, anti-flash/shake, antibypass   ║
@@ -2815,10 +2815,11 @@ function setVREnabled(on, fromUser)
 end
 
 
--- Dump Keybinds mirror (no CAS Sink): Q=Kick→Grabmove RIGHT_ARM, G=Grab→LEFT_ARM when VR on
--- Fires even if gameProcessed, because GUI/other can block Character.Keybinds
+-- Dump Keybinds mirror (no CAS Sink).
+-- VR on:  Q→Grabmove RIGHT_ARM, G→LEFT_ARM
+-- VR off: G→Grabmove nil (restore normal grab after VR disable)
 UIS.InputBegan:Connect(function(input, _)
-	if ST.isUnloaded or not ST.VREnabled or ST.isBinding then return end
+	if ST.isUnloaded or ST.isBinding then return end
 	if UIS:GetFocusedTextBox() then return end
 	local code = input.KeyCode
 	local isQ = (code == Enum.KeyCode.Q or code == Enum.KeyCode.ButtonB)
@@ -2831,7 +2832,6 @@ UIS.InputBegan:Connect(function(input, _)
 	local hum = char:FindFirstChildOfClass("Humanoid")
 	if not hum or hum.Health <= 0 then return end
 	if char:GetAttribute("Downed") or char:GetAttribute("Ragdoll") then return end
-	-- clear dump u107 blockers only
 	pcall(function()
 		char:SetAttribute("GloryKillCooldown", nil)
 		char:SetAttribute("Stunned", nil)
@@ -2845,11 +2845,15 @@ UIS.InputBegan:Connect(function(input, _)
 		end)
 	end
 	if not SwingRemote then return end
-	-- exact dump packets
-	if isQ then
-		pcall(function() SwingRemote:FireServer("Grabmove", "RIGHT_ARM") end)
-	else
-		pcall(function() SwingRemote:FireServer("Grabmove", "LEFT_ARM") end)
+	if ST.VREnabled then
+		if isQ then
+			pcall(function() SwingRemote:FireServer("Grabmove", "RIGHT_ARM") end)
+		elseif isG then
+			pcall(function() SwingRemote:FireServer("Grabmove", "LEFT_ARM") end)
+		end
+	elseif isG then
+		-- dump non-VR glory grab
+		pcall(function() SwingRemote:FireServer("Grabmove", nil) end)
 	end
 end)
 
@@ -3803,7 +3807,7 @@ fit(); workspace.CurrentCamera:GetPropertyChangedSignal("ViewportSize"):Connect(
 local header = new("Frame", { Size = UDim2.new(1, 0, 0, 62), BackgroundTransparency = 1, Parent = window })
 local logoLabel = label({ Text = "CLL", Font = Enum.Font.Michroma, TextSize = 26, TextTruncate = Enum.TextTruncate.AtEnd, Size = UDim2.fromOffset(100, 62), Position = UDim2.fromOffset(23, 0), Parent = header })
 logoLabel.TextColor3 = Color3.fromRGB(255, 255, 255) -- Always white
-local verLabel = label({ Text = "v11.39-i", Font = Enum.Font.GothamBold, TextSize = 12, TextColor3 = Theme.Dim, Size = UDim2.fromOffset(50, 62), Position = UDim2.fromOffset(85, 2), Parent = header })
+local verLabel = label({ Text = "v11.40-j", Font = Enum.Font.GothamBold, TextSize = 12, TextColor3 = Theme.Dim, Size = UDim2.fromOffset(50, 62), Position = UDim2.fromOffset(85, 2), Parent = header })
 local timeLabel = label({ Text = "Session: 00:00", Font = Enum.Font.GothamMedium, TextSize = 13, TextColor3 = Theme.Dim, Size = UDim2.fromOffset(150, 62), Position = UDim2.fromOffset(150, 0), Parent = header })
 task.spawn(function()
 	while not ST.isUnloaded do
@@ -3899,23 +3903,52 @@ function divider(parent, y) return new("Frame", { Size = UDim2.new(1, -PAD * 2, 
 function toggle(parent, cy, text, cb, initial, getState)
 	if text ~= "" then label({ Text = text, Size = UDim2.new(1, -90, 0, 24), Position = UDim2.fromOffset(PAD, cy - 12), Parent = parent }) end
 	local state = (getState and getState() or initial) and true or false
-	local sw = new("TextButton", { Text = "", AutoButtonColor = false, Size = UDim2.fromOffset(40, 22), Position = UDim2.new(1, -PAD - 40 + 2, 0, cy - 11), BackgroundColor3 = Theme.Off, Parent = parent }, { corner(11), stroke() })
-	local knob = new("Frame", { Size = UDim2.fromOffset(16, 16), Position = UDim2.fromOffset(3, 3), BackgroundColor3 = Theme.Bg, Parent = sw }, { corner(8) })
-	local function render()
-		knob.Position = state and UDim2.fromOffset(21, 3) or UDim2.fromOffset(3, 3)
-		knob.BackgroundColor3 = state and Theme.Knob or Theme.Bg
-		sw.BackgroundColor3 = state and Theme.OnTrack or Theme.Off
+	local sw = new("TextButton", {
+		Text = "", AutoButtonColor = false, Size = UDim2.fromOffset(42, 24),
+		Position = UDim2.new(1, -PAD - 42, 0, cy - 12), BackgroundColor3 = Theme.Off, Parent = parent
+	}, { corner(12), stroke() })
+	local knob = new("Frame", {
+		Size = UDim2.fromOffset(18, 18), Position = UDim2.fromOffset(3, 3),
+		BackgroundColor3 = Theme.Bg, Parent = sw
+	}, { corner(9) })
+	local strokeObj = sw:FindFirstChildOfClass("UIStroke")
+	local function paint(hover)
+		local onCol = Theme.OnTrack
+		local offCol = hover and Theme.Row or Theme.Off
+		local goalTrack = state and onCol or offCol
+		local goalKnob = state and UDim2.fromOffset(21, 3) or UDim2.fromOffset(3, 3)
+		pcall(function()
+			TweenService:Create(sw, TweenInfo.new(0.18, Enum.EasingStyle.Quint, Enum.EasingDirection.Out), {
+				BackgroundColor3 = goalTrack
+			}):Play()
+			TweenService:Create(knob, TweenInfo.new(0.2, Enum.EasingStyle.Quint, Enum.EasingDirection.Out), {
+				Position = goalKnob, BackgroundColor3 = state and Theme.Knob or Theme.Bg
+			}):Play()
+			if strokeObj then
+				TweenService:Create(strokeObj, TweenInfo.new(0.18), {
+					Color = hover and Theme.OnTrack or Theme.Stroke, Thickness = hover and 1.4 or 1
+				}):Play()
+			end
+		end)
 	end
-	sw.MouseButton1Click:Connect(function() state = not state; render(); if cb then cb(state) end end)
+	local function render()
+		paint(false)
+	end
+	sw.MouseEnter:Connect(function() paint(true) end)
+	sw.MouseLeave:Connect(function() paint(false) end)
+	sw.MouseButton1Click:Connect(function()
+		state = not state
+		paint(true)
+		if cb then cb(state) end
+	end)
 	render(); subscribeTheme(render)
 	local function set(val, fire)
 		val = val and true or false
-		if state == val then return end
+		if state == val then render(); return end
 		state = val
 		render()
 		if fire and cb then cb(state) end
 	end
-	-- visual-only sync from config (don't re-fire onToggle side effects twice)
 	if getState then
 		table.insert(UI_SyncHooks, function()
 			pcall(function() set(getState() == true, false) end)
@@ -3927,8 +3960,8 @@ end
 function slider(parent, cy, text, min, max, default, step, cb, getValue)
 	label({ Text = text, Size = UDim2.new(1, -90, 0, 18), Position = UDim2.fromOffset(PAD, cy - 20), Parent = parent })
 	local valueLbl = label({ Text = tostring(default), TextXAlignment = Enum.TextXAlignment.Right, Size = UDim2.fromOffset(50, 18), Position = UDim2.new(1, -PAD - 50, 0, cy - 20), Parent = parent })
-	local track = new("Frame", { Size = UDim2.new(1, -PAD * 2, 0, 8), Position = UDim2.fromOffset(PAD, cy + 4), BackgroundColor3 = Theme.Off, BorderSizePixel = 0, Parent = parent }, { corner(4) })
-	local fill = new("Frame", { Size = UDim2.fromScale(0, 1), BackgroundColor3 = Theme.Accent, BorderSizePixel = 0, Parent = track }, { corner(4) })
+	local track = new("Frame", { Size = UDim2.new(1, -PAD * 2, 0, 5), Position = UDim2.fromOffset(PAD, cy + 5), BackgroundColor3 = Theme.Off, BorderSizePixel = 0, Parent = parent }, { corner(3) })
+	local fill = new("Frame", { Size = UDim2.fromScale(0, 1), BackgroundColor3 = Theme.Accent, BorderSizePixel = 0, Parent = track }, { corner(3) })
 	local knob = new("Frame", { Size = UDim2.fromOffset(14, 14), AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.fromScale(0, 0.5), BackgroundColor3 = Theme.Knob, Parent = track }, { corner(7) })
 	local hit = new("TextButton", { Text = "", BackgroundTransparency = 1, Size = UDim2.new(1, 0, 0, 22), Position = UDim2.fromScale(0, 0.5), AnchorPoint = Vector2.new(0, 0.5), Parent = track })
 	local lastV = nil
@@ -4442,16 +4475,12 @@ function buildVR()
 	divider(scroll, 55)
 	local y = 80
 	do
-		-- capture mini-toggle setter so death/respawn can flip the real UI switch
-		local cy = y
-		label({ Text = "Enable VR Mode", Size = UDim2.new(1, -90, 0, 24), Position = UDim2.fromOffset(PAD, cy - 12), Parent = scroll })
-		local holder = new("Frame", {
-			BackgroundTransparency = 1, Size = UDim2.fromOffset(48, 24),
-			Position = UDim2.new(1, -PAD - 48, 0, cy - 12), Parent = scroll
-		})
-		VRToggleSetUI = makeMiniToggle(holder, ST.VREnabled == true, function(v)
+		local setSw = toggle(scroll, y, "Enable VR Mode", function(v)
 			setVREnabled(v, true)
-		end)
+		end, ST.VREnabled == true, function() return ST.VREnabled == true end)
+		VRToggleSetUI = function(on)
+			pcall(function() setSw(on and true or false, false) end)
+		end
 	end
 	y = y + 48
 	toggle(scroll, y, "VR Target Mode", function(v) ST.VRTargetEnabled = v end, false)
