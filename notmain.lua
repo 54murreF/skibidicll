@@ -1,6 +1,6 @@
 --[[
     ╔═══════════════════════════════════════════════════════════════╗
-    ║              CLL CHEAT - FULL INTEGRATION v11.63-ah (native Q/G grab mirror + VR restore)                ║
+    ║              CLL CHEAT - FULL INTEGRATION v11.64-ai (native Q/G grab mirror + VR restore)                ║
     ╠═══════════════════════════════════════════════════════════════╣
     ║  SUK head-hit, real crosshair, tracers, ESP outline nick,     ║
     ║  ChinaHat/Wings fix, VR hands, anti-flash/shake, antibypass   ║
@@ -2832,17 +2832,9 @@ function vrShutdown()
 	vrShoulders = {}
 end
 
--- camera look: same as working builds (v11.10 / v10.8). Delta only, no cursor lock.
-UIS.InputChanged:Connect(function(input)
-	if not ST.VREnabled then return end
-	if input.UserInputType ~= Enum.UserInputType.MouseMovement then return end
-	if not UIS:IsMouseButtonPressed(Enum.UserInputType.MouseButton2) then return end
-	local d = input.Delta
-	if typeof(d) ~= "Vector2" then return end
-	VR_Cam_Rotation = CFrame.Angles(0, math.rad(-d.X * 0.35), 0)
-		* VR_Cam_Rotation
-		* CFrame.Angles(math.rad(-d.Y * 0.35), 0, 0)
-end)
+-- VR look delta is read in CLL_VR via GetMouseDelta while RMB locks the cursor in place.
+-- LockCenter is NOT used (that snaps the cursor to the screen center).
+local vrRmbWas = false
 
 
 
@@ -3126,7 +3118,7 @@ UIS.InputBegan:Connect(function(input, gp)
 	VRSwingPhase = 0
 end)
 
-RunService:BindToRenderStep("CLL_VR", Enum.RenderPriority.Camera.Value + 1, function(dt)
+RunService:BindToRenderStep("CLL_VR", Enum.RenderPriority.Last.Value, function(dt)
 	if ST.isUnloaded then return end
 
 	-- Old behavior: VR off → do nothing. Forcing Motor6D.Enabled every frame
@@ -3177,10 +3169,25 @@ RunService:BindToRenderStep("CLL_VR", Enum.RenderPriority.Camera.Value + 1, func
 	end
 
 	local looking = UIS:IsMouseButtonPressed(Enum.UserInputType.MouseButton2)
-	-- working build: do not touch MouseBehavior (LockCenter snaps cursor, Default kills RMB look)
+	-- LockCurrentPosition keeps the cursor where it is and makes GetMouseDelta non-zero.
+	-- LockCenter is what yanked the cursor to the middle — do not use it.
 	pcall(function()
 		UIS.MouseIconEnabled = not looking
+		UIS.MouseBehavior = looking and Enum.MouseBehavior.LockCurrentPosition or Enum.MouseBehavior.Default
 	end)
+	if looking and not vrRmbWas and cam then
+		local cf = cam.CFrame
+		VR_Cam_Rotation = cf - cf.Position
+	end
+	vrRmbWas = looking
+	if looking then
+		local d = UIS:GetMouseDelta()
+		if typeof(d) == "Vector2" and (d.X ~= 0 or d.Y ~= 0) then
+			VR_Cam_Rotation = CFrame.Angles(0, math.rad(-d.X * 0.35), 0)
+				* VR_Cam_Rotation
+				* CFrame.Angles(math.rad(-d.Y * 0.35), 0, 0)
+		end
+	end
 	pcall(function()
 		hum.CameraOffset = Vector3.zero
 		char:SetAttribute("VR_CAMERA_RECOIL", Vector3.zero)
@@ -4053,7 +4060,7 @@ fit(); workspace.CurrentCamera:GetPropertyChangedSignal("ViewportSize"):Connect(
 local header = new("Frame", { Size = UDim2.new(1, 0, 0, 62), BackgroundTransparency = 1, Parent = window })
 local logoLabel = label({ Text = "CLL", Font = Enum.Font.Michroma, TextSize = 26, TextTruncate = Enum.TextTruncate.AtEnd, Size = UDim2.fromOffset(100, 62), Position = UDim2.fromOffset(23, 0), Parent = header })
 logoLabel.TextColor3 = Color3.fromRGB(255, 255, 255) -- Always white
-local verLabel = label({ Text = "v11.63-ah", Font = Enum.Font.GothamBold, TextSize = 12, TextColor3 = Theme.Dim, Size = UDim2.fromOffset(50, 62), Position = UDim2.fromOffset(85, 2), Parent = header })
+local verLabel = label({ Text = "v11.64-ai", Font = Enum.Font.GothamBold, TextSize = 12, TextColor3 = Theme.Dim, Size = UDim2.fromOffset(50, 62), Position = UDim2.fromOffset(85, 2), Parent = header })
 local timeLabel = label({ Text = "Session: 00:00", Font = Enum.Font.GothamMedium, TextSize = 13, TextColor3 = Theme.Dim, Size = UDim2.fromOffset(150, 62), Position = UDim2.fromOffset(150, 0), Parent = header })
 task.spawn(function()
 	while not ST.isUnloaded do
