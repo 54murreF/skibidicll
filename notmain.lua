@@ -1,6 +1,6 @@
 --[[
     ╔═══════════════════════════════════════════════════════════════╗
-    ║              CLL CHEAT - FULL INTEGRATION v11.40-j (native Q/G grab mirror + VR restore)                ║
+    ║              CLL CHEAT - FULL INTEGRATION v11.41-k (native Q/G grab mirror + VR restore)                ║
     ╠═══════════════════════════════════════════════════════════════╣
     ║  SUK head-hit, real crosshair, tracers, ESP outline nick,     ║
     ║  ChinaHat/Wings fix, VR hands, anti-flash/shake, antibypass   ║
@@ -88,6 +88,29 @@ local ST = {
 	SUK_MaxPerTick = 3,
 	TracersEnabled = false,
 	SparksEnabled = false,
+	AutoBlockEnabled = false,
+	AutoBlockRange = 12,
+	AutoBlockHold = 0.35,
+	AutoBlockCooldown = 0.55,
+	AutoBlockMeleeOnly = true,
+	VRTargetMaxSpeed = 90,
+	VRTargetProtect = true,
+	CursorTrailEnabled = false,
+	CursorTrailLength = 12,
+	CursorTrailSize = 6,
+	CursorTrailFade = 0.35,
+	CursorTrailColor = Color3.fromRGB(90, 160, 255),
+	BgPatternEnabled = false,
+	BgPatternSeed = 1,
+	BgPatternDensity = 0.4,
+	BgPatternScale = 1,
+	BgPatternSpeed = 0.15,
+	BgPatternColor = Color3.fromRGB(40, 60, 120),
+	ESPShowTool = true,
+	ESPShowReload = true,
+	ESPShowRagdoll = true,
+	GrenadeESPEnabled = false,
+
 	TracerDuration = 0.5,
 	TracerSelfEnabled = true,
 	TracerOthersEnabled = true,
@@ -182,7 +205,9 @@ local AnimPresets = {
 --// ==================== STATE ====================
 
 
-local FriendsList = {}
+local FriendsList = {} -- [userId] = displayName string or true
+local Whitelist = {} -- [userId] = displayName — protected from SUK/VR target
+
 local RefreshFriendsUI = nil -- set by Settings page
 local SelectedTargets = {}
 local VRSelectedTargets = {}
@@ -615,7 +640,20 @@ function getCharacterParts()
 	return character, humanoid, root
 end
 
-function IsFriend(player) return player and FriendsList[player.UserId] == true end
+function IsFriend(player)
+	if not player then return false end
+	local v = FriendsList[player.UserId]
+	return v ~= nil and v ~= false
+end
+function IsWhitelisted(player)
+	if not player then return false end
+	local v = Whitelist[player.UserId]
+	return v ~= nil and v ~= false
+end
+function IsProtected(player)
+	return IsFriend(player) or IsWhitelisted(player)
+end
+
 
 function ReapplyMovement()
 	task.wait(1)
@@ -958,7 +996,7 @@ function GetTargets()
     for target, on in pairs(SelectedTargets) do if on then anySelected = true; break end end
     local function addPlayer(target)
         if target == LocalPlayer or not target.Parent then return end
-        if ST.SUK_IgnoreFriends and IsFriend(target) then return end
+        if (ST.SUK_IgnoreFriends and IsFriend(target)) or IsWhitelisted(target) then return end
         local char = target.Character
         local head = char and char:FindFirstChild("Head")
         local hum = char and char:FindFirstChildOfClass("Humanoid")
@@ -1004,7 +1042,7 @@ end
 function GetVRTargets()
     local targets = {}
     for target, on in pairs(VRSelectedTargets) do
-        if on and target ~= LocalPlayer and target.Parent then
+        if on and target ~= LocalPlayer and target.Parent and not IsWhitelisted(target) and not (ST.SUK_IgnoreFriends and IsFriend(target)) then
             local char = target.Character
             local head = char and char:FindFirstChild("Head")
             local hum = char and char:FindFirstChildOfClass("Humanoid")
@@ -2361,7 +2399,41 @@ function CleanDebris()
 	if not ST.AntiLagEnabled or ST.isUnloaded then return end
 	pcall(function()
 		local cache = workspace:FindFirstChild("Cache")
-		if cache and cache:FindFirstChild("Ignore_Debris") then for _, v in ipairs(cache.Ignore_Debris:GetChildren()) do if v:IsA("BasePart") or v:IsA("Model") then v:Destroy() end end end
+		if cache and cache:FindFirstChild("Ignore_Debris") then
+			for _, v in ipairs(cache.Ignore_Debris:GetChildren()) do
+				if v:IsA("BasePart") or v:IsA("Model") or v:IsA("Folder") then
+					v:Destroy()
+				end
+			end
+		end
+		local debris = workspace:FindFirstChild("Debris") or workspace:FindFirstChild("debris")
+		if debris then
+			for _, v in ipairs(debris:GetChildren()) do
+				pcall(function() v:Destroy() end)
+			end
+		end
+		-- particles / trails / beams / decals (throttle: only under known FX folders + nearby)
+		local function scrub(inst)
+			if inst:IsA("ParticleEmitter") or inst:IsA("Trail") or inst:IsA("Beam") or inst:IsA("Smoke") or inst:IsA("Fire") or inst:IsA("Sparkles") then
+				inst.Enabled = false
+				pcall(function() inst:Destroy() end)
+			elseif inst:IsA("Decal") or inst:IsA("Texture") then
+				local n = string.lower(inst.Name)
+				if n:find("blood") or n:find("bullet") or n:find("scorch") or n:find("crack") or n:find("impact") then
+					pcall(function() inst:Destroy() end)
+				end
+			elseif inst:IsA("Explosion") then
+				pcall(function() inst:Destroy() end)
+			end
+		end
+		for _, folderName in ipairs({"Effects", "FX", "VFX", "Ignore", "Ignore_Debris", "ClientDebris", "Debris"}) do
+			local f = workspace:FindFirstChild(folderName)
+			if f then
+				for _, d in ipairs(f:GetDescendants()) do
+					scrub(d)
+				end
+			end
+		end
 	end)
 end
 task.spawn(function() while not ST.isUnloaded do task.wait(0.5); if ST.AntiLagEnabled then CleanDebris() end end end)
@@ -2845,6 +2917,8 @@ UIS.InputBegan:Connect(function(input, _)
 		end)
 	end
 	if not SwingRemote then return end
+	-- holding a Tool: never mirror Grabmove (was yeeting picked-up items in VR)
+	if char:FindFirstChildOfClass("Tool") then return end
 	if ST.VREnabled then
 		if isQ then
 			pcall(function() SwingRemote:FireServer("Grabmove", "RIGHT_ARM") end)
@@ -2852,7 +2926,6 @@ UIS.InputBegan:Connect(function(input, _)
 			pcall(function() SwingRemote:FireServer("Grabmove", "LEFT_ARM") end)
 		end
 	elseif isG then
-		-- dump non-VR glory grab
 		pcall(function() SwingRemote:FireServer("Grabmove", nil) end)
 	end
 end)
@@ -3807,7 +3880,7 @@ fit(); workspace.CurrentCamera:GetPropertyChangedSignal("ViewportSize"):Connect(
 local header = new("Frame", { Size = UDim2.new(1, 0, 0, 62), BackgroundTransparency = 1, Parent = window })
 local logoLabel = label({ Text = "CLL", Font = Enum.Font.Michroma, TextSize = 26, TextTruncate = Enum.TextTruncate.AtEnd, Size = UDim2.fromOffset(100, 62), Position = UDim2.fromOffset(23, 0), Parent = header })
 logoLabel.TextColor3 = Color3.fromRGB(255, 255, 255) -- Always white
-local verLabel = label({ Text = "v11.40-j", Font = Enum.Font.GothamBold, TextSize = 12, TextColor3 = Theme.Dim, Size = UDim2.fromOffset(50, 62), Position = UDim2.fromOffset(85, 2), Parent = header })
+local verLabel = label({ Text = "v11.41-k", Font = Enum.Font.GothamBold, TextSize = 12, TextColor3 = Theme.Dim, Size = UDim2.fromOffset(50, 62), Position = UDim2.fromOffset(85, 2), Parent = header })
 local timeLabel = label({ Text = "Session: 00:00", Font = Enum.Font.GothamMedium, TextSize = 13, TextColor3 = Theme.Dim, Size = UDim2.fromOffset(150, 62), Position = UDim2.fromOffset(150, 0), Parent = header })
 task.spawn(function()
 	while not ST.isUnloaded do
@@ -3998,13 +4071,51 @@ end
 
 function makeMiniToggle(parent, initial, cb)
 	local state = initial == true
-	local sw = new("TextButton", { Text = "", AutoButtonColor = false, Active = true, Size = UDim2.fromOffset(36, 20), AnchorPoint = Vector2.new(1, 0.5), Position = UDim2.new(1, -4, 0.5, 0), BackgroundColor3 = Theme.Off, ZIndex = 5, Parent = parent }, { corner(10) })
-	local knob = new("Frame", { Size = UDim2.fromOffset(16, 16), Position = UDim2.fromOffset(2, 2), BackgroundColor3 = Theme.Knob, ZIndex = 6, Parent = sw }, { corner(8) })
-	local function render() knob.Position = state and UDim2.fromOffset(18, 2) or UDim2.fromOffset(2, 2); sw.BackgroundColor3 = state and Theme.OnTrack or Theme.Off end
-	sw.MouseButton1Click:Connect(function() state = not state; render(); if cb then cb(state) end end)
-	render(); subscribeTheme(render)
-	return function(v) state = v == true; render() end
+	local sw = new("TextButton", {
+		Text = "", AutoButtonColor = false, Active = true, Size = UDim2.fromOffset(42, 24),
+		AnchorPoint = Vector2.new(1, 0.5), Position = UDim2.new(1, -4, 0.5, 0),
+		BackgroundColor3 = Theme.Off, ZIndex = 5, Parent = parent
+	}, { corner(12), stroke() })
+	local knob = new("Frame", {
+		Size = UDim2.fromOffset(18, 18), Position = UDim2.fromOffset(3, 3),
+		BackgroundColor3 = Theme.Bg, ZIndex = 6, Parent = sw
+	}, { corner(9) })
+	local strokeObj = sw:FindFirstChildOfClass("UIStroke")
+	local function paint(hover)
+		local goalTrack = state and Theme.OnTrack or (hover and Theme.Row or Theme.Off)
+		local goalKnob = state and UDim2.fromOffset(21, 3) or UDim2.fromOffset(3, 3)
+		pcall(function()
+			TweenService:Create(sw, TweenInfo.new(0.18, Enum.EasingStyle.Quint, Enum.EasingDirection.Out), {
+				BackgroundColor3 = goalTrack
+			}):Play()
+			TweenService:Create(knob, TweenInfo.new(0.2, Enum.EasingStyle.Quint, Enum.EasingDirection.Out), {
+				Position = goalKnob, BackgroundColor3 = state and Theme.Knob or Theme.Bg
+			}):Play()
+			if strokeObj then
+				TweenService:Create(strokeObj, TweenInfo.new(0.18), {
+					Color = hover and Theme.OnTrack or Theme.Stroke, Thickness = hover and 1.4 or 1
+				}):Play()
+			end
+		end)
+	end
+	local function render() paint(false) end
+	sw.MouseEnter:Connect(function() paint(true) end)
+	sw.MouseLeave:Connect(function() paint(false) end)
+	sw.MouseButton1Click:Connect(function()
+		state = not state
+		paint(true)
+		if cb then cb(state) end
+	end)
+	render()
+	subscribeTheme(render)
+	return function(v)
+		local nv = v and true or false
+		if state == nv then render(); return end
+		state = nv
+		render()
+	end
 end
+
 
 function detailSlider(parent, order, text, min, max, default, step, cb)
 	local wrap = new("Frame", { Size = UDim2.new(1, -16, 0, 52), BackgroundTransparency = 1, LayoutOrder = order, Parent = parent })
@@ -4347,7 +4458,12 @@ function buildCombat()
 			end)
 			refreshHB()
 		end },
-		{ name = "No Recoil", initial = false, getState = function() return ST.NoRecoilEnabled end, onToggle = function(v) ST.NoRecoilEnabled = v end, buildDetail = nil },
+		{ name = "Auto Block", initial = false, getState = function() return ST.AutoBlockEnabled end, onToggle = function(v) ST.AutoBlockEnabled = v end, buildDetail = function(d)
+		detailSlider(d, 1, "Range", 4, 30, ST.AutoBlockRange or 12, 0.5, function(v) ST.AutoBlockRange = v end)
+		detailSlider(d, 2, "Hold (s)", 0.1, 1.2, ST.AutoBlockHold or 0.35, 0.05, function(v) ST.AutoBlockHold = v end)
+		detailSlider(d, 3, "Cooldown", 0.2, 2, ST.AutoBlockCooldown or 0.55, 0.05, function(v) ST.AutoBlockCooldown = v end)
+	end },
+	{ name = "No Recoil", initial = false, getState = function() return ST.NoRecoilEnabled end, onToggle = function(v) ST.NoRecoilEnabled = v end, buildDetail = nil },
 		{ name = "Firerate", initial = false, onToggle = function(v) end, buildDetail = function(d) detailSlider(d, 1, "RPS (1-30)", 1, 30, ST.SUK_FIRERATE_RPS, 1, function(v) ST.SUK_FIRERATE_RPS = v end); detailSlider(d, 2, "Fire Delay", 0.01, 0.5, ST.SUK_FireDelay, 0.01, function(v) ST.SUK_FireDelay = v end) end },
 		{ name = "No Spread (Spas/Remington)", initial = false, getState = function() return ST.NoSpreadEnabled end, onToggle = function(v) ST.NoSpreadEnabled = v end, buildDetail = nil },
 		{ name = "Local Invis", initial = false, getState = function() return ST.LocalInvisEnabled end, onToggle = function(v)
@@ -4565,7 +4681,7 @@ function buildVR()
 	y = y + 24
 	label({ Text = "VR AURA", Font = Enum.Font.GothamBold, TextSize = 11, TextColor3 = Theme.Dim, Size = UDim2.fromOffset(200, 16), Position = UDim2.fromOffset(PAD, y), Parent = scroll })
 	y = y + 28
-	toggle(scroll, y, "Enable VR Aura", function(v) ST.VRAuraEnabled = v end, false)
+	toggle(scroll, y, "Enable VR Aura", function(v) ST.VRAuraEnabled = false end, false)
 	y = y + 50
 	slider(scroll, y, "Aura Speed", 1, 20, ST.VRAuraSpeed, 1, function(v) ST.VRAuraSpeed = v end)
 	y = y + 55
@@ -4671,6 +4787,18 @@ function buildSettings()
 		gridPrev.BackgroundColor3 = ST.MenuGridColor
 	end)
 	y += 44
+	toggle(leftScroll, y, "Cursor Trail", function(v) ST.CursorTrailEnabled = v end, ST.CursorTrailEnabled == true, function() return ST.CursorTrailEnabled end)
+	y += 44
+	slider(leftScroll, y, "Trail Length", 3, 40, ST.CursorTrailLength or 12, 1, function(v) ST.CursorTrailLength = v end, function() return ST.CursorTrailLength or 12 end)
+	y += 58
+	slider(leftScroll, y, "Trail Size", 2, 16, ST.CursorTrailSize or 6, 1, function(v) ST.CursorTrailSize = v end, function() return ST.CursorTrailSize or 6 end)
+	y += 58
+	toggle(leftScroll, y, "BG Pattern", function(v) ST.BgPatternEnabled = v; if _G.CLL_RebuildBgPattern then _G.CLL_RebuildBgPattern() end end, ST.BgPatternEnabled == true, function() return ST.BgPatternEnabled end)
+	y += 44
+	slider(leftScroll, y, "BG Density", 0.05, 1, ST.BgPatternDensity or 0.4, 0.05, function(v) ST.BgPatternDensity = v; if _G.CLL_RebuildBgPattern then _G.CLL_RebuildBgPattern() end end, function() return ST.BgPatternDensity or 0.4 end)
+	y += 58
+	slider(leftScroll, y, "BG Scale", 0.4, 3, ST.BgPatternScale or 1, 0.1, function(v) ST.BgPatternScale = v; if _G.CLL_RebuildBgPattern then _G.CLL_RebuildBgPattern() end end, function() return ST.BgPatternScale or 1 end)
+	y += 58
 	toggle(leftScroll, y, "Watermark Main", function(v) ST.WatermarkMainVisible = v; if watermarkMain then watermarkMain.Visible = v end end, true, function() return ST.WatermarkMainVisible end); y += 48
 	toggle(leftScroll, y, "Watermark Binds", function(v) ST.WatermarkBindsVisible = v; watermarkBinds.Visible = v end, true, function() return ST.WatermarkBindsVisible end); y += 48
 	toggle(leftScroll, y, "Watermark World", function(v) ST.WatermarkWorldVisible = v; watermarkWorld.Visible = v end, true); y += 48
@@ -4962,7 +5090,16 @@ pcall(function() if watermarkMain then watermarkMain:Destroy() end end)
 			killHLColor = {ST.KillHighlightColor.R, ST.KillHighlightColor.G, ST.KillHighlightColor.B},
 			friends = (function()
 				local a = {}
-				for id, _ in pairs(FriendsList) do a[#a+1] = id end
+				for id, name in pairs(FriendsList) do
+					a[tostring(id)] = (type(name) == "string" and name) or true
+				end
+				return a
+			end)(),
+			whitelist = (function()
+				local a = {}
+				for id, name in pairs(Whitelist) do
+					a[tostring(id)] = (type(name) == "string" and name) or true
+				end
 				return a
 			end)(),
 			-- legacy flat fields for older loaders
@@ -5088,9 +5225,23 @@ function applyConfig(data)
 		if data.killHLColor then local c = arrToColor(data.killHLColor); if c then ST.KillHighlightColor = c end end
 		if type(data.friends) == "table" then
 			table.clear(FriendsList)
-			for _, id in ipairs(data.friends) do
-				local n = tonumber(id)
-				if n then FriendsList[n] = true end
+			for k, v in pairs(data.friends) do
+				local id, name = nil, true
+				if type(k) == "number" then id, name = k, (type(v) == "string" and v) or true
+				elseif type(v) == "number" then id = v
+				elseif type(v) == "string" then id = tonumber(v)
+				elseif type(v) == "table" then id = tonumber(v.id or v.UserId or v[1]); name = v.name or v.Name or true
+				end
+				if id then FriendsList[id] = name or true end
+			end
+			if type(data.whitelist) == "table" then
+				table.clear(Whitelist)
+				for k, v in pairs(data.whitelist) do
+					local id, name = nil, true
+					if type(k) == "number" then id, name = k, (type(v) == "string" and v) or true
+					else id = tonumber(v) or tonumber(k) end
+					if id then Whitelist[id] = name or true end
+				end
 			end
 			if RefreshFriendsUI then pcall(RefreshFriendsUI) end
 		end
@@ -6091,6 +6242,185 @@ RunService.RenderStepped:Connect(function()
 end)
 
 ST.VREnabled = false
+
+
+
+-- ==================== AUTO BLOCK (dump: Swing:FireServer("Block")) ====================
+task.spawn(function()
+	local lastBlock = 0
+	while not ST.isUnloaded do
+		task.wait(0.05)
+		if not ST.AutoBlockEnabled then continue end
+		if ST.VREnabled then continue end
+		local char = LocalPlayer.Character
+		local hum = char and char:FindFirstChildOfClass("Humanoid")
+		local root = char and char:FindFirstChild("HumanoidRootPart")
+		if not (char and hum and root) or hum.Health <= 0 then continue end
+		if char:GetAttribute("Downed") or char:GetAttribute("Ragdoll") then continue end
+		if os.clock() - lastBlock < (ST.AutoBlockCooldown or 0.55) then continue end
+		local range = ST.AutoBlockRange or 12
+		local threat = false
+		for _, plr in ipairs(Players:GetPlayers()) do
+			if plr ~= LocalPlayer and plr.Character and not IsProtected(plr) then
+				local o = plr.Character
+				local oroot = o:FindFirstChild("HumanoidRootPart")
+				local ohum = o:FindFirstChildOfClass("Humanoid")
+				if oroot and ohum and ohum.Health > 0 then
+					local d = (oroot.Position - root.Position).Magnitude
+					if d <= range then
+						if ST.AutoBlockMeleeOnly then
+							local tool = o:FindFirstChildOfClass("Tool")
+							local n = tool and string.lower(tool.Name) or ""
+							if tool and (n:find("gun") or n:find("spas") or n:find("ak") or n:find("deagle") or n:find("p250") or n:find("ar")) then
+								-- ranged: skip
+							else
+								threat = true
+							end
+						else
+							threat = true
+						end
+					end
+				end
+			end
+			if threat then break end
+		end
+		if threat then
+			lastBlock = os.clock()
+			pcall(function()
+				if not SwingRemote then
+					local r = ReplicatedStorage:FindFirstChild("Remotes")
+					SwingRemote = r and r:FindFirstChild("Swing")
+				end
+				if SwingRemote then
+					SwingRemote:FireServer("Block")
+					task.delay(ST.AutoBlockHold or 0.35, function()
+						pcall(function()
+							if SwingRemote then SwingRemote:FireServer("UnBlock") end
+						end)
+					end)
+				end
+			end)
+		end
+	end
+end)
+
+-- ==================== VR TARGET SPEED PROTECT ====================
+task.spawn(function()
+	while not ST.isUnloaded do
+		task.wait(0.05)
+		if not (ST.VREnabled and ST.VRTargetProtect and ST.VRTargetEnabled) then continue end
+		local char = LocalPlayer.Character
+		local root = char and char:FindFirstChild("HumanoidRootPart")
+		local hum = char and char:FindFirstChildOfClass("Humanoid")
+		if not (root and hum) or hum.Health <= 0 then continue end
+		local maxS = ST.VRTargetMaxSpeed or 90
+		local v = root.AssemblyLinearVelocity
+		if v.Magnitude > maxS then
+			root.AssemblyLinearVelocity = v.Unit * maxS
+		end
+		-- soft floor clamp on fall
+		if v.Y < -120 then
+			root.AssemblyLinearVelocity = Vector3.new(v.X, -80, v.Z)
+		end
+	end
+end)
+
+-- ==================== CURSOR TRAIL ====================
+do
+	local trailGui = Instance.new("ScreenGui")
+	trailGui.Name = "CLL_CursorTrail"
+	trailGui.IgnoreGuiInset = true
+	trailGui.ResetOnSpawn = false
+	trailGui.DisplayOrder = 50
+	pcall(function()
+		trailGui.Parent = (gethui and gethui()) or game:GetService("CoreGui")
+	end)
+	local dots = {}
+	RunService.RenderStepped:Connect(function()
+		if ST.isUnloaded or not ST.CursorTrailEnabled then
+			for _, d in ipairs(dots) do d.Visible = false end
+			return
+		end
+		local m = UIS:GetMouseLocation()
+		local len = math.clamp(math.floor(ST.CursorTrailLength or 12), 3, 40)
+		local sz = math.clamp(ST.CursorTrailSize or 6, 2, 20)
+		while #dots < len do
+			local f = Instance.new("Frame")
+			f.AnchorPoint = Vector2.new(0.5, 0.5)
+			f.BorderSizePixel = 0
+			f.BackgroundColor3 = ST.CursorTrailColor or Color3.fromRGB(90, 160, 255)
+			Instance.new("UICorner", f).CornerRadius = UDim.new(1, 0)
+			f.Parent = trailGui
+			dots[#dots + 1] = f
+		end
+		for i = #dots, 2, -1 do
+			local prev = dots[i - 1]
+			dots[i].Position = prev.Position
+			dots[i].Size = prev.Size
+			dots[i].BackgroundTransparency = math.clamp((i / len) * (ST.CursorTrailFade or 0.35) + 0.15, 0, 1)
+			dots[i].BackgroundColor3 = ST.CursorTrailColor or dots[i].BackgroundColor3
+			dots[i].Visible = true
+		end
+		dots[1].Position = UDim2.fromOffset(m.X, m.Y)
+		dots[1].Size = UDim2.fromOffset(sz, sz)
+		dots[1].BackgroundTransparency = 0.1
+		dots[1].BackgroundColor3 = ST.CursorTrailColor or Color3.fromRGB(90, 160, 255)
+		dots[1].Visible = true
+	end)
+end
+
+-- ==================== BG PATTERN RANDOMIZER ====================
+do
+	local bgLayer = nil
+	local function rebuildBg()
+		pcall(function()
+			if bgLayer then bgLayer:Destroy() end
+			bgLayer = nil
+			if not ST.BgPatternEnabled or not window then return end
+			local layer = Instance.new("Frame")
+			layer.Name = "CLL_BgPattern"
+			layer.BackgroundTransparency = 1
+			layer.Size = UDim2.fromScale(1, 1)
+			layer.ZIndex = 0
+			layer.ClipsDescendants = true
+			layer.Parent = window
+			bgLayer = layer
+			local seed = ST.BgPatternSeed or 1
+			local dens = math.clamp(ST.BgPatternDensity or 0.4, 0.05, 1)
+			local scale = math.clamp(ST.BgPatternScale or 1, 0.4, 3)
+			local col = ST.BgPatternColor or Color3.fromRGB(40, 60, 120)
+			local rng = Random.new(seed)
+			local count = math.floor(40 * dens * scale)
+			for i = 1, count do
+				local d = Instance.new("Frame")
+				d.BorderSizePixel = 0
+				d.BackgroundColor3 = col
+				d.BackgroundTransparency = 0.82 + rng:NextNumber() * 0.12
+				local s = rng:NextNumber(4, 18) * scale
+				d.Size = UDim2.fromOffset(s, s)
+				d.Position = UDim2.fromScale(rng:NextNumber(), rng:NextNumber())
+				d.Rotation = rng:NextNumber(0, 360)
+				d.ZIndex = 0
+				Instance.new("UICorner", d).CornerRadius = UDim.new(rng:NextNumber() > 0.5 and 1 or 0.2, 0)
+				d.Parent = layer
+			end
+		end)
+	end
+	_G.CLL_RebuildBgPattern = rebuildBg
+	task.spawn(function()
+		local last = 0
+		while not ST.isUnloaded do
+			task.wait(0.4)
+			if ST.BgPatternEnabled and ST.BgPatternSpeed and ST.BgPatternSpeed > 0 then
+				if os.clock() - last > math.max(0.5, 2.5 / (ST.BgPatternSpeed or 0.15)) then
+					last = os.clock()
+					ST.BgPatternSeed = (ST.BgPatternSeed or 1) + 1
+					rebuildBg()
+				end
+			end
+		end
+	end)
+end
 
 
 selectTab("Combat")
