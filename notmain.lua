@@ -1,6 +1,6 @@
 --[[
     ╔═══════════════════════════════════════════════════════════════╗
-    ║              CLL CHEAT - FULL INTEGRATION v11.47-r (native Q/G grab mirror + VR restore)                ║
+    ║              CLL CHEAT - FULL INTEGRATION v11.48-s (native Q/G grab mirror + VR restore)                ║
     ╠═══════════════════════════════════════════════════════════════╣
     ║  SUK head-hit, real crosshair, tracers, ESP outline nick,     ║
     ║  ChinaHat/Wings fix, VR hands, anti-flash/shake, antibypass   ║
@@ -2861,6 +2861,70 @@ local function vrHideHeadAccessories(char, hide)
 	end)
 end
 
+
+--// ==================== VR ENABLED FORCE (real Keybinds path) ====================
+-- Spoof VRService.VREnabled for Grabmove arms; stub signals so CameraModule does not hard-crash.
+do
+	local VRS = game:GetService("VRService")
+	local fakeEv = Instance.new("BindableEvent")
+	local function fakeFocus()
+		local cam = workspace.CurrentCamera
+		return (cam and cam.CFrame) or CFrame.new()
+	end
+	pcall(function()
+		local oldIdx
+		oldIdx = hookmetamethod(game, "__index", function(self, key)
+			local isVRS = false
+			pcall(function()
+				isVRS = (self == VRS) or (typeof(self) == "Instance" and self.ClassName == "VRService")
+			end)
+			if isVRS and ST.VREnabled then
+				if key == "VREnabled" then
+					return true
+				elseif key == "GetVRFocus" then
+					return fakeFocus
+				elseif key == "UserCFrameChanged" or key == "NavigationRayChanged"
+					or key == "TouchpadModeChanged" then
+					return fakeEv.Event
+				elseif key == "AvatarGestures" then
+					return false
+				end
+			end
+			return oldIdx(self, key)
+		end)
+	end)
+	-- keep classic camera while spoofed
+	RunService.RenderStepped:Connect(function()
+		if not ST.VREnabled or ST.isUnloaded then return end
+		local cam = workspace.CurrentCamera
+		if not cam then return end
+		pcall(function()
+			if cam.CameraType ~= Enum.CameraType.Custom and cam.CameraType ~= Enum.CameraType.Scriptable then
+				cam.CameraType = Enum.CameraType.Custom
+			end
+			local hum = LocalPlayer.Character and LocalPlayer.Character:FindFirstChildOfClass("Humanoid")
+			if hum and cam.CameraType == Enum.CameraType.Custom and cam.CameraSubject ~= hum then
+				cam.CameraSubject = hum
+			end
+		end)
+	end)
+	task.spawn(function()
+		while not ST.isUnloaded do
+			task.wait(0.5)
+			if ST.VREnabled then
+				pcall(function()
+					local char = LocalPlayer.Character
+					local hum = char and char:FindFirstChildOfClass("Humanoid")
+					if not char or not hum or hum.Health <= 0 then return end
+					if char:GetAttribute("Ragdoll") or char:GetAttribute("Downed") then return end
+					char:SetAttribute("DID_VR", true)
+					char:SetAttribute("VR", true)
+				end)
+			end
+		end
+	end)
+end
+
 function setVREnabled(on, fromUser)
 	on = on and true or false
 	if fromUser then
@@ -2898,11 +2962,19 @@ function setVREnabled(on, fromUser)
 			end)
 		end
 	else
-		-- hold RMB briefly so game releases VR look, then restore cam
+		-- user request: short RMB hold, then LMB, then tear down VR so classic cam returns
 		pcall(function()
-			VirtualInputManager:SendMouseButtonEvent(0, 0, 1, true, game, 1)
+			local vim = VirtualInputManager
+			-- RMB down
+			vim:SendMouseButtonEvent(0, 0, 1, true, game, 1)
+			task.wait(0.12)
+			-- RMB up
+			vim:SendMouseButtonEvent(0, 0, 1, false, game, 1)
+			task.wait(0.04)
+			-- LMB click
+			vim:SendMouseButtonEvent(0, 0, 0, true, game, 1)
 			task.wait(0.05)
-			VirtualInputManager:SendMouseButtonEvent(0, 0, 1, false, game, 1)
+			vim:SendMouseButtonEvent(0, 0, 0, false, game, 1)
 		end)
 		pcall(vrHideHeadAccessories, LocalPlayer.Character, false)
 		pcall(vrShutdown)
@@ -3941,7 +4013,7 @@ fit(); workspace.CurrentCamera:GetPropertyChangedSignal("ViewportSize"):Connect(
 local header = new("Frame", { Size = UDim2.new(1, 0, 0, 62), BackgroundTransparency = 1, Parent = window })
 local logoLabel = label({ Text = "CLL", Font = Enum.Font.Michroma, TextSize = 26, TextTruncate = Enum.TextTruncate.AtEnd, Size = UDim2.fromOffset(100, 62), Position = UDim2.fromOffset(23, 0), Parent = header })
 logoLabel.TextColor3 = Color3.fromRGB(255, 255, 255) -- Always white
-local verLabel = label({ Text = "v11.47-r", Font = Enum.Font.GothamBold, TextSize = 12, TextColor3 = Theme.Dim, Size = UDim2.fromOffset(50, 62), Position = UDim2.fromOffset(85, 2), Parent = header })
+local verLabel = label({ Text = "v11.48-s", Font = Enum.Font.GothamBold, TextSize = 12, TextColor3 = Theme.Dim, Size = UDim2.fromOffset(50, 62), Position = UDim2.fromOffset(85, 2), Parent = header })
 local timeLabel = label({ Text = "Session: 00:00", Font = Enum.Font.GothamMedium, TextSize = 13, TextColor3 = Theme.Dim, Size = UDim2.fromOffset(150, 62), Position = UDim2.fromOffset(150, 0), Parent = header })
 task.spawn(function()
 	while not ST.isUnloaded do
@@ -4846,10 +4918,6 @@ function buildSettings()
 		ST.MenuGridColor = gridPresets[gpi]
 		gridPrev.BackgroundColor3 = ST.MenuGridColor
 	end)
-	y += 44
-	y += 44
-	y += 58
-	y += 58
 	toggle(leftScroll, y, "BG Pattern", function(v) ST.BgPatternEnabled = v; if _G.CLL_RebuildBgPattern then _G.CLL_RebuildBgPattern() end end, ST.BgPatternEnabled == true, function() return ST.BgPatternEnabled end)
 	y += 44
 	slider(leftScroll, y, "BG Density", 0.05, 1, ST.BgPatternDensity or 0.4, 0.05, function(v) ST.BgPatternDensity = v; if _G.CLL_RebuildBgPattern then _G.CLL_RebuildBgPattern() end end, function() return ST.BgPatternDensity or 0.4 end)
