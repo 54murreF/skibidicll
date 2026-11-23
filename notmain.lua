@@ -1,6 +1,6 @@
 --[[
     ╔═══════════════════════════════════════════════════════════════╗
-    ║              CLL CHEAT - FULL INTEGRATION v11.50-u (native Q/G grab mirror + VR restore)                ║
+    ║              CLL CHEAT - FULL INTEGRATION v11.51-v (native Q/G grab mirror + VR restore)                ║
     ╠═══════════════════════════════════════════════════════════════╣
     ║  SUK head-hit, real crosshair, tracers, ESP outline nick,     ║
     ║  ChinaHat/Wings fix, VR hands, anti-flash/shake, antibypass   ║
@@ -101,7 +101,8 @@ local ST = {
 	CursorTrailSize = 6,
 	CursorTrailFade = 0.35,
 	CursorTrailColor = Color3.fromRGB(90, 160, 255),
-	BgPatternEnabled = false,
+	BgPatternEnabled = false, -- keep off by default (FPS)
+
 	BgPatternSeed = 1,
 	BgPatternDensity = 0.4,
 	BgPatternScale = 1,
@@ -1001,15 +1002,18 @@ function GetTargets()
         if head and hum and hum.Health > 0 then table.insert(targets, {char = char, head = head, plr = target}) end
     end
     local function addNPCs()
-        if #NPC_List == 0 then
-            -- inline scan (refreshNPCList may be defined later in file)
-            for _, inst in ipairs(workspace:GetDescendants()) do
-                if inst:IsA("Model") and not Players:GetPlayerFromCharacter(inst) then
-                    local hum = inst:FindFirstChildOfClass("Humanoid")
-                    local head = inst:FindFirstChild("Head")
-                    local hrp = inst:FindFirstChild("HumanoidRootPart")
-                    if hum and head and hrp and hum.Health > 0 then
-                        NPC_List[#NPC_List + 1] = inst
+        if #NPC_List == 0 and ST.SUK_TargetNPCs then
+            -- cheap scan: only workspace.Humans (no full GetDescendants)
+            local folder = workspace:FindFirstChild("Humans")
+            if folder then
+                for _, inst in ipairs(folder:GetChildren()) do
+                    if inst:IsA("Model") and not Players:GetPlayerFromCharacter(inst) then
+                        local hum = inst:FindFirstChildOfClass("Humanoid")
+                        local head = inst:FindFirstChild("Head")
+                        local hrp = inst:FindFirstChild("HumanoidRootPart")
+                        if hum and head and hrp and hum.Health > 0 then
+                            NPC_List[#NPC_List + 1] = inst
+                        end
                     end
                 end
             end
@@ -1096,65 +1100,67 @@ end
 
 local lastSpasPickup = 0
 function EnsureSpasEquipped()
+	-- non-blocking: never workspace:GetDescendants / never task.wait (was freezing SUK + client)
 	local tool = GetSpas()
 	local char = LocalPlayer.Character
 	local hum = char and char:FindFirstChildOfClass("Humanoid")
-	local root = char and char:FindFirstChild("HumanoidRootPart")
-	if not char or not hum or not root then return nil end
+	if not char or not hum then return nil end
 	if tool and tool.Parent == char then return tool end
 	if tool and tool.Parent ~= char then
 		pcall(function() hum:EquipTool(tool) end)
-		task.wait(0.05)
-		return GetSpas()
+		return (tool.Parent == char) and tool or GetSpas()
 	end
-	-- need to pick up from world / tables
-	if os.clock() - lastSpasPickup < 0.8 then return nil end
+	-- soft world pickup (tables only, rate-limited) — async so MultiFireAt never stalls
+	if os.clock() - (lastSpasPickup or 0) < 1.2 then return nil end
 	lastSpasPickup = os.clock()
-	local spasObj = nil
-	local tables = workspace:FindFirstChild("Map") and workspace.Map:FindFirstChild("Weapon Tables")
-	if not tables then tables = workspace:FindFirstChild("Weapon Tables") end
-	if tables then
-		for _, d in ipairs(tables:GetDescendants()) do
-			if d.Name == "Spas 12" or (d:IsA("Tool") and string.lower(d.Name):find("spas")) then
-				spasObj = d; break
+	task.spawn(function()
+		local root = char:FindFirstChild("HumanoidRootPart")
+		if not root then return end
+		local spasObj = nil
+		local tables = workspace:FindFirstChild("Map") and workspace.Map:FindFirstChild("Weapon Tables")
+		if not tables then tables = workspace:FindFirstChild("Weapon Tables") end
+		if tables then
+			for _, d in ipairs(tables:GetDescendants()) do
+				if d:IsA("Tool") and string.lower(d.Name):find("spas") then
+					spasObj = d
+					break
+				elseif d.Name == "Spas 12" or d.Name == "Spas12" then
+					spasObj = d
+					break
+				end
 			end
 		end
-	end
-	if not spasObj then
-		for _, d in ipairs(workspace:GetDescendants()) do
-			if d.Name == "Spas 12" and (d:IsA("Tool") or d:IsA("Model") or d:IsA("BasePart")) then
-				local pos = d:IsA("BasePart") and d.Position or (d.PrimaryPart and d.PrimaryPart.Position)
-				if pos and (root.Position - pos).Magnitude < 200 then spasObj = d; break end
+		if not spasObj then return end
+		local pos = spasObj:IsA("BasePart") and spasObj.Position
+			or (spasObj.PrimaryPart and spasObj.PrimaryPart.Position)
+			or (spasObj:FindFirstChild("Handle") and spasObj.Handle.Position)
+		if not pos then return end
+		local saved = root.CFrame
+		pcall(function()
+			root.CFrame = CFrame.new(pos + Vector3.new(0, 2.5, 0))
+		end)
+		task.wait(0.1)
+		pcall(function()
+			for _, d in ipairs(spasObj:GetDescendants()) do
+				if d:IsA("ProximityPrompt") then
+					if fireproximityprompt then fireproximityprompt(d) end
+				end
 			end
+		end)
+		task.wait(0.15)
+		local t = GetSpas()
+		if t then
+			pcall(function()
+				local h = LocalPlayer.Character and LocalPlayer.Character:FindFirstChildOfClass("Humanoid")
+				if h then h:EquipTool(t) end
+			end)
 		end
-	end
-	if not spasObj then return nil end
-	local pos = spasObj:IsA("BasePart") and spasObj.Position
-		or (spasObj.PrimaryPart and spasObj.PrimaryPart.Position)
-		or (spasObj:FindFirstChild("Handle") and spasObj.Handle.Position)
-	if not pos then return nil end
-	local saved = root.CFrame
-	root.CFrame = CFrame.new(pos + Vector3.new(0, 2.5, 0))
-	task.wait(0.08)
-	for _, d in ipairs(spasObj:GetDescendants()) do
-		if d:IsA("ProximityPrompt") and d.Enabled then
-			pcall(function() fireproximityprompt(d) end)
-		end
-	end
-	pcall(function()
-		local VIM = game:GetService("VirtualInputManager")
-		for _ = 1, 4 do
-			VIM:SendKeyEvent(true, Enum.KeyCode.F, false, game)
-			task.wait(0.04)
-			VIM:SendKeyEvent(false, Enum.KeyCode.F, false, game)
-			task.wait(0.04)
-		end
+		pcall(function()
+			local live = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
+			if live and saved then live.CFrame = saved end
+		end)
 	end)
-	task.wait(0.2)
-	tool = GetSpas()
-	if tool and hum then pcall(function() hum:EquipTool(tool) end) end
-	if root and root.Parent then root.CFrame = saved end
-	return GetSpas()
+	return nil
 end
 
 
@@ -1281,16 +1287,13 @@ function MultiFireAt()
 	end
 	if not FireRemote then return end
 
-	local tool = EnsureSpasEquipped and EnsureSpasEquipped() or GetSpas()
-	if not tool then return end
-	if tool.Parent ~= LocalPlayer.Character then
-		pcall(function()
-			local hum = LocalPlayer.Character and LocalPlayer.Character:FindFirstChildOfClass("Humanoid")
-			if hum then hum:EquipTool(tool) end
-		end)
+	-- equip from backpack / kick async world-pickup (never blocks this tick)
+	local tool = GetSpas()
+	if not tool or tool.Parent ~= LocalPlayer.Character then
+		pcall(EnsureSpasEquipped)
 		tool = GetSpas()
-		if not tool or tool.Parent ~= LocalPlayer.Character then return end
 	end
+	if not tool or tool.Parent ~= LocalPlayer.Character then return end
 
 	local cur, maxA = ReadAmmo(tool)
 	maxA = maxA or tool:GetAttribute("MaxAmmo") or 8
@@ -4028,7 +4031,7 @@ fit(); workspace.CurrentCamera:GetPropertyChangedSignal("ViewportSize"):Connect(
 local header = new("Frame", { Size = UDim2.new(1, 0, 0, 62), BackgroundTransparency = 1, Parent = window })
 local logoLabel = label({ Text = "CLL", Font = Enum.Font.Michroma, TextSize = 26, TextTruncate = Enum.TextTruncate.AtEnd, Size = UDim2.fromOffset(100, 62), Position = UDim2.fromOffset(23, 0), Parent = header })
 logoLabel.TextColor3 = Color3.fromRGB(255, 255, 255) -- Always white
-local verLabel = label({ Text = "v11.50-u", Font = Enum.Font.GothamBold, TextSize = 12, TextColor3 = Theme.Dim, Size = UDim2.fromOffset(50, 62), Position = UDim2.fromOffset(85, 2), Parent = header })
+local verLabel = label({ Text = "v11.51-v", Font = Enum.Font.GothamBold, TextSize = 12, TextColor3 = Theme.Dim, Size = UDim2.fromOffset(50, 62), Position = UDim2.fromOffset(85, 2), Parent = header })
 local timeLabel = label({ Text = "Session: 00:00", Font = Enum.Font.GothamMedium, TextSize = 13, TextColor3 = Theme.Dim, Size = UDim2.fromOffset(150, 62), Position = UDim2.fromOffset(150, 0), Parent = header })
 task.spawn(function()
 	while not ST.isUnloaded do
@@ -6947,7 +6950,7 @@ do
 end
 
 selectTab("Combat")
--- setOpen(true) deferred: open with keybind to avoid inject freeze
+setOpen(true)
 fireTheme()
 updateFOVCircle()
 
