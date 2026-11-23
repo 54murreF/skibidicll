@@ -2415,42 +2415,35 @@ task.spawn(function()
 end)
 
 
---// ==================== VR ENABLED FORCE (dump: if not VRService.VREnabled then ...) ====================
+--// ==================== VR ENABLED FORCE ====================
+-- Keybinds use game.VRService.VREnabled → must hook Instance __index (self = VRService)
 do
 	local VRS = game:GetService("VRService")
 	pcall(function()
 		local oldIdx
 		oldIdx = hookmetamethod(game, "__index", function(self, key)
-			if key == "VREnabled" and ST.VREnabled then
-				local ok, cn = pcall(function()
-					return self == VRS or self.ClassName == "VRService"
+			if key == "VREnabled" then
+				local isVRS = false
+				pcall(function()
+					isVRS = (self == VRS) or (typeof(self) == "Instance" and self.ClassName == "VRService")
 				end)
-				if ok and cn then
-					return true
+				if isVRS then
+					-- when our VR mode on → true; when off → real engine value (false on PC)
+					if ST.VREnabled then
+						return true
+					end
 				end
 			end
 			return oldIdx(self, key)
 		end)
 	end)
-	pcall(function()
-		local mt = getrawmetatable(game)
-		if not mt then return end
-		local old = mt.__index
-		setreadonly(mt, false)
-		mt.__index = function(self, key)
-			if key == "VREnabled" and ST.VREnabled then
-				local ok, cn = pcall(function() return self.ClassName end)
-				if ok and cn == "VRService" then return true end
-			end
-			if typeof(old) == "function" then return old(self, key) end
-			return rawget(self, key)
-		end
-		setreadonly(mt, true)
-	end)
+	-- keep DID_VR only while VR is on (don't re-stamp after user turns VR off)
 	task.spawn(function()
 		while not ST.isUnloaded do
 			task.wait(0.5)
-			if ST.VREnabled then
+			if not ST.VREnabled then
+				-- nothing
+			else
 				pcall(function()
 					local char = LocalPlayer.Character
 					local hum = char and char:FindFirstChildOfClass("Humanoid")
@@ -2467,9 +2460,9 @@ end
 --// ==================== VR IMPLEMENTATION (dump-faithful) ====================
 -- Game path (from dump):
 --   Fx:FireServer("VR_INIT") once
---   every ~0.033s Fx:FireServer("VR_UPDATE", {VR_RIGHT_ARM_CFRAME, VR_LEFT_ARM_CFRAME, VR_HEAD_CFRAME, VR_ROOTPART_CFRAME})
---   VR_INIT client: disables Shoulder motors, anchors Head/Arms, drives CFrame from attributes
--- VRService.VREnabled is engine-only (headset). We replicate the SAME arm/server pipeline on PC.
+--   every ~0.033s Fx:FireServer("VR_UPDATE", ...)
+--   Keybinds: VR on → Grabmove RIGHT_ARM (kick/Q) / LEFT_ARM (G)
+-- VRService.VREnabled is engine-only (headset). We spoof it only while ST.VREnabled.
 
 local VR_Cam_Rotation = CFrame.new()
 local vrHandShakeSeed = 0
@@ -2664,11 +2657,38 @@ function vrShutdown()
 		pcall(function()
 			char:SetAttribute("VR", false)
 			char:SetAttribute("DID_VR", false)
+			char:SetAttribute("VR_RIGHT_ARM_CFRAME", nil)
+			char:SetAttribute("VR_LEFT_ARM_CFRAME", nil)
+			char:SetAttribute("VR_HEAD_CFRAME", nil)
+			char:SetAttribute("VR_ROOTPART_CFRAME", nil)
 			local head = char:FindFirstChild("Head")
-			if head then pcall(function() head.CollisionGroup = "Default" end) end
+			if head then
+				pcall(function() head.CollisionGroup = "Default" end)
+				head.Anchored = false
+			end
+			-- force ALL arm/shoulder motors back (list may be empty after respawn)
+			local torso = char:FindFirstChild("Torso") or char:FindFirstChild("UpperTorso")
+			if torso then
+				for _, m in ipairs(torso:GetChildren()) do
+					if m:IsA("Motor6D") then
+						local n = m.Name
+						if n:find("Shoulder") or n:find("shoulder") or n == "Neck" then
+							m.Enabled = true
+						end
+					end
+				end
+			end
+			for _, n in ipairs({"Right Arm", "Left Arm", "RightUpperArm", "LeftUpperArm", "RightLowerArm", "LeftLowerArm"}) do
+				local part = char:FindFirstChild(n)
+				if part and part:IsA("BasePart") then
+					part.Anchored = false
+					part.CanCollide = false
+				end
+			end
 		end)
 	end
 	vrDidInit = false
+	vrShoulders = {}
 end
 
 UIS.InputChanged:Connect(function(input)
