@@ -1,6 +1,6 @@
 --[[
     ╔═══════════════════════════════════════════════════════════════╗
-    ║              CLL CHEAT - FULL INTEGRATION v11.54-y (native Q/G grab mirror + VR restore)                ║
+    ║              CLL CHEAT - FULL INTEGRATION v11.56-aa (native Q/G grab mirror + VR restore)                ║
     ╠═══════════════════════════════════════════════════════════════╣
     ║  SUK head-hit, real crosshair, tracers, ESP outline nick,     ║
     ║  ChinaHat/Wings fix, VR hands, anti-flash/shake, antibypass   ║
@@ -789,7 +789,48 @@ function tracerColorForCharacter(char)
 		return ST.ColorSelf, ST.TracerSelfEnabled
 	end
 	local plr = Players:GetPlayerFromCharacter(char)
-	if plr and FriendsList[plr.UserId] then
+	if plr then
+		local uid = plr.UserId
+		if FriendsList[uid] or FriendsList[tostring(uid)] or FriendsList[tonumber(uid)] then
+			return ST.ColorFriends, ST.TracerFriendsEnabled
+		end
+		if IsFriend and IsFriend(plr) then
+			return ST.ColorFriends, ST.TracerFriendsEnabled
+		end
+	end
+	return ST.ColorOthers, ST.TracerOthersEnabled
+end
+
+local function tracerColorFromOrigin(origin)
+	if typeof(origin) ~= "Vector3" then
+		return ST.ColorOthers, ST.TracerOthersEnabled
+	end
+	-- local muzzle
+	if os.clock() - (lastLocalShotAt or 0) < 0.55 then
+		if not lastLocalShotOrigin or (origin - lastLocalShotOrigin).Magnitude < 28 then
+			return ST.ColorSelf, ST.TracerSelfEnabled
+		end
+	end
+	local myChar = LocalPlayer.Character
+	local myTool = myChar and myChar:FindFirstChildOfClass("Tool")
+	local fp = myTool and myTool:FindFirstChild("Firepoint", true)
+	if fp and (origin - fp.WorldPosition).Magnitude < 14 then
+		return ST.ColorSelf, ST.TracerSelfEnabled
+	end
+	-- nearest living player to muzzle → friend green / else yellow
+	local best, bestD = nil, 45
+	for _, plr in ipairs(Players:GetPlayers()) do
+		if plr ~= LocalPlayer and plr.Character then
+			local hrp = plr.Character:FindFirstChild("HumanoidRootPart") or plr.Character:FindFirstChild("Head")
+			if hrp then
+				local d = (hrp.Position - origin).Magnitude
+				if d < bestD then
+					bestD, best = d, plr
+				end
+			end
+		end
+	end
+	if best and (FriendsList[best.UserId] or FriendsList[tostring(best.UserId)] or (IsFriend and IsFriend(best))) then
 		return ST.ColorFriends, ST.TracerFriendsEnabled
 	end
 	return ST.ColorOthers, ST.TracerOthersEnabled
@@ -828,20 +869,7 @@ function traceFromBulletPart(part)
 		origin = part.Position
 	end
 	local function classifyColor()
-		-- recent local Fire packet wins
-		if os.clock() - lastLocalShotAt < 0.55 then
-			if not lastLocalShotOrigin or typeof(origin) ~= "Vector3" or (origin - lastLocalShotOrigin).Magnitude < 25 then
-				return ST.ColorSelf, ST.TracerSelfEnabled
-			end
-		end
-		local myChar = LocalPlayer.Character
-		local myTool = myChar and myChar:FindFirstChildOfClass("Tool")
-		local fp = myTool and (myTool:FindFirstChild("Firepoint", true) or (myTool:FindFirstChild("Base") and myTool.Base:FindFirstChild("Firepoint")))
-		local myOrigin = fp and fp.WorldPosition
-		if myOrigin and typeof(origin) == "Vector3" and (origin - myOrigin).Magnitude < 12 then
-			return ST.ColorSelf, ST.TracerSelfEnabled
-		end
-		return ST.ColorOthers, ST.TracerOthersEnabled
+		return tracerColorFromOrigin(origin)
 	end
 	task.delay(0.03, function()
 		local col, on = classifyColor()
@@ -896,15 +924,9 @@ task.spawn(function()
 						col, on = tracerColorForCharacter(ch)
 					end
 				end
-				if on and col == ST.ColorOthers then
-					local myChar = LocalPlayer.Character
-					local myTool = myChar and myChar:FindFirstChildOfClass("Tool")
-					local fp = myTool and myTool:FindFirstChild("Firepoint", true)
-					local myOrigin = fp and fp.WorldPosition
-					if (myOrigin and typeof(origin) == "Vector3" and (origin - myOrigin).Magnitude < 12)
-						or (lastLocalShotOrigin and typeof(origin) == "Vector3" and (origin - lastLocalShotOrigin).Magnitude < 25) then
-						col, on = ST.ColorSelf, ST.TracerSelfEnabled
-					end
+				if col == ST.ColorOthers or not col then
+					-- reclassify by muzzle origin (friends → green)
+					col, on = tracerColorFromOrigin(origin)
 				end
 				if on then
 					CreateTracer(origin, ray and ray.Position or (origin + dir * 350), col)
@@ -1307,7 +1329,14 @@ function MultiFireAt()
 
 	local cur, maxA = ReadAmmo(tool)
 	maxA = maxA or tool:GetAttribute("MaxAmmo") or 8
-	if cur <= 0 then return end
+	if cur <= 0 then
+		if not ST.reloadInProgress then
+			task.spawn(function()
+				pcall(InstantReload, tool)
+			end)
+		end
+		return
+	end
 
 	local bulletModel = BulletModel
 	if not bulletModel then
@@ -1857,6 +1886,12 @@ end
 --// ==================== MOVEMENT & EFFECTS ====================
 RunService.Heartbeat:Connect(function()
 	if ST.isUnloaded then return end
+	-- skip almost all work when no movement/combat helpers are on
+	if not ST.VREnabled and not ST.FlyEnabled and not ST.LocalInvisEnabled
+		and not ST.AntiSlowEnabled and not ST.AntiCCEnabled and not ST.NoClipEnabled
+		and not ST.WalkSpeedEnabled and not ST.InfiniteJumpEnabled then
+		return
+	end
 	local char, humanoid, root = getCharacterParts()
 	if not char or not humanoid or not root then return end
 	-- ragdoll FIRST (even without VR): never fight game physics/animators
@@ -4036,7 +4071,7 @@ fit(); workspace.CurrentCamera:GetPropertyChangedSignal("ViewportSize"):Connect(
 local header = new("Frame", { Size = UDim2.new(1, 0, 0, 62), BackgroundTransparency = 1, Parent = window })
 local logoLabel = label({ Text = "CLL", Font = Enum.Font.Michroma, TextSize = 26, TextTruncate = Enum.TextTruncate.AtEnd, Size = UDim2.fromOffset(100, 62), Position = UDim2.fromOffset(23, 0), Parent = header })
 logoLabel.TextColor3 = Color3.fromRGB(255, 255, 255) -- Always white
-local verLabel = label({ Text = "v11.54-y", Font = Enum.Font.GothamBold, TextSize = 12, TextColor3 = Theme.Dim, Size = UDim2.fromOffset(50, 62), Position = UDim2.fromOffset(85, 2), Parent = header })
+local verLabel = label({ Text = "v11.56-aa", Font = Enum.Font.GothamBold, TextSize = 12, TextColor3 = Theme.Dim, Size = UDim2.fromOffset(50, 62), Position = UDim2.fromOffset(85, 2), Parent = header })
 local timeLabel = label({ Text = "Session: 00:00", Font = Enum.Font.GothamMedium, TextSize = 13, TextColor3 = Theme.Dim, Size = UDim2.fromOffset(150, 62), Position = UDim2.fromOffset(150, 0), Parent = header })
 task.spawn(function()
 	while not ST.isUnloaded do
@@ -4637,7 +4672,6 @@ function buildTarget()
 	slider(scroll, y, "Firerate RPS", 1, 30, ST.SUK_FIRERATE_RPS, 1, function(v) ST.SUK_FIRERATE_RPS = v end, function() return ST.SUK_FIRERATE_RPS end); y += 64
 	slider(scroll, y, "Fire Delay (Safe)", 0.01, 0.5, ST.SUK_FireDelay, 0.01, function(v) ST.SUK_FireDelay = v end, function() return ST.SUK_FireDelay end); y += 64
 	slider(scroll, y, "Targets / tick", 1, 16, ST.SUK_MaxPerTick, 1, function(v) ST.SUK_MaxPerTick = v end, function() return ST.SUK_MaxPerTick end); y += 64
-	toggle(scroll, y, "Permanent Reload", function(v) ST.PermanentReloadEnabled = v end, false, function() return ST.PermanentReloadEnabled end); y += 46
 	toggle(scroll, y, "Auto Healing", function(v) ST.HealEnabled = v; if v then StartHealLoop() else StopHealLoop() end end, false, function() return ST.HealEnabled end); y += 46
 	slider(scroll, y, "Heal Height", -5, 10, ST.HealFlyHeight or 3.5, 0.5, function(v) ST.HealFlyHeight = v end, function() return ST.HealFlyHeight end); y += 64
 	toggle(scroll, y, "Ignore Friends", function(v) ST.SUK_IgnoreFriends = v end, true, function() return ST.SUK_IgnoreFriends end); y += 46
@@ -4935,8 +4969,9 @@ function buildSettings()
 		gpi = (gpi % #gridPresets) + 1
 		ST.MenuGridColor = gridPresets[gpi]
 		gridPrev.BackgroundColor3 = ST.MenuGridColor
+		if rebuildMenuGrid and ST.MenuGridEnabled then pcall(rebuildMenuGrid) end
 	end)
-	y += 36
+	y += 52
 	toggle(leftScroll, y, "Watermark Main", function(v) ST.WatermarkMainVisible = v; if watermarkMain then watermarkMain.Visible = v end end, true, function() return ST.WatermarkMainVisible end); y += 48
 	toggle(leftScroll, y, "Watermark Binds", function(v) ST.WatermarkBindsVisible = v; watermarkBinds.Visible = v end, true, function() return ST.WatermarkBindsVisible end); y += 48
 	toggle(leftScroll, y, "Watermark World", function(v) ST.WatermarkWorldVisible = v; watermarkWorld.Visible = v end, true); y += 48
@@ -5929,10 +5964,10 @@ rebuildMenuGrid = function()
 		menuGridFolder = folder
 		local col = ST.MenuGridColor or Color3.fromRGB(80, 140, 255)
 		local tr = math.clamp(ST.MenuGridTransparency or 0.85, 0.2, 0.98)
-		local spacing = 28
+		local spacing = 32
 		local lines = {}
 		-- vertical
-		for i = 0, 40 do
+		for i = 0, 28 do
 			local ln = Instance.new("Frame")
 			ln.BackgroundColor3 = col
 			ln.BackgroundTransparency = tr
@@ -5944,7 +5979,7 @@ rebuildMenuGrid = function()
 			lines[#lines+1] = { ln = ln, axis = "v", i = i }
 		end
 		-- horizontal
-		for i = 0, 30 do
+		for i = 0, 22 do
 			local ln = Instance.new("Frame")
 			ln.BackgroundColor3 = col
 			ln.BackgroundTransparency = tr
@@ -5956,23 +5991,28 @@ rebuildMenuGrid = function()
 			lines[#lines+1] = { ln = ln, axis = "h", i = i }
 		end
 		local t0 = os.clock()
-		menuGridConn = RunService.RenderStepped:Connect(function()
+		local accG = 0
+		menuGridConn = RunService.Heartbeat:Connect(function(dt)
 			if ST.isUnloaded or not ST.MenuGridEnabled or not folder.Parent then
 				return
 			end
-			if not isOpen then return end -- pause animation, keep conn
+			if not isOpen then return end
+			accG += dt
+			if accG < 0.03 then return end
+			accG = 0
 			local spd = math.clamp(ST.MenuGridSpeed or 1, 0.05, 8)
-			local off = ((os.clock() - t0) * spd * 12) % spacing
+			local off = ((os.clock() - t0) * spd * 22) % spacing
 			local c = ST.MenuGridColor or col
 			local tr2 = math.clamp(ST.MenuGridTransparency or tr, 0.2, 0.98)
 			for _, d in ipairs(lines) do
-				if d.ln and d.ln.Parent then
-					d.ln.BackgroundColor3 = c
-					d.ln.BackgroundTransparency = tr2
+				local ln = d.ln
+				if ln and ln.Parent then
+					ln.BackgroundColor3 = c
+					ln.BackgroundTransparency = tr2
 					if d.axis == "v" then
-						d.ln.Position = UDim2.fromOffset(d.i * spacing - off, -20)
+						ln.Position = UDim2.fromOffset(d.i * spacing - off, -20)
 					else
-						d.ln.Position = UDim2.fromOffset(-20, d.i * spacing - off)
+						ln.Position = UDim2.fromOffset(-20, d.i * spacing - off)
 					end
 				end
 			end
