@@ -264,7 +264,6 @@ local SkyColor = Color3.fromRGB(50, 150, 255)
 -- Keybind State
 local Keys = {
 	VRSwing = Enum.UserInputType.MouseButton1,
-	VRCarry = Enum.KeyCode.G,
 	ESP = Enum.KeyCode.Unknown, Hitbox = Enum.KeyCode.Unknown, SUK = Enum.KeyCode.Unknown, 
 	NoRecoil = Enum.KeyCode.Unknown, AntiCC = Enum.KeyCode.Unknown, 
 	Spin = Enum.KeyCode.Unknown, Fly = Enum.KeyCode.Unknown, WalkSpeed = Enum.KeyCode.Unknown, 
@@ -2682,6 +2681,55 @@ UIS.InputChanged:Connect(function(input)
 		* CFrame.Angles(math.rad(-d.Y * 0.35), 0, 0)
 end)
 
+
+-- Center toast: VR disabled on death
+local function showVRDeathNotice()
+	pcall(function()
+		local parent = (gethui and gethui()) or game:GetService("CoreGui")
+		local gui = Instance.new("ScreenGui")
+		gui.Name = "CLL_VRDeathNotice"
+		gui.IgnoreGuiInset = true
+		gui.ResetOnSpawn = false
+		gui.DisplayOrder = 200
+		gui.Parent = parent
+		local label = Instance.new("TextLabel")
+		label.AnchorPoint = Vector2.new(0.5, 0.5)
+		label.Position = UDim2.fromScale(0.5, 0.38)
+		label.Size = UDim2.fromOffset(420, 44)
+		label.BackgroundColor3 = Color3.fromRGB(18, 18, 26)
+		label.BackgroundTransparency = 0.25
+		label.BorderSizePixel = 0
+		label.Font = Enum.Font.GothamMedium
+		label.TextSize = 16
+		label.TextColor3 = Color3.fromRGB(235, 240, 255)
+		label.Text = "VR disabled — you died. Toggle VR again when ready."
+		label.TextTransparency = 1
+		label.Parent = gui
+		local c = Instance.new("UICorner")
+		c.CornerRadius = UDim.new(0, 10)
+		c.Parent = label
+		local s = Instance.new("UIStroke")
+		s.Color = Color3.fromRGB(90, 140, 255)
+		s.Thickness = 1.2
+		s.Transparency = 1
+		s.Parent = label
+		-- fade in
+		local tiIn = TweenInfo.new(0.35, Enum.EasingStyle.Quint, Enum.EasingDirection.Out)
+		local tiOut = TweenInfo.new(0.55, Enum.EasingStyle.Sine, Enum.EasingDirection.In)
+		TweenService:Create(label, tiIn, { TextTransparency = 0, BackgroundTransparency = 0.2 }):Play()
+		TweenService:Create(s, tiIn, { Transparency = 0.35 }):Play()
+		task.delay(2.2, function()
+			local a = TweenService:Create(label, tiOut, { TextTransparency = 1, BackgroundTransparency = 1 })
+			local b = TweenService:Create(s, tiOut, { Transparency = 1 })
+			a:Play(); b:Play()
+			pcall(function()
+				a.Completed:Wait()
+			end)
+			pcall(function() gui:Destroy() end)
+		end)
+	end)
+end
+
 function setVREnabled(on, fromUser)
 	on = on and true or false
 	if fromUser then
@@ -2799,9 +2847,17 @@ RunService:BindToRenderStep("CLL_VR", Enum.RenderPriority.Camera.Value + 1, func
 		pcall(vrReleaseForRagdoll, char)
 		pcall(releaseVRCamera)
 		if hum and hum.Health <= 0 then
-			VRWantEnabled = true
-			if VRToggleSetUI then pcall(VRToggleSetUI, false) end
+			-- death: force VR off; user must re-enable manually (no auto-on)
+			local wasOn = ST.VREnabled or VRWantEnabled
+			VRWantEnabled = false
 			ST.VREnabled = false
+			if VRToggleSetUI then pcall(VRToggleSetUI, false) end
+			pcall(function()
+				game:GetService("ContextActionService"):UnbindAction("CLL_VRCarry")
+			end)
+			if wasOn then
+				pcall(showVRDeathNotice)
+			end
 		end
 		return
 	end
@@ -3065,42 +3121,7 @@ LocalPlayer.CharacterAdded:Connect(function(c)
 		end
 		releaseVRCamera()
 	end)
-	-- after death we forced toggle OFF; 1s after respawn flip toggle ON again if user wanted VR
-	task.defer(function()
-		task.wait(1.6)
-		if ST.isUnloaded then return end
-		local live = LocalPlayer.Character
-		local h = live and live:FindFirstChildOfClass("Humanoid")
-		if live ~= c then return end
-		if not VRWantEnabled then return end
-		if h and h.Health > 0 and not live:GetAttribute("Ragdoll") and not live:GetAttribute("Downed") then
-			local r = live:FindFirstChild("HumanoidRootPart")
-			local stayCF = r and r.CFrame
-			if r then
-				pcall(function()
-					r.AssemblyLinearVelocity = Vector3.zero
-					r.AssemblyAngularVelocity = Vector3.zero
-				end)
-			end
-			-- prevent VR Target from yanking you to victims right after respawn
-			_G.CLL_VR_SPAWN_GRACE = os.clock() + 3.5
-			-- look like a human flipped the toggle (UI + state)
-			if VRToggleSetUI then pcall(VRToggleSetUI, true) end
-			setVREnabled(true, false)
-			-- hard-pin position for a moment so VR init cannot fling
-			if r and stayCF then
-				for _ = 1, 8 do
-					if not ST.VREnabled then break end
-					pcall(function()
-						r.CFrame = stayCF
-						r.AssemblyLinearVelocity = Vector3.zero
-						r.AssemblyAngularVelocity = Vector3.zero
-					end)
-					task.wait(0.03)
-				end
-			end
-		end
-	end)
+	-- no auto re-enable VR after respawn (user toggles manually)
 end)
 
 --// ==================== REAL AIM CROSSHAIR ====================
@@ -4324,7 +4345,7 @@ function buildKeybinds()
 	label({ Text = "KEYBINDS", Font = Enum.Font.GothamMedium, TextSize = 12, TextColor3 = Theme.Dim, Size = UDim2.fromOffset(200, 20), Position = UDim2.fromOffset(14, 12), Parent = panel })
 	local list = new("ScrollingFrame", { Size = UDim2.new(1, -16, 1, -44), Position = UDim2.fromOffset(8, 36), BackgroundTransparency = 1, BorderSizePixel = 0, ScrollBarThickness = 2, CanvasSize = UDim2.new(), AutomaticCanvasSize = Enum.AutomaticSize.Y, Parent = panel }, { new("UIListLayout", { Padding = UDim.new(0, 4), SortOrder = Enum.SortOrder.LayoutOrder }), new("UIPadding", { PaddingTop = UDim.new(0, 4), PaddingBottom = UDim.new(0, 8), PaddingLeft = UDim.new(0, 6), PaddingRight = UDim.new(0, 6) }) })
 	local bindRows = {
-		{ "Menu", "Menu" }, { "SUK", "SUK" }, { "VR Carry", "VRCarry" }, { "No Recoil", "NoRecoil" }, { "Anti-CC", "AntiCC" },
+		{ "Menu", "Menu" }, { "SUK", "SUK" }, { "No Recoil", "NoRecoil" }, { "Anti-CC", "AntiCC" },
 		{ "ESP", "ESP" }, { "Hitbox", "Hitbox" }, { "Fly", "Fly" }, { "Walk Speed", "WalkSpeed" }, { "Jump Power", "JumpPower" },
 		{ "Heal", "Heal" }, { "Silent Aim", "SilentAim" }, { "China Hat", "ChinaHat" }, { "Wings", "Wings" }, { "Anti-Lag", "AntiLag" }, { "Spin", "Spin" },
         { "Teleport Heal", "TeleportHeal" }, { "Teleport Cursor", "TeleportCursor" }, { "Combo", "Combo" }, { "Reload Spas", "ReloadSpas" }
@@ -5842,147 +5863,8 @@ end
 -- VR Carry — same as v11.4: needs VR on + victim Character as 3rd arg
 -- VRCarry only: pick up player into hands (not punch). VR must be on.
 -- VRCarry: mirror game path exactly (Keybinds u107 + mobile Helper "Grab")
--- VRCarry: PlayerGui.Helper:Fire("Grab") → Character Keybinds u107 → Grabmove LEFT_ARM
--- NEVER PlayerScripts.Helper (that is FX → "Unknown FX Mapping:Grab")
-local function getGuiHelper()
-	local pg = LocalPlayer:FindFirstChild("PlayerGui")
-	if not pg then return nil end
-	local h = pg:FindFirstChild("Helper")
-	if h then return h end
-	pcall(function()
-		h = pg:WaitForChild("Helper", 2)
-	end)
-	return h
-end
-
-local function DoVRCarry()
-	if not ST.VREnabled then return end
-	local my = LocalPlayer.Character
-	if not my then return end
-	local hum = my:FindFirstChildOfClass("Humanoid")
-	if not hum or hum.Health <= 0 then return end
-	if os.clock() - (_G.CLL_CarryAt or 0) < 0.12 then return end
-	_G.CLL_CarryAt = os.clock()
-
-	-- dump u107 blockers
-	pcall(function()
-		my:SetAttribute("GloryKillCooldown", nil)
-		my:SetAttribute("Stunned", nil)
-		my:SetAttribute("Dropkick", nil)
-		hum:SetAttribute("Stunned", nil)
-		hum.PlatformStand = false
-		hum.Sit = false
-	end)
-
-	-- arms near nearest target for server distance
-	local victim, head
-	pcall(function()
-		local t = GetVRTargets and GetVRTargets() or {}
-		if t[1] then victim, head = t[1].char, t[1].head end
-	end)
-	if not victim then
-		local root = my:FindFirstChild("HumanoidRootPart")
-		local origin = root and root.Position
-		local bestD = 25
-		if origin then
-			for _, plr in ipairs(Players:GetPlayers()) do
-				if plr ~= LocalPlayer and plr.Character then
-					local char = plr.Character
-					local h = char:FindFirstChildOfClass("Humanoid")
-					local hrp = char:FindFirstChild("HumanoidRootPart") or char:FindFirstChild("Head")
-					if h and hrp and h.Health > 0 then
-						local d = (hrp.Position - origin).Magnitude
-						if d < bestD then
-							bestD, victim, head = d, char, char:FindFirstChild("Head") or hrp
-						end
-					end
-				end
-			end
-		end
-	end
-	if victim and head then
-		local hp = head.Position
-		local right = CFrame.lookAt(hp + Vector3.new(0.35, 0, 0.2), hp)
-		local left = CFrame.lookAt(hp + Vector3.new(-0.35, 0, 0.2), hp)
-		local headCF = CFrame.new(hp + Vector3.new(0, 1.2, 0))
-		local root = my:FindFirstChild("HumanoidRootPart")
-		local rootCF = root and root.CFrame or CFrame.new()
-		pcall(function()
-			my:SetAttribute("DID_VR", true)
-			my:SetAttribute("VR", true)
-			my:SetAttribute("VR_RIGHT_ARM_CFRAME", right)
-			my:SetAttribute("VR_LEFT_ARM_CFRAME", left)
-			my:SetAttribute("VR_HEAD_CFRAME", headCF)
-			my:SetAttribute("VR_ROOTPART_CFRAME", rootCF)
-			local ra, la = my:FindFirstChild("Right Arm"), my:FindFirstChild("Left Arm")
-			if ra then ra.Anchored = true; ra.CFrame = right end
-			if la then la.Anchored = true; la.CFrame = left end
-		end)
-		if FxRemote then
-			pcall(function()
-				FxRemote:FireServer("VR_UPDATE", {
-					VR_RIGHT_ARM_CFRAME = right,
-					VR_LEFT_ARM_CFRAME = left,
-					VR_HEAD_CFRAME = headCF,
-					VR_ROOTPART_CFRAME = rootCF,
-				})
-			end)
-		end
-	end
-
-	-- CORRECT helper: PlayerGui.Helper (Keybinds), not PlayerScripts.Helper (FX)
-	local guiHelper = getGuiHelper()
-	if guiHelper then
-		pcall(function() guiHelper:Fire("Grab") end)
-	end
-
-	-- dump direct: VR → LEFT_ARM (G path) + RIGHT_ARM (VR grab path)
-	if not SwingRemote or not SwingRemote.Parent then
-		pcall(function()
-			local r = ReplicatedStorage:FindFirstChild("Remotes")
-			SwingRemote = r and r:FindFirstChild("Swing")
-		end)
-	end
-	if SwingRemote then
-		pcall(function() SwingRemote:FireServer("Grabmove", "LEFT_ARM") end)
-		pcall(function() SwingRemote:FireServer("Grabmove", "RIGHT_ARM") end)
-	end
-end
-
-
-do
-	local CAS = game:GetService("ContextActionService")
-	local function bindVRCarry()
-		pcall(function() CAS:UnbindAction("CLL_VRCarry") end)
-		if not ST.VREnabled then return end
-		local key = Keys.VRCarry
-		if typeof(key) ~= "EnumItem" or key == Enum.KeyCode.Unknown then
-			key = Enum.KeyCode.G
-		end
-		if key.EnumType ~= Enum.KeyCode then return end
-		CAS:BindActionAtPriority("CLL_VRCarry", function(_, state)
-			if state ~= Enum.UserInputState.Begin then return Enum.ContextActionResult.Pass end
-			if ST.isUnloaded or ST.isBinding or UIS:GetFocusedTextBox() then
-				return Enum.ContextActionResult.Pass
-			end
-			if not ST.VREnabled then return Enum.ContextActionResult.Pass end
-			DoVRCarry()
-			return Enum.ContextActionResult.Sink
-		end, false, 3000, key)
-	end
-	_G.CLL_BindVRCarry = bindVRCarry
-	task.defer(bindVRCarry)
-end
-
 UIS.InputBegan:Connect(function(input, gp)
 	if ST.isUnloaded then return end
-	-- VRCarry BEFORE gp-check: game often marks G as processed
-	if ST.VREnabled and not ST.isBinding and not UIS:GetFocusedTextBox() then
-		local bind = Keys.VRCarry
-		if bind and bind ~= Enum.KeyCode.Unknown and input.KeyCode == bind then
-			DoVRCarry()
-		end
-	end
 	-- keybind capture runs even if gameProcessed (ESC must always reset)
 	if ST.isBinding then
 		if input.KeyCode == Enum.KeyCode.Escape then
