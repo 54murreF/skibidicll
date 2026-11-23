@@ -1,6 +1,6 @@
 --[[
     ╔═══════════════════════════════════════════════════════════════╗
-    ║              CLL CHEAT - FULL INTEGRATION v11.58-ac (native Q/G grab mirror + VR restore)                ║
+    ║              CLL CHEAT - FULL INTEGRATION v11.59-ad (native Q/G grab mirror + VR restore)                ║
     ╠═══════════════════════════════════════════════════════════════╣
     ║  SUK head-hit, real crosshair, tracers, ESP outline nick,     ║
     ║  ChinaHat/Wings fix, VR hands, anti-flash/shake, antibypass   ║
@@ -1121,7 +1121,6 @@ end
 
 local lastSpasPickup = 0
 function EnsureSpasEquipped()
-	-- find Spas by NAME only (FindFirstChild), not workspace:GetDescendants
 	local tool = GetSpas()
 	local char = LocalPlayer.Character
 	local hum = char and char:FindFirstChildOfClass("Humanoid")
@@ -1132,12 +1131,11 @@ function EnsureSpasEquipped()
 		pcall(function() hum:EquipTool(tool) end)
 		return GetSpas()
 	end
-	if os.clock() - (lastSpasPickup or 0) < 0.75 then return nil end
+	if os.clock() - (lastSpasPickup or 0) < 0.5 then return nil end
 	lastSpasPickup = os.clock()
 
-	local function findSpasByName(parent)
+	local function byName(parent)
 		if not parent then return nil end
-		-- recursive name lookup (engine stops at first match)
 		return parent:FindFirstChild("Spas 12", true)
 			or parent:FindFirstChild("Spas12", true)
 			or parent:FindFirstChild("SPAS 12", true)
@@ -1145,57 +1143,55 @@ function EnsureSpasEquipped()
 
 	local map = workspace:FindFirstChild("Map")
 	local tables = (map and map:FindFirstChild("Weapon Tables")) or workspace:FindFirstChild("Weapon Tables")
-	local spasObj = findSpasByName(tables)
-		or findSpasByName(map)
-		or findSpasByName(workspace:FindFirstChild("Weapons"))
-		or findSpasByName(workspace:FindFirstChild("WeaponTables"))
+	local spasObj = byName(tables) or byName(map) or byName(workspace:FindFirstChild("Weapons"))
+	-- one recursive name search on workspace if tables path failed
+	if not spasObj then
+		spasObj = workspace:FindFirstChild("Spas 12", true) or workspace:FindFirstChild("Spas12", true)
+	end
 	if not spasObj then return nil end
 
 	local pos = nil
-	if spasObj:IsA("BasePart") then
-		pos = spasObj.Position
-	elseif spasObj:IsA("Model") then
-		pos = spasObj.PrimaryPart and spasObj.PrimaryPart.Position
-		if not pos then
-			local h = spasObj:FindFirstChild("Handle", true)
-			pos = h and h:IsA("BasePart") and h.Position
+	pcall(function()
+		if spasObj:IsA("BasePart") then pos = spasObj.Position
+		elseif spasObj:IsA("Tool") then
+			local h = spasObj:FindFirstChild("Handle")
+			pos = h and h.Position
+		elseif spasObj:IsA("Model") then
+			pos = spasObj:GetPivot().Position
 		end
-	elseif spasObj:IsA("Tool") then
-		local h = spasObj:FindFirstChild("Handle")
-		pos = h and h.Position
-	end
-	if not pos then
-		local pp = spasObj:FindFirstChildWhichIsA("BasePart", true)
-		pos = pp and pp.Position
-	end
+		if not pos then
+			local p = spasObj:FindFirstChildWhichIsA("BasePart", true)
+			pos = p and p.Position
+		end
+	end)
 	if not pos then return nil end
 
 	local saved = root.CFrame
-	pcall(function()
-		root.CFrame = CFrame.new(pos + Vector3.new(0, 2.5, 0))
-	end)
-	task.wait(0.08)
+	pcall(function() root.CFrame = CFrame.new(pos + Vector3.new(0, 3, 0)) end)
+	task.wait(0.1)
 	pcall(function()
 		local prompt = spasObj:FindFirstChildWhichIsA("ProximityPrompt", true)
-		if prompt and fireproximityprompt then
-			fireproximityprompt(prompt)
-		elseif prompt then
-			prompt:InputHoldBegin()
-			task.wait(0.05)
-			prompt:InputHoldEnd()
+		if prompt then
+			if fireproximityprompt then
+				pcall(fireproximityprompt, prompt)
+				pcall(fireproximityprompt, prompt, 1)
+			end
+			pcall(function()
+				prompt:InputHoldBegin()
+			end)
+			task.wait(0.08)
+			pcall(function() prompt:InputHoldEnd() end)
 		end
 	end)
-	task.wait(0.12)
+	task.wait(0.15)
 	tool = GetSpas()
 	if tool then
-		pcall(function()
-			local h = LocalPlayer.Character and LocalPlayer.Character:FindFirstChildOfClass("Humanoid")
-			if h then h:EquipTool(tool) end
-		end)
+		pcall(function() hum:EquipTool(tool) end)
+		task.wait(0.05)
 	end
 	pcall(function()
 		local live = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
-		if live and saved then live.CFrame = saved end
+		if live then live.CFrame = saved end
 	end)
 	return GetSpas()
 end
@@ -1325,8 +1321,14 @@ function MultiFireAt()
 	if not FireRemote then return end
 
 	local tool = GetSpas()
+	if tool and tool.Parent ~= LocalPlayer.Character then
+		pcall(function()
+			local h = LocalPlayer.Character and LocalPlayer.Character:FindFirstChildOfClass("Humanoid")
+			if h then h:EquipTool(tool) end
+		end)
+		tool = GetSpas()
+	end
 	if not tool or tool.Parent ~= LocalPlayer.Character then
-		-- never block SUK tick with TP waits
 		if not ST._spasEquipQueued then
 			ST._spasEquipQueued = true
 			task.spawn(function()
@@ -2835,6 +2837,8 @@ UIS.InputChanged:Connect(function(input)
 	if input.UserInputType ~= Enum.UserInputType.MouseMovement then return end
 	if not UIS:IsMouseButtonPressed(Enum.UserInputType.MouseButton2) then return end
 	local d = input.Delta
+	if typeof(d) ~= "Vector2" then return end
+	-- sensitivity like v11.38/53 (working free-look)
 	VR_Cam_Rotation = CFrame.Angles(0, math.rad(-d.X * 0.35), 0)
 		* VR_Cam_Rotation
 		* CFrame.Angles(math.rad(-d.Y * 0.35), 0, 0)
@@ -3186,8 +3190,9 @@ RunService:BindToRenderStep("CLL_VR", Enum.RenderPriority.Camera.Value + 1, func
 
 	local looking = UIS:IsMouseButtonPressed(Enum.UserInputType.MouseButton2)
 	pcall(function()
-		UIS.MouseIconEnabled = true
-		UIS.MouseBehavior = looking and Enum.MouseBehavior.LockCurrentPosition or Enum.MouseBehavior.Default
+		UIS.MouseIconEnabled = not looking
+		-- LockCenter gives real mouse delta (LockCurrentPosition often = 0 → camera stuck)
+		UIS.MouseBehavior = looking and Enum.MouseBehavior.LockCenter or Enum.MouseBehavior.Default
 	end)
 	pcall(function()
 		hum.CameraOffset = Vector3.zero
@@ -3215,12 +3220,12 @@ RunService:BindToRenderStep("CLL_VR", Enum.RenderPriority.Camera.Value + 1, func
 		aimPos = headPos + torsoCF.LookVector * 50
 	end
 
-	-- head faces where YOU look (camera / screen center aim)
+	-- head + camera (v11.38/53 working path)
 	local headCF = nil
 	if headPos and typeof(headPos) == "Vector3" then
+		local rot = VR_Cam_Rotation
+		if typeof(rot) ~= "CFrame" then rot = CFrame.new() end
 		if looking then
-			local rot = VR_Cam_Rotation
-			if typeof(rot) ~= "CFrame" then rot = CFrame.new() end
 			headCF = CFrame.new(headPos) * rot
 			if cam then
 				cam.CameraType = Enum.CameraType.Scriptable
@@ -3232,27 +3237,19 @@ RunService:BindToRenderStep("CLL_VR", Enum.RenderPriority.Camera.Value + 1, func
 				cam.CameraType = Enum.CameraType.Custom
 				if hum then cam.CameraSubject = hum end
 			end
-			local lookTarget = nil
-			if typeof(aimPos) == "Vector3" then
-				lookTarget = aimPos
-			elseif cam then
-				lookTarget = headPos + cam.CFrame.LookVector * 50
-			end
-			if lookTarget and (lookTarget - headPos).Magnitude > 0.05 then
-				headCF = CFrame.lookAt(headPos, lookTarget)
+			-- head follows screen-center aim when not free-looking
+			if typeof(aimPos) == "Vector3" and (aimPos - headPos).Magnitude > 0.05 then
+				headCF = CFrame.lookAt(headPos, aimPos)
 			else
-				headCF = CFrame.new(headPos)
+				headCF = CFrame.new(headPos) * rot
 			end
 		end
-		-- APPLY head rotation (was computed but never written — head froze)
 		if headPart and headPart:IsA("BasePart") and headCF then
 			headPart.Anchored = true
 			headPart.CanCollide = false
 			headPart.CFrame = headCF
 		end
-		pcall(function()
-			char:SetAttribute("VR_HEAD_CFRAME", headCF)
-		end)
+		pcall(function() char:SetAttribute("VR_HEAD_CFRAME", headCF) end)
 	end
 
 	local reach = math.clamp(ST.VRHandExtend or 0, 0, 10)
@@ -4079,7 +4076,7 @@ fit(); workspace.CurrentCamera:GetPropertyChangedSignal("ViewportSize"):Connect(
 local header = new("Frame", { Size = UDim2.new(1, 0, 0, 62), BackgroundTransparency = 1, Parent = window })
 local logoLabel = label({ Text = "CLL", Font = Enum.Font.Michroma, TextSize = 26, TextTruncate = Enum.TextTruncate.AtEnd, Size = UDim2.fromOffset(100, 62), Position = UDim2.fromOffset(23, 0), Parent = header })
 logoLabel.TextColor3 = Color3.fromRGB(255, 255, 255) -- Always white
-local verLabel = label({ Text = "v11.58-ac", Font = Enum.Font.GothamBold, TextSize = 12, TextColor3 = Theme.Dim, Size = UDim2.fromOffset(50, 62), Position = UDim2.fromOffset(85, 2), Parent = header })
+local verLabel = label({ Text = "v11.59-ad", Font = Enum.Font.GothamBold, TextSize = 12, TextColor3 = Theme.Dim, Size = UDim2.fromOffset(50, 62), Position = UDim2.fromOffset(85, 2), Parent = header })
 local timeLabel = label({ Text = "Session: 00:00", Font = Enum.Font.GothamMedium, TextSize = 13, TextColor3 = Theme.Dim, Size = UDim2.fromOffset(150, 62), Position = UDim2.fromOffset(150, 0), Parent = header })
 task.spawn(function()
 	while not ST.isUnloaded do
@@ -5968,77 +5965,69 @@ local menuGridFolder = nil
 local menuGridConn = nil
 rebuildMenuGrid = function()
 	pcall(function()
+		if menuGridFolder then menuGridFolder:Destroy() end
+		menuGridFolder = nil
 		if menuGridConn then menuGridConn:Disconnect(); menuGridConn = nil end
-		if menuGridFolder then menuGridFolder:Destroy(); menuGridFolder = nil end
 		if not ST.MenuGridEnabled or not window or not window.Parent then return end
-
 		local folder = Instance.new("Frame")
 		folder.Name = "CLL_MenuGrid"
 		folder.BackgroundTransparency = 1
-		folder.BorderSizePixel = 0
 		folder.Size = UDim2.fromScale(1, 1)
-		folder.Position = UDim2.fromScale(0, 0)
-		folder.ZIndex = 1
-		folder.Active = false
-		folder.ClipsDescendants = false
+		folder.ClipsDescendants = true
+		folder.ZIndex = 0
 		folder.Parent = window
 		menuGridFolder = folder
-
 		local col = ST.MenuGridColor or Color3.fromRGB(80, 140, 255)
-		local tr = math.clamp(ST.MenuGridTransparency or 0.85, 0.25, 0.97)
-		local spacing = 30
+		local tr = math.clamp(ST.MenuGridTransparency or 0.85, 0.2, 0.98)
+		local spacing = 28
 		local lines = {}
-
-		for i = -1, 24 do
+		-- vertical
+		for i = 0, 40 do
 			local ln = Instance.new("Frame")
-			ln.Name = "V"
-			ln.BorderSizePixel = 0
 			ln.BackgroundColor3 = col
 			ln.BackgroundTransparency = tr
-			ln.Size = UDim2.new(0, 1, 1, 60)
-			ln.Position = UDim2.fromOffset(i * spacing, -30)
-			ln.ZIndex = 1
-			ln.Parent = folder
-			lines[#lines + 1] = { ln = ln, axis = "v", i = i }
-		end
-		for i = -1, 18 do
-			local ln = Instance.new("Frame")
-			ln.Name = "H"
 			ln.BorderSizePixel = 0
+			ln.Size = UDim2.new(0, 1, 1, 40)
+			ln.Position = UDim2.fromOffset(i * spacing, -20)
+			ln.ZIndex = 0
+			ln.Parent = folder
+			lines[#lines+1] = { ln = ln, axis = "v", i = i }
+		end
+		-- horizontal
+		for i = 0, 30 do
+			local ln = Instance.new("Frame")
 			ln.BackgroundColor3 = col
 			ln.BackgroundTransparency = tr
-			ln.Size = UDim2.new(1, 60, 0, 1)
-			ln.Position = UDim2.fromOffset(-30, i * spacing)
-			ln.ZIndex = 1
+			ln.BorderSizePixel = 0
+			ln.Size = UDim2.new(1, 40, 0, 1)
+			ln.Position = UDim2.fromOffset(-20, i * spacing)
+			ln.ZIndex = 0
 			ln.Parent = folder
-			lines[#lines + 1] = { ln = ln, axis = "h", i = i }
+			lines[#lines+1] = { ln = ln, axis = "h", i = i }
 		end
-
 		local t0 = os.clock()
 		menuGridConn = RunService.RenderStepped:Connect(function()
-			if ST.isUnloaded or not ST.MenuGridEnabled then return end
-			if not folder or not folder.Parent then return end
-			if not isOpen then return end
+			if ST.isUnloaded or not ST.MenuGridEnabled or not folder.Parent then
+				if menuGridConn then menuGridConn:Disconnect() end
+				return
+			end
 			local spd = math.clamp(ST.MenuGridSpeed or 1, 0.05, 8)
-			local off = (os.clock() - t0) * spd * 28
-			off = off % spacing
+			local off = ((os.clock() - t0) * spd * 12) % spacing
 			local c = ST.MenuGridColor or col
-			local tr2 = math.clamp(ST.MenuGridTransparency or tr, 0.25, 0.97)
+			local tr2 = math.clamp(ST.MenuGridTransparency or tr, 0.2, 0.98)
 			for _, d in ipairs(lines) do
-				local ln = d.ln
-				if ln then
-					ln.BackgroundColor3 = c
-					ln.BackgroundTransparency = tr2
-					if d.axis == "v" then
-						ln.Position = UDim2.fromOffset(d.i * spacing - off, -30)
-					else
-						ln.Position = UDim2.fromOffset(-30, d.i * spacing - off)
-					end
+				d.ln.BackgroundColor3 = c
+				d.ln.BackgroundTransparency = tr2
+				if d.axis == "v" then
+					d.ln.Position = UDim2.fromOffset(d.i * spacing - off, -20)
+				else
+					d.ln.Position = UDim2.fromOffset(-20, d.i * spacing - off)
 				end
 			end
 		end)
 	end)
 end
+
 
 function createWatermark(name, pos, width)
 	local wm = new("Frame", {
