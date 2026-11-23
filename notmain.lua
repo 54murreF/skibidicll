@@ -1,6 +1,6 @@
 --[[
     ╔═══════════════════════════════════════════════════════════════╗
-    ║              CLL CHEAT - FULL INTEGRATION v11.42-m (native Q/G grab mirror + VR restore)                ║
+    ║              CLL CHEAT - FULL INTEGRATION v11.43-n (native Q/G grab mirror + VR restore)                ║
     ╠═══════════════════════════════════════════════════════════════╣
     ║  SUK head-hit, real crosshair, tracers, ESP outline nick,     ║
     ║  ChinaHat/Wings fix, VR hands, anti-flash/shake, antibypass   ║
@@ -95,7 +95,8 @@ local ST = {
 	AutoBlockMeleeOnly = true,
 	VRTargetMaxSpeed = 90,
 	VRTargetProtect = true,
-	CursorTrailEnabled = false,
+	CursorTrailEnabled = false, -- replaced by menu click ring
+
 	CursorTrailLength = 12,
 	CursorTrailSize = 6,
 	CursorTrailFade = 0.35,
@@ -118,15 +119,11 @@ local ST = {
 	TracersOthers = true,
 	VREnabled = false,
 	VRShakeEnabled = false,
-	VRAuraEnabled = false,
 	VRHandExtend = 1.2,   -- forward reach (studs)
 	VRHandHeight = 0.2,   -- vertical offset from torso
 	VRHandWidth = 1.05,   -- half-separation left/right
 	VRSwingReach = 2.5,   -- how far the slap travels forward
 	VRShakeIntensity = 0.5,
-	VRAuraSpeed = 1,
-	VRAuraRadius = 8,
-	VRAuraHeight = 0,
 	SkyColorEnabled = false,
 	KeybindWatermarkVisible = true,
 	isBinding = false,
@@ -2398,46 +2395,59 @@ end)
 function CleanDebris()
 	if not ST.AntiLagEnabled or ST.isUnloaded then return end
 	pcall(function()
-		local cache = workspace:FindFirstChild("Cache")
-		if cache and cache:FindFirstChild("Ignore_Debris") then
-			for _, v in ipairs(cache.Ignore_Debris:GetChildren()) do
-				pcall(function() v:Destroy() end)
+		local killName = function(n)
+			n = string.lower(tostring(n or ""))
+			return n:find("debris") or n:find("shard") or n:find("chunk") or n:find("rubble")
+				or n:find("explosion") or n:find("fx") or n:find("vfx") or n:find("impact")
+				or n:find("blood") or n:find("scorch") or n:find("smoke") or n:find("spark")
+				or n:find("particle") or n:find("effect")
+		end
+		local function scrubInst(d)
+			if d:IsA("ParticleEmitter") or d:IsA("Trail") or d:IsA("Beam") or d:IsA("Smoke") or d:IsA("Fire") or d:IsA("Sparkles") then
+				pcall(function() d.Enabled = false; d:Destroy() end)
+			elseif d:IsA("Decal") or d:IsA("Texture") then
+				if killName(d.Name) or killName(d.Parent and d.Parent.Name) then
+					pcall(function() d:Destroy() end)
+				end
+			elseif d:IsA("Explosion") then
+				pcall(function() d:Destroy() end)
+			elseif d:IsA("BasePart") then
+				local n = string.lower(d.Name)
+				if killName(n) or (d.Parent == workspace and d.Anchored == false and d.Size.Magnitude < 10 and not d:FindFirstChildOfClass("Motor6D")) then
+					-- free debris cubes
+					local joint = d:FindFirstChildWhichIsA("JointInstance") or d:FindFirstChildOfClass("WeldConstraint")
+					if not joint and d.Parent == workspace then
+						pcall(function() d:Destroy() end)
+					elseif killName(n) then
+						pcall(function() d:Destroy() end)
+					end
+				end
 			end
 		end
-		for _, folderName in ipairs({"Debris", "debris", "Effects", "FX", "VFX", "Ignore", "Ignore_Debris", "ClientDebris", "Explosions", "Rubble"}) do
+		for _, folderName in ipairs({"Cache", "Debris", "debris", "Effects", "FX", "VFX", "Ignore", "Ignore_Debris", "ClientDebris", "Explosions", "Rubble", "IgnoreDebris"}) do
 			local f = workspace:FindFirstChild(folderName)
 			if f then
-				for _, d in ipairs(f:GetDescendants()) do
-					if d:IsA("BasePart") or d:IsA("ParticleEmitter") or d:IsA("Trail") or d:IsA("Beam") or d:IsA("Decal") or d:IsA("Texture") or d:IsA("Explosion") or d:IsA("Fire") or d:IsA("Smoke") or d:IsA("Sparkles") then
-						pcall(function()
-							if d:IsA("ParticleEmitter") or d:IsA("Trail") or d:IsA("Beam") then d.Enabled = false end
-							d:Destroy()
-						end)
+				if folderName == "Cache" then
+					local id = f:FindFirstChild("Ignore_Debris")
+					if id then
+						for _, c in ipairs(id:GetChildren()) do pcall(function() c:Destroy() end) end
 					end
-				end
-				for _, c in ipairs(f:GetChildren()) do
-					pcall(function() c:Destroy() end)
+				else
+					for _, d in ipairs(f:GetDescendants()) do scrubInst(d) end
+					for _, c in ipairs(f:GetChildren()) do pcall(function() c:Destroy() end) end
 				end
 			end
 		end
-		-- explosion cubes / free floating neon parts without joints near origin clutter
+		-- workspace loose debris
 		for _, v in ipairs(workspace:GetChildren()) do
-			if v:IsA("Part") or v:IsA("MeshPart") or v:IsA("WedgePart") or v:IsA("CornerWedgePart") then
-				local n = string.lower(v.Name)
-				if n:find("debris") or n:find("shard") or n:find("chunk") or n:find("rubble") or n:find("explosion") or n:find("brick") and v.Anchored == false and v.Size.Magnitude < 8 then
-					if not v.Parent or v.Parent == workspace then
-						local hasJoint = v:FindFirstChildOfClass("Weld") or v:FindFirstChildOfClass("WeldConstraint") or v:FindFirstChildOfClass("Motor6D")
-						if not hasJoint then
-							pcall(function() v:Destroy() end)
-						end
-					end
-				end
-			elseif v:IsA("Model") and (string.lower(v.Name):find("debris") or string.lower(v.Name):find("fx")) then
+			scrubInst(v)
+			if v:IsA("Model") and killName(v.Name) then
 				pcall(function() v:Destroy() end)
 			end
 		end
 	end)
 end
+
 
 local _CLL_MatBackup = {}
 local function applyAntiLagMaterials(on)
@@ -2469,7 +2479,7 @@ local function applyAntiLagMaterials(on)
 end
 
 
-task.spawn(function() while not ST.isUnloaded do task.wait(0.5); if ST.AntiLagEnabled then CleanDebris() end end end)
+task.spawn(function() while not ST.isUnloaded do task.wait(ST.AntiLagEnabled and 0.2 or 1); if ST.AntiLagEnabled then CleanDebris() end end end)
 
 --// ==================== SUK & FIRERATE LOOP ====================
 task.spawn(function()
@@ -2521,41 +2531,13 @@ end)
 
 
 --// ==================== VR ENABLED FORCE ====================
--- Keybinds use game.VRService.VREnabled → must hook Instance __index (self = VRService)
+-- DO NOT spoof VRService.VREnabled — CameraModule switches to VRBaseCamera and dies
+-- (GetVRFocus / Connect nil). PC VR uses DID_VR + VR_UPDATE + Grabmove mirror only.
 do
-	local VRS = game:GetService("VRService")
-	-- PC fake-VR: CameraModule calls GetVRFocus when VREnabled==true — must exist or cam breaks
-	local function fakeVRFocus()
-		local cam = workspace.CurrentCamera
-		if cam then return cam.CFrame end
-		return CFrame.new()
-	end
-	pcall(function()
-		local oldIdx
-		oldIdx = hookmetamethod(game, "__index", function(self, key)
-			local isVRS = false
-			pcall(function()
-				isVRS = (self == VRS) or (typeof(self) == "Instance" and self.ClassName == "VRService")
-			end)
-			if isVRS then
-				if key == "VREnabled" then
-					if ST.VREnabled then return true end
-					-- fall through to real false on PC
-				elseif key == "GetVRFocus" then
-					return fakeVRFocus
-				end
-			end
-			return oldIdx(self, key)
-		end)
-	end)
-
-	-- keep DID_VR only while VR is on (don't re-stamp after user turns VR off)
 	task.spawn(function()
 		while not ST.isUnloaded do
 			task.wait(0.5)
-			if not ST.VREnabled then
-				-- nothing
-			else
+			if ST.VREnabled then
 				pcall(function()
 					local char = LocalPlayer.Character
 					local hum = char and char:FindFirstChildOfClass("Humanoid")
@@ -2583,34 +2565,46 @@ local vrLastUpdate = 0
 local vrShoulders = {} -- Motor6D refs to re-enable on exit
 
 function releaseVRCamera()
-	local cam = workspace.CurrentCamera
+	-- restore stock camera after PC-VR (no VRService spoof — still clear our state)
 	pcall(function()
 		UIS.MouseIconEnabled = true
 		UIS.MouseBehavior = Enum.MouseBehavior.Default
-		UIS.MouseIcon = ""
 	end)
 	pcall(function()
 		LocalPlayer.CameraMode = Enum.CameraMode.Classic
-		LocalPlayer.CameraMinZoomDistance = 0.5
-		LocalPlayer.CameraMaxZoomDistance = math.max(LocalPlayer.CameraMaxZoomDistance, 128)
 	end)
-	if cam then
+	local cam = workspace.CurrentCamera
+	if not cam then return end
+	pcall(function()
+		cam.CameraType = Enum.CameraType.Custom
+	end)
+	local live = LocalPlayer.Character
+	local liveHum = live and live:FindFirstChildOfClass("Humanoid")
+	if liveHum and liveHum.Health > 0 then
 		pcall(function()
-			cam.CameraType = Enum.CameraType.Custom
-			cam.FieldOfView = ST.CameraFOVLocked and (ST.CameraFOVValue or 70) or 70
+			cam.CameraSubject = liveHum
+			liveHum.CameraOffset = Vector3.zero
 		end)
-		local live = LocalPlayer.Character
-		local liveHum = live and live:FindFirstChildOfClass("Humanoid")
-		if liveHum and liveHum.Health > 0 then
-			pcall(function()
-				cam.CameraSubject = liveHum
-				liveHum.CameraOffset = Vector3.zero
-			end)
-		end
 	end
-	-- clear VR camera rotation state
+	pcall(function()
+		if not ST.CameraFOVLocked then
+			cam.FieldOfView = 70
+		end
+	end)
 	pcall(function() VR_Cam_Rotation = CFrame.new() end)
+	-- force camera module to leave any VR controller path
+	task.defer(function()
+		pcall(function()
+			local cam2 = workspace.CurrentCamera
+			if cam2 then
+				cam2.CameraType = Enum.CameraType.Custom
+				local h = LocalPlayer.Character and LocalPlayer.Character:FindFirstChildOfClass("Humanoid")
+				if h then cam2.CameraSubject = h end
+			end
+		end)
+	end)
 end
+
 
 function vrDisableShoulders(char)
 	vrShoulders = {}
@@ -3650,11 +3644,6 @@ oldNamecall = hookmetamethod(game, "__namecall", function(self, ...)
 		if setnamecallmethod then pcall(setnamecallmethod, method) end
 		return oldNamecall(self, ...)
 	end
-	-- PC fake-VR: CameraModule needs GetVRFocus when VREnabled is spoofed
-	if method == "GetVRFocus" then
-		local cam = workspace.CurrentCamera
-		return cam and cam.CFrame or CFrame.new()
-	end
 	if type(checkcaller) == "function" then
 		local okc, mine = pcall(checkcaller)
 		if okc and mine then
@@ -3936,7 +3925,7 @@ fit(); workspace.CurrentCamera:GetPropertyChangedSignal("ViewportSize"):Connect(
 local header = new("Frame", { Size = UDim2.new(1, 0, 0, 62), BackgroundTransparency = 1, Parent = window })
 local logoLabel = label({ Text = "CLL", Font = Enum.Font.Michroma, TextSize = 26, TextTruncate = Enum.TextTruncate.AtEnd, Size = UDim2.fromOffset(100, 62), Position = UDim2.fromOffset(23, 0), Parent = header })
 logoLabel.TextColor3 = Color3.fromRGB(255, 255, 255) -- Always white
-local verLabel = label({ Text = "v11.42-m", Font = Enum.Font.GothamBold, TextSize = 12, TextColor3 = Theme.Dim, Size = UDim2.fromOffset(50, 62), Position = UDim2.fromOffset(85, 2), Parent = header })
+local verLabel = label({ Text = "v11.43-n", Font = Enum.Font.GothamBold, TextSize = 12, TextColor3 = Theme.Dim, Size = UDim2.fromOffset(50, 62), Position = UDim2.fromOffset(85, 2), Parent = header })
 local timeLabel = label({ Text = "Session: 00:00", Font = Enum.Font.GothamMedium, TextSize = 13, TextColor3 = Theme.Dim, Size = UDim2.fromOffset(150, 62), Position = UDim2.fromOffset(150, 0), Parent = header })
 task.spawn(function()
 	while not ST.isUnloaded do
@@ -4737,13 +4726,9 @@ function buildVR()
 	y = y + 24
 	label({ Text = "VR AURA", Font = Enum.Font.GothamBold, TextSize = 11, TextColor3 = Theme.Dim, Size = UDim2.fromOffset(200, 16), Position = UDim2.fromOffset(PAD, y), Parent = scroll })
 	y = y + 28
-	toggle(scroll, y, "Enable VR Aura", function(v) ST.VRAuraEnabled = false end, false)
 	y = y + 50
-	slider(scroll, y, "Aura Speed", 1, 20, ST.VRAuraSpeed, 1, function(v) ST.VRAuraSpeed = v end)
 	y = y + 55
-	slider(scroll, y, "Aura Radius", 1, 15, ST.VRAuraRadius, 1, function(v) ST.VRAuraRadius = v end)
 	y = y + 55
-	slider(scroll, y, "Aura Height", -5, 10, ST.VRAuraHeight, 1, function(v) ST.VRAuraHeight = v end)
 end
 
 function buildProfile()
@@ -5280,10 +5265,6 @@ function applyConfig(data)
 		if data.vrShake ~= nil then ST.VRShakeEnabled = data.vrShake end
 		if data.vrShakeI then ST.VRShakeIntensity = data.vrShakeI end
 		if data.vrHand then ST.VRHandExtend = data.vrHand end
-		if data.vrAura ~= nil then ST.VRAuraEnabled = data.vrAura end
-		if data.vrAuraS then ST.VRAuraSpeed = data.vrAuraS end
-		if data.vrAuraR then ST.VRAuraRadius = data.vrAuraR end
-		if data.vrAuraH then ST.VRAuraHeight = data.vrAuraH end
 		if data.trueAim ~= nil then ST.TrueCrosshairEnabled = data.trueAim end
 		if data.antiFlash ~= nil then ST.AntiFlashEnabled = data.antiFlash end
 		if data.antiShake ~= nil then ST.AntiCamShakeEnabled = data.antiShake end
@@ -5908,7 +5889,7 @@ function createWatermark(name, pos, width)
 	return wm
 end
 
-watermarkMain = createWatermark("Main", UDim2.fromOffset(14, 70), 210)
+watermarkMain = createWatermark("Main", UDim2.fromOffset(14, 70), 180)
 pcall(function()
 	watermarkMain.BackgroundTransparency = 0.25
 	local st = watermarkMain:FindFirstChildOfClass("UIStroke")
@@ -6462,64 +6443,45 @@ task.spawn(function()
 	end
 end)
 
--- ==================== CURSOR TRAIL (smooth lag + accent alpha) ====================
+-- ==================== MENU CLICK RING (menu only) ====================
 do
-	local trailGui = Instance.new("ScreenGui")
-	trailGui.Name = "CLL_CursorTrail"
-	trailGui.IgnoreGuiInset = true
-	trailGui.ResetOnSpawn = false
-	trailGui.DisplayOrder = 50
+	local ringGui = Instance.new("ScreenGui")
+	ringGui.Name = "CLL_MenuClickRing"
+	ringGui.IgnoreGuiInset = true
+	ringGui.ResetOnSpawn = false
+	ringGui.DisplayOrder = 120
 	pcall(function()
-		trailGui.Parent = (gethui and gethui()) or game:GetService("CoreGui")
+		ringGui.Parent = (gethui and gethui()) or game:GetService("CoreGui")
 	end)
-	local positions = {}
-	local dots = {}
-	local smooth = Vector2.new()
-	local hasSmooth = false
-	RunService.RenderStepped:Connect(function(dt)
-		if ST.isUnloaded or not ST.CursorTrailEnabled then
-			for _, d in ipairs(dots) do d.Visible = false end
-			hasSmooth = false
-			return
-		end
+	local function spawnRing(x, y)
+		if not isOpen then return end
+		local r = Instance.new("Frame")
+		r.AnchorPoint = Vector2.new(0.5, 0.5)
+		r.Position = UDim2.fromOffset(x, y)
+		r.Size = UDim2.fromOffset(28, 28)
+		r.BackgroundTransparency = 1
+		r.BorderSizePixel = 0
+		r.Parent = ringGui
+		local stroke = Instance.new("UIStroke")
+		stroke.Color = Theme.Accent or Color3.fromRGB(90, 160, 255)
+		stroke.Thickness = 2
+		stroke.Transparency = 0.15
+		stroke.Parent = r
+		Instance.new("UICorner", r).CornerRadius = UDim.new(1, 0)
+		local ti = TweenInfo.new(0.35, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
+		TweenService:Create(r, ti, { Size = UDim2.fromOffset(8, 8) }):Play()
+		local t2 = TweenService:Create(stroke, ti, { Transparency = 1, Thickness = 1 })
+		t2:Play()
+		t2.Completed:Connect(function()
+			r:Destroy()
+		end)
+		-- restore pulse: grow slightly then fade already handled
+	end
+	UIS.InputBegan:Connect(function(input)
+		if input.UserInputType ~= Enum.UserInputType.MouseButton1 then return end
+		if not isOpen then return end
 		local m = UIS:GetMouseLocation()
-		local target = Vector2.new(m.X, m.Y)
-		if not hasSmooth then
-			smooth = target
-			hasSmooth = true
-		else
-			-- lag behind cursor
-			local k = math.clamp(dt * 10, 0.05, 0.35)
-			smooth = smooth:Lerp(target, k)
-		end
-		local len = math.clamp(math.floor(ST.CursorTrailLength or 14), 4, 48)
-		local sz = math.clamp(ST.CursorTrailSize or 7, 2, 20)
-		local accent = Theme.Accent or Color3.fromRGB(90, 160, 255)
-		table.insert(positions, 1, smooth)
-		while #positions > len do table.remove(positions) end
-		while #dots < len do
-			local f = Instance.new("Frame")
-			f.AnchorPoint = Vector2.new(0.5, 0.5)
-			f.BorderSizePixel = 0
-			Instance.new("UICorner", f).CornerRadius = UDim.new(1, 0)
-			f.Parent = trailGui
-			dots[#dots + 1] = f
-		end
-		for i = 1, len do
-			local d = dots[i]
-			local pos = positions[i]
-			if pos then
-				local t = (i - 1) / math.max(len - 1, 1)
-				local s = sz * (1 - t * 0.7)
-				d.Position = UDim2.fromOffset(pos.X, pos.Y)
-				d.Size = UDim2.fromOffset(s, s)
-				d.BackgroundColor3 = accent
-				d.BackgroundTransparency = 0.25 + t * 0.7
-				d.Visible = true
-			else
-				d.Visible = false
-			end
-		end
+		spawnRing(m.X, m.Y)
 	end)
 end
 
@@ -6663,6 +6625,62 @@ _G.CLL_Notify = CLL_Notify
 Players.PlayerAdded:Connect(function(plr)
 	if ST.NotifyJoin then
 		CLL_Notify("Player joined", plr.DisplayName .. " @" .. plr.Name)
+	end
+end)
+
+
+
+-- persistent no-rain (clouds + fog + sounds)
+task.spawn(function()
+	while not ST.isUnloaded do
+		task.wait(0.4)
+		if not ST.RemoveRainEnabled then continue end
+		pcall(function()
+			local L = game:GetService("Lighting")
+			L.FogEnd = 1e6
+			L.FogStart = 0
+			L.FogColor = Color3.fromRGB(200, 200, 200)
+			for _, v in ipairs(L:GetChildren()) do
+				if v:IsA("Atmosphere") then
+					v.Density = 0; v.Haze = 0; v.Glare = 0; v.Offset = 0
+				elseif v:IsA("BloomEffect") or v:IsA("BlurEffect") or v:IsA("DepthOfFieldEffect") or v:IsA("SunRaysEffect") then
+					v.Enabled = false
+				elseif v:IsA("Sky") then
+					pcall(function()
+						v.StarCount = 0
+						-- blank cloudy faces if possible
+						for _, face in ipairs({"SkyboxBk","SkyboxDn","SkyboxFt","SkyboxLf","SkyboxRt","SkyboxUp"}) do
+							-- leave user CLL_Sky alone
+							if v.Name ~= "CLL_Sky" then
+								-- soft clear: high brightness via lighting ambient
+							end
+						end
+					end)
+				end
+			end
+			L.Ambient = Color3.fromRGB(140, 140, 140)
+			L.OutdoorAmbient = Color3.fromRGB(140, 140, 140)
+			L.Brightness = math.max(L.Brightness, 2)
+			local function killRain(v)
+				local n = string.lower(v.Name or "")
+				if not (n:find("rain") or n:find("storm") or n:find("cloud") or n:find("weather") or n:find("drizzle") or n:find("thunder")) then
+					if v:IsA("Sound") and v.Playing and v.Volume > 0 then
+						-- check sound id name-ish
+						local id = string.lower(tostring(v.SoundId or ""))
+						if not (id:find("rain") or id:find("storm") or id:find("thunder") or id:find("weather")) then
+							return
+						end
+					else
+						return
+					end
+				end
+				if v:IsA("Sound") then v.Volume = 0; v:Stop() end
+				if v:IsA("ParticleEmitter") or v:IsA("Trail") or v:IsA("Beam") then v.Enabled = false end
+				pcall(function() v:Destroy() end)
+			end
+			for _, v in ipairs(workspace:GetDescendants()) do killRain(v) end
+			for _, v in ipairs(game:GetService("SoundService"):GetDescendants()) do killRain(v) end
+		end)
 	end
 end)
 
