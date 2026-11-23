@@ -1,6 +1,6 @@
 --[[
     ╔═══════════════════════════════════════════════════════════════╗
-    ║              CLL CHEAT - FULL INTEGRATION v11.44-o (native Q/G grab mirror + VR restore)                ║
+    ║              CLL CHEAT - FULL INTEGRATION v11.46-q (native Q/G grab mirror + VR restore)                ║
     ╠═══════════════════════════════════════════════════════════════╣
     ║  SUK head-hit, real crosshair, tracers, ESP outline nick,     ║
     ║  ChinaHat/Wings fix, VR hands, anti-flash/shake, antibypass   ║
@@ -307,6 +307,7 @@ local savedHealPosition = nil
 
 local ESP_Config = {
     Enabled = false, Box = true, Name = true, Health = true, Distance = true, MaxDist = 1000,
+    ShowTool = true, ShowReload = true, ShowRagdoll = true,
     ChamsColor = Color3.fromRGB(255, 92, 122), FriendColor = Color3.fromRGB(85, 255, 127),
     ChamsFillTrans = 0.5, ChamsOutlineTrans = 0
 }
@@ -2172,6 +2173,15 @@ function createESP(player)
 	data.HealthFill = Instance.new("Frame", ESPGui); data.HealthFill.Visible = false
 	data.HealthText = Instance.new("TextLabel", ESPGui); data.HealthText.BackgroundTransparency = 1; data.HealthText.Font = Enum.Font.GothamBold; data.HealthText.TextSize = 11; data.HealthText.TextColor3 = Color3.new(1,1,1); data.HealthText.TextStrokeTransparency = 0; data.HealthText.TextStrokeColor3 = Color3.new(0,0,0); data.HealthText.Visible = false
 	data.Distance = Instance.new("TextLabel", ESPGui); data.Distance.BackgroundTransparency = 1; data.Distance.Font = Enum.Font.GothamBold; data.Distance.TextSize = 12; data.Distance.TextColor3 = Color3.new(1, 1, 1); data.Distance.Visible = false
+	data.Status = Instance.new("TextLabel", ESPGui)
+	data.Status.BackgroundTransparency = 1
+	data.Status.Font = Enum.Font.GothamMedium
+	data.Status.TextSize = 11
+	data.Status.TextColor3 = Color3.fromRGB(255, 220, 120)
+	data.Status.TextStrokeTransparency = 0.4
+	data.Status.TextStrokeColor3 = Color3.new(0,0,0)
+	data.Status.Visible = false
+	data.RagdollSince = nil
 	ESP_Cache[player] = data
 	return data
 end
@@ -2219,6 +2229,48 @@ RunService.RenderStepped:Connect(function()
 							end
 							data.Distance.Visible = ESP_Config.Enabled and ESP_Config.Distance
 							if data.Distance.Visible then data.Distance.Text = string.format("[%d m]", math.floor(dist * 0.28)); data.Distance.Position = UDim2.new(0, sp.X, 0, y + h + 2); data.Distance.Size = UDim2.new(0, 100, 0, 14); data.Distance.AnchorPoint = Vector2.new(0.5, 0) end
+							-- tool / reload / ragdoll timer
+							if data.Status then
+								local bits = {}
+								local tool = char:FindFirstChildOfClass("Tool")
+								if ESP_Config.ShowTool and tool then
+									bits[#bits+1] = tool.Name
+								end
+								if ESP_Config.ShowReload then
+									local reloading = false
+									pcall(function()
+										reloading = char:GetAttribute("Reloading") == true
+											or (tool and (tool:GetAttribute("Reloading") == true or tool:GetAttribute("IsReloading") == true))
+										if tool and not reloading then
+											local ammo = tool:GetAttribute("Ammo") or tool:GetAttribute("CurrentAmmo")
+											local mag = tool:GetAttribute("Mag") or tool:GetAttribute("MaxAmmo")
+											if ammo == 0 then reloading = true end
+										end
+									end)
+									if reloading then bits[#bits+1] = "RELOAD" end
+								end
+								if ESP_Config.ShowRagdoll then
+									local rag = char:GetAttribute("Ragdoll") == true or char:GetAttribute("Downed") == true
+									if rag then
+										if not data.RagdollSince then data.RagdollSince = os.clock() end
+										local elapsed = os.clock() - data.RagdollSince
+										bits[#bits+1] = string.format("RAGDOLL %.1fs", elapsed)
+									else
+										data.RagdollSince = nil
+									end
+								end
+								if ESP_Config.Enabled and #bits > 0 then
+									data.Status.Visible = true
+									data.Status.Text = table.concat(bits, " · ")
+									data.Status.AnchorPoint = Vector2.new(0.5, 0)
+									local sy = y + h + (data.Distance.Visible and 16 or 2)
+									data.Status.Position = UDim2.new(0, sp.X, 0, sy)
+									data.Status.Size = UDim2.new(0, 220, 0, 14)
+									data.Status.TextColor3 = Color3.fromRGB(255, 220, 120)
+								else
+									data.Status.Visible = false
+								end
+							end
 							if ST.HighlightChamsEnabled then
 								if not data.Highlight or data.Highlight.Parent ~= char then if data.Highlight then data.Highlight:Destroy() end; data.Highlight = Instance.new("Highlight", char); data.Highlight.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop end
 								data.Highlight.Adornee = char; data.Highlight.Enabled = true; data.Highlight.FillColor = color; data.Highlight.OutlineColor = color; data.Highlight.FillTransparency = ESP_Config.ChamsFillTrans; data.Highlight.OutlineTransparency = ESP_Config.ChamsOutlineTrans
@@ -3989,7 +4041,7 @@ fit(); workspace.CurrentCamera:GetPropertyChangedSignal("ViewportSize"):Connect(
 local header = new("Frame", { Size = UDim2.new(1, 0, 0, 62), BackgroundTransparency = 1, Parent = window })
 local logoLabel = label({ Text = "CLL", Font = Enum.Font.Michroma, TextSize = 26, TextTruncate = Enum.TextTruncate.AtEnd, Size = UDim2.fromOffset(100, 62), Position = UDim2.fromOffset(23, 0), Parent = header })
 logoLabel.TextColor3 = Color3.fromRGB(255, 255, 255) -- Always white
-local verLabel = label({ Text = "v11.44-o", Font = Enum.Font.GothamBold, TextSize = 12, TextColor3 = Theme.Dim, Size = UDim2.fromOffset(50, 62), Position = UDim2.fromOffset(85, 2), Parent = header })
+local verLabel = label({ Text = "v11.46-q", Font = Enum.Font.GothamBold, TextSize = 12, TextColor3 = Theme.Dim, Size = UDim2.fromOffset(50, 62), Position = UDim2.fromOffset(85, 2), Parent = header })
 local timeLabel = label({ Text = "Session: 00:00", Font = Enum.Font.GothamMedium, TextSize = 13, TextColor3 = Theme.Dim, Size = UDim2.fromOffset(150, 62), Position = UDim2.fromOffset(150, 0), Parent = header })
 task.spawn(function()
 	while not ST.isUnloaded do
@@ -4027,54 +4079,33 @@ local TAB_ORDER = { "Combat", "Movement", "Visual", "Effects", "Target", "Keybin
 local sidebar = new("Frame", { Size = UDim2.fromOffset(150, DESIGN_H - 62), Position = UDim2.fromOffset(0, 62), BackgroundColor3 = Theme.Panel, Parent = window }, { corner(16), stroke() })
 local pages, tabs = {}, {}
 local currentTab
-local contentFrame = new("Frame", { Size = UDim2.new(1, -150, 1, -62), Position = UDim2.fromOffset(150, 62), BackgroundTransparency = 1, Parent = window })
+local contentFrame = new("Frame", { Size = UDim2.new(1, -150, 1, -62), Position = UDim2.fromOffset(150, 62), BackgroundTransparency = 1, ZIndex = 3, Parent = window })
 
 function selectTab(name)
 	pcall(function() if closeDrawer then closeDrawer() end end)
 	currentTab = name
+	-- tabs highlight (soft tween only on buttons, NOT pages — pages are Frames, fade caused overlap)
 	for n, tab in pairs(tabs) do
 		local on = (n == name)
 		if tab and typeof(tab.btn) == "Instance" then
 			pcall(function()
-				TweenService:Create(tab.btn, TweenInfo.new(0.2, Enum.EasingStyle.Quint, Enum.EasingDirection.Out), {
+				TweenService:Create(tab.btn, TweenInfo.new(0.18, Enum.EasingStyle.Quint, Enum.EasingDirection.Out), {
 					BackgroundTransparency = on and 0 or 1
 				}):Play()
 			end)
 		end
 		if tab and tab.setColor then pcall(tab.setColor, on and Theme.Accent or Theme.Dim) end
 		if tab and typeof(tab.lbl) == "Instance" then
-			pcall(function()
-				TweenService:Create(tab.lbl, TweenInfo.new(0.2), {
-					TextColor3 = on and Theme.Text or Theme.Dim
-				}):Play()
-			end)
+			pcall(function() tab.lbl.TextColor3 = on and Theme.Text or Theme.Dim end)
 		end
 	end
+	-- exactly one page visible
 	for n, pg in pairs(pages) do
 		if typeof(pg) == "Instance" then
-			if n == name then
-				pg.Visible = true
-				pcall(function()
-					pg.GroupTransparency = 1
-					TweenService:Create(pg, TweenInfo.new(0.22, Enum.EasingStyle.Quint, Enum.EasingDirection.Out), {
-						GroupTransparency = 0
-					}):Play()
-				end)
-			else
-				pcall(function()
-					if pg.Visible then
-						local tw = TweenService:Create(pg, TweenInfo.new(0.15, Enum.EasingStyle.Sine, Enum.EasingDirection.In), {
-							GroupTransparency = 1
-						})
-						tw:Play()
-						tw.Completed:Connect(function()
-							if currentTab ~= n then pg.Visible = false end
-						end)
-					else
-						pg.Visible = false
-					end
-				end)
-			end
+			pg.Visible = (n == name)
+			pcall(function()
+				if pg:IsA("CanvasGroup") then pg.GroupTransparency = 0 end
+			end)
 		end
 	end
 end
@@ -5781,8 +5812,11 @@ buildFeaturePage(pages.Visual, "VISUAL", {
 		detailToggle(d, 3, "Name", ESP_Config.Name, function(v) ESP_Config.Name = v end)
 		detailToggle(d, 4, "Health", ESP_Config.Health, function(v) ESP_Config.Health = v end)
 		detailToggle(d, 5, "Distance", ESP_Config.Distance, function(v) ESP_Config.Distance = v end)
-		detailColor(d, 6, "ESP Color", function() return ESP_Config.ChamsColor end, function(c) ESP_Config.ChamsColor = c end)
-		detailColor(d, 7, "Friend Color", function() return ESP_Config.FriendColor end, function(c) ESP_Config.FriendColor = c end)
+		detailToggle(d, 6, "Tool in hand", ESP_Config.ShowTool ~= false, function(v) ESP_Config.ShowTool = v end)
+		detailToggle(d, 7, "Reload status", ESP_Config.ShowReload ~= false, function(v) ESP_Config.ShowReload = v end)
+		detailToggle(d, 8, "Ragdoll timer", ESP_Config.ShowRagdoll ~= false, function(v) ESP_Config.ShowRagdoll = v end)
+		detailColor(d, 9, "ESP Color", function() return ESP_Config.ChamsColor end, function(c) ESP_Config.ChamsColor = c end)
+		detailColor(d, 10, "Friend Color", function() return ESP_Config.FriendColor end, function(c) ESP_Config.FriendColor = c end)
 	end },
 	{ name = "Highlight Chams", initial = false, onToggle = function(v) ST.HighlightChamsEnabled = v end, buildDetail = function(d)
 		detailSlider(d, 1, "Fill Transparency", 0, 1, ESP_Config.ChamsFillTrans, 0.05, function(v) ESP_Config.ChamsFillTrans = v end)
@@ -5816,6 +5850,7 @@ buildFeaturePage(pages.Effects, "EFFECTS", {
 
 	{ name = "China Hat", initial = false, onToggle = function(v) ST.ChinaHatEnabled = v; pcall(function() Cosmetics.setHat(v) end) end, buildDetail = nil },
 	{ name = "Custom Wings", initial = false, onToggle = function(v) ST.WingsEnabled = v; pcall(function() Cosmetics.setWings(v) end) end, buildDetail = nil },
+	{ name = "Grenade / C4 ESP", initial = false, getState = function() return ST.GrenadeESPEnabled end, onToggle = function(v) ST.GrenadeESPEnabled = v end, buildDetail = nil },
 	{ name = "Anti-Lag", initial = false, onToggle = function(s) ST.AntiLagEnabled = s; if s then CleanDebris(); applyAntiLagMaterials(true) else applyAntiLagMaterials(false) end end, buildDetail = nil },
 		{ name = "Remove Rain/Weather", initial = false, onToggle = function(s)
 		ST.RemoveRainEnabled = s and true or false
@@ -6443,53 +6478,82 @@ ST.VREnabled = false
 
 
 
--- ==================== AUTO BLOCK (melee + dropkick toward you) ====================
+-- ==================== AUTO BLOCK (players + NPCs, dropkick/melee/uber) ====================
 task.spawn(function()
 	local lastBlock = 0
+	local function isThreatModel(model, root)
+		if not model or model == LocalPlayer.Character then return false end
+		local oroot = model:FindFirstChild("HumanoidRootPart") or model:FindFirstChild("Torso")
+		local ohum = model:FindFirstChildOfClass("Humanoid")
+		if not (oroot and ohum) or ohum.Health <= 0 then return false end
+		local range = ST.AutoBlockRange or 14
+		local delta = root.Position - oroot.Position
+		local dist = delta.Magnitude
+		if dist > range then return false end
+		local dropping = model:GetAttribute("Dropkick") or model:GetAttribute("DropKick") or model:GetAttribute("Kicking")
+		local vel = oroot.AssemblyLinearVelocity
+		local toward = false
+		if vel.Magnitude > 14 and dist > 0.5 then
+			toward = delta.Unit:Dot(vel.Unit) > 0.3
+		end
+		local meleeAnim = false
+		pcall(function()
+			for _, tr in ipairs(ohum:GetPlayingAnimationTracks()) do
+				local n = string.lower(tr.Name or "")
+				if n:find("punch") or n:find("kick") or n:find("swing") or n:find("uber") or n:find("attack")
+					or n:find("melee") or n:find("drop") or n:find("grab") or n:find("strike") then
+					meleeAnim = true
+					break
+				end
+			end
+		end)
+		local tool = model:FindFirstChildOfClass("Tool")
+		local ranged = false
+		if tool then
+			local n = string.lower(tool.Name)
+			ranged = n:find("gun") or n:find("spas") or n:find("ak") or n:find("deagle") or n:find("p250")
+				or n:find("ar") or n:find("rifle") or n:find("shot") or n:find("pistol")
+		end
+		-- close empty-hand or melee tool always threat
+		if dist < (range * 0.55) and not ranged then return true end
+		if dropping or toward or meleeAnim then return true end
+		return false
+	end
 	while not ST.isUnloaded do
-		task.wait(0.04)
+		task.wait(0.035)
 		if not ST.AutoBlockEnabled or ST.VREnabled then continue end
 		local char = LocalPlayer.Character
 		local hum = char and char:FindFirstChildOfClass("Humanoid")
 		local root = char and char:FindFirstChild("HumanoidRootPart")
 		if not (char and hum and root) or hum.Health <= 0 then continue end
 		if char:GetAttribute("Downed") or char:GetAttribute("Ragdoll") then continue end
-		if os.clock() - lastBlock < (ST.AutoBlockCooldown or 0.55) then continue end
-		local range = ST.AutoBlockRange or 14
+		if os.clock() - lastBlock < (ST.AutoBlockCooldown or 0.45) then continue end
 		local threat = false
 		for _, plr in ipairs(Players:GetPlayers()) do
-			if plr == LocalPlayer or IsProtected(plr) then continue end
-			local o = plr.Character
-			if not o then continue end
-			local oroot = o:FindFirstChild("HumanoidRootPart")
-			local ohum = o:FindFirstChildOfClass("Humanoid")
-			if not (oroot and ohum) or ohum.Health <= 0 then continue end
-			local delta = root.Position - oroot.Position
-			local dist = delta.Magnitude
-			if dist > range then continue end
-			-- dropkick / flying tackle toward us
-			local dropping = o:GetAttribute("Dropkick") or o:GetAttribute("DropKick") or o:GetAttribute("Kicking")
-			local vel = oroot.AssemblyLinearVelocity
-			local toward = delta.Unit:Dot(vel.Unit) > 0.35 and vel.Magnitude > 18
-			local meleeAnim = false
-			pcall(function()
-				for _, tr in ipairs(ohum:GetPlayingAnimationTracks()) do
-					local n = string.lower(tr.Name or "")
-					if n:find("punch") or n:find("kick") or n:find("swing") or n:find("uber") or n:find("attack") or n:find("melee") or n:find("drop") then
-						meleeAnim = true
-						break
-					end
-				end
-			end)
-			local tool = o:FindFirstChildOfClass("Tool")
-			local ranged = false
-			if tool then
-				local n = string.lower(tool.Name)
-				ranged = n:find("gun") or n:find("spas") or n:find("ak") or n:find("deagle") or n:find("p250") or n:find("ar") or n:find("rifle") or n:find("shot")
-			end
-			if dropping or toward or meleeAnim or (not ranged and dist < range * 0.65) then
+			if plr ~= LocalPlayer and not IsProtected(plr) and isThreatModel(plr.Character, root) then
 				threat = true
 				break
+			end
+		end
+		if not threat then
+			-- NPCs in workspace.Humans or NPC folders
+			local folders = {}
+			local h = workspace:FindFirstChild("Humans")
+			if h then folders[#folders+1] = h end
+			local n = workspace:FindFirstChild("NPCs") or workspace:FindFirstChild("Npcs")
+			if n then folders[#folders+1] = n end
+			folders[#folders+1] = workspace
+			for _, folder in ipairs(folders) do
+				for _, m in ipairs(folder:GetChildren()) do
+					if m:IsA("Model") and m:FindFirstChildOfClass("Humanoid") then
+						local plr = Players:GetPlayerFromCharacter(m)
+						if not plr and isThreatModel(m, root) then
+							threat = true
+							break
+						end
+					end
+				end
+				if threat then break end
 			end
 		end
 		if threat then
@@ -6589,9 +6653,11 @@ do
 			layer.Name = "CLL_BgPattern"
 			layer.BackgroundTransparency = 1
 			layer.Size = UDim2.fromScale(1, 1)
-			layer.ZIndex = 0
+			layer.ZIndex = 1
+			layer.Active = false
 			layer.ClipsDescendants = true
 			layer.Parent = window
+			-- keep under all UI: lower sibling content uses ZIndex 3+
 			bgLayer = layer
 			dots = {}
 			local dens = math.clamp(ST.BgPatternDensity or 0.35, 0.08, 0.7)
@@ -6834,6 +6900,111 @@ task.spawn(function()
 		pull()
 	end
 end)
+
+
+
+-- ==================== GRENADE / C4 HIGHLIGHT ====================
+do
+	local nadeFolder = Instance.new("Folder")
+	nadeFolder.Name = "CLL_NadeHL"
+	pcall(function() nadeFolder.Parent = workspace.CurrentCamera or workspace end)
+	local tracked = {} -- [inst] = {hl=, bill=, t0=}
+	local function isNadeName(n)
+		n = string.lower(tostring(n or ""))
+		return n:find("grenade") or n:find("nade") or n == "c4" or n:find("c4") or n:find("explosive")
+			or n:find("bomb") or n:find("tnt") or n:find("molotov")
+	end
+	local function attach(inst)
+		if tracked[inst] then return end
+		local part = inst:IsA("BasePart") and inst or inst:FindFirstChildWhichIsA("BasePart", true)
+		if not part then return end
+		local hl = Instance.new("Highlight")
+		hl.FillColor = Color3.fromRGB(255, 120, 40)
+		hl.OutlineColor = Color3.fromRGB(255, 200, 80)
+		hl.FillTransparency = 0.55
+		hl.OutlineTransparency = 0.1
+		hl.Adornee = inst:IsA("Model") and inst or part
+		hl.Parent = nadeFolder
+		local bb = Instance.new("BillboardGui")
+		bb.Size = UDim2.fromOffset(80, 28)
+		bb.AlwaysOnTop = true
+		bb.Adornee = part
+		bb.Parent = nadeFolder
+		local lab = Instance.new("TextLabel")
+		lab.BackgroundTransparency = 1
+		lab.Size = UDim2.fromScale(1, 1)
+		lab.Font = Enum.Font.GothamBold
+		lab.TextSize = 12
+		lab.TextColor3 = Color3.fromRGB(255, 200, 80)
+		lab.TextStrokeTransparency = 0.3
+		lab.Text = inst.Name
+		lab.Parent = bb
+		tracked[inst] = { hl = hl, bb = bb, lab = lab, t0 = os.clock(), part = part }
+	end
+	local function sweep()
+		if not ST.GrenadeESPEnabled then
+			for inst, t in pairs(tracked) do
+				pcall(function() t.hl:Destroy(); t.bb:Destroy() end)
+				tracked[inst] = nil
+			end
+			return
+		end
+		local function scan(parent, depth)
+			if depth > 4 then return end
+			for _, c in ipairs(parent:GetChildren()) do
+				if isNadeName(c.Name) and (c:IsA("Model") or c:IsA("BasePart") or c:IsA("Tool")) then
+					attach(c)
+				elseif c:IsA("Folder") or c:IsA("Model") then
+					scan(c, depth + 1)
+				end
+			end
+		end
+		pcall(function() scan(workspace, 0) end)
+		for inst, t in pairs(tracked) do
+			if not inst.Parent then
+				pcall(function() t.hl:Destroy(); t.bb:Destroy() end)
+				tracked[inst] = nil
+			else
+				local n = string.lower(inst.Name)
+				local isC4 = n:find("c4") ~= nil
+				local elapsed = os.clock() - t.t0
+				-- C4: show fuse-ish timer if attribute Fuse/Timer/DetonateAt exists
+				local left = nil
+				pcall(function()
+					local fuse = inst:GetAttribute("Fuse") or inst:GetAttribute("Timer") or inst:GetAttribute("DetonateIn")
+					if typeof(fuse) == "number" then
+						if fuse > 50 then -- absolute timestamp?
+							left = fuse - os.clock()
+						else
+							left = fuse - elapsed
+						end
+					end
+					local detAt = inst:GetAttribute("DetonateAt")
+					if typeof(detAt) == "number" then left = detAt - os.clock() end
+				end)
+				if t.lab then
+					if isC4 then
+						if left and left > 0 then
+							t.lab.Text = string.format("C4 %.1fs", left)
+						else
+							t.lab.Text = "C4"
+						end
+						t.hl.FillColor = Color3.fromRGB(255, 60, 60)
+					else
+						t.lab.Text = inst.Name
+						t.hl.FillColor = Color3.fromRGB(255, 140, 40)
+					end
+				end
+			end
+		end
+	end
+	task.spawn(function()
+		while not ST.isUnloaded do
+			task.wait(0.35)
+			pcall(sweep)
+		end
+	end)
+end
 
 
 selectTab("Combat")
