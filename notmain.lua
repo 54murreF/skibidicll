@@ -1,6 +1,6 @@
 --[[
     ╔═══════════════════════════════════════════════════════════════╗
-    ║              CLL CHEAT - FULL INTEGRATION v11.41-k (native Q/G grab mirror + VR restore)                ║
+    ║              CLL CHEAT - FULL INTEGRATION v11.42-m (native Q/G grab mirror + VR restore)                ║
     ╠═══════════════════════════════════════════════════════════════╣
     ║  SUK head-hit, real crosshair, tracers, ESP outline nick,     ║
     ║  ChinaHat/Wings fix, VR hands, anti-flash/shake, antibypass   ║
@@ -2401,41 +2401,74 @@ function CleanDebris()
 		local cache = workspace:FindFirstChild("Cache")
 		if cache and cache:FindFirstChild("Ignore_Debris") then
 			for _, v in ipairs(cache.Ignore_Debris:GetChildren()) do
-				if v:IsA("BasePart") or v:IsA("Model") or v:IsA("Folder") then
-					v:Destroy()
-				end
-			end
-		end
-		local debris = workspace:FindFirstChild("Debris") or workspace:FindFirstChild("debris")
-		if debris then
-			for _, v in ipairs(debris:GetChildren()) do
 				pcall(function() v:Destroy() end)
 			end
 		end
-		-- particles / trails / beams / decals (throttle: only under known FX folders + nearby)
-		local function scrub(inst)
-			if inst:IsA("ParticleEmitter") or inst:IsA("Trail") or inst:IsA("Beam") or inst:IsA("Smoke") or inst:IsA("Fire") or inst:IsA("Sparkles") then
-				inst.Enabled = false
-				pcall(function() inst:Destroy() end)
-			elseif inst:IsA("Decal") or inst:IsA("Texture") then
-				local n = string.lower(inst.Name)
-				if n:find("blood") or n:find("bullet") or n:find("scorch") or n:find("crack") or n:find("impact") then
-					pcall(function() inst:Destroy() end)
-				end
-			elseif inst:IsA("Explosion") then
-				pcall(function() inst:Destroy() end)
-			end
-		end
-		for _, folderName in ipairs({"Effects", "FX", "VFX", "Ignore", "Ignore_Debris", "ClientDebris", "Debris"}) do
+		for _, folderName in ipairs({"Debris", "debris", "Effects", "FX", "VFX", "Ignore", "Ignore_Debris", "ClientDebris", "Explosions", "Rubble"}) do
 			local f = workspace:FindFirstChild(folderName)
 			if f then
 				for _, d in ipairs(f:GetDescendants()) do
-					scrub(d)
+					if d:IsA("BasePart") or d:IsA("ParticleEmitter") or d:IsA("Trail") or d:IsA("Beam") or d:IsA("Decal") or d:IsA("Texture") or d:IsA("Explosion") or d:IsA("Fire") or d:IsA("Smoke") or d:IsA("Sparkles") then
+						pcall(function()
+							if d:IsA("ParticleEmitter") or d:IsA("Trail") or d:IsA("Beam") then d.Enabled = false end
+							d:Destroy()
+						end)
+					end
 				end
+				for _, c in ipairs(f:GetChildren()) do
+					pcall(function() c:Destroy() end)
+				end
+			end
+		end
+		-- explosion cubes / free floating neon parts without joints near origin clutter
+		for _, v in ipairs(workspace:GetChildren()) do
+			if v:IsA("Part") or v:IsA("MeshPart") or v:IsA("WedgePart") or v:IsA("CornerWedgePart") then
+				local n = string.lower(v.Name)
+				if n:find("debris") or n:find("shard") or n:find("chunk") or n:find("rubble") or n:find("explosion") or n:find("brick") and v.Anchored == false and v.Size.Magnitude < 8 then
+					if not v.Parent or v.Parent == workspace then
+						local hasJoint = v:FindFirstChildOfClass("Weld") or v:FindFirstChildOfClass("WeldConstraint") or v:FindFirstChildOfClass("Motor6D")
+						if not hasJoint then
+							pcall(function() v:Destroy() end)
+						end
+					end
+				end
+			elseif v:IsA("Model") and (string.lower(v.Name):find("debris") or string.lower(v.Name):find("fx")) then
+				pcall(function() v:Destroy() end)
 			end
 		end
 	end)
 end
+
+local _CLL_MatBackup = {}
+local function applyAntiLagMaterials(on)
+	pcall(function()
+		if on then
+			table.clear(_CLL_MatBackup)
+			for _, d in ipairs(workspace:GetDescendants()) do
+				if d:IsA("BasePart") and not d:IsDescendantOf(LocalPlayer.Character or workspace) then
+					_CLL_MatBackup[d] = d.Material
+					d.Material = Enum.Material.Plastic
+					d.CastShadow = false
+				end
+			end
+			pcall(function()
+				settings().Rendering.QualityLevel = Enum.QualityLevel.Level01
+			end)
+		else
+			for part, mat in pairs(_CLL_MatBackup) do
+				if part and part.Parent then
+					pcall(function() part.Material = mat end)
+				end
+			end
+			table.clear(_CLL_MatBackup)
+			pcall(function()
+				settings().Rendering.QualityLevel = Enum.QualityLevel.Automatic
+			end)
+		end
+	end)
+end
+
+
 task.spawn(function() while not ST.isUnloaded do task.wait(0.5); if ST.AntiLagEnabled then CleanDebris() end end end)
 
 --// ==================== SUK & FIRERATE LOOP ====================
@@ -2491,24 +2524,31 @@ end)
 -- Keybinds use game.VRService.VREnabled → must hook Instance __index (self = VRService)
 do
 	local VRS = game:GetService("VRService")
+	-- PC fake-VR: CameraModule calls GetVRFocus when VREnabled==true — must exist or cam breaks
+	local function fakeVRFocus()
+		local cam = workspace.CurrentCamera
+		if cam then return cam.CFrame end
+		return CFrame.new()
+	end
 	pcall(function()
 		local oldIdx
 		oldIdx = hookmetamethod(game, "__index", function(self, key)
-			if key == "VREnabled" then
-				local isVRS = false
-				pcall(function()
-					isVRS = (self == VRS) or (typeof(self) == "Instance" and self.ClassName == "VRService")
-				end)
-				if isVRS then
-					-- when our VR mode on → true; when off → real engine value (false on PC)
-					if ST.VREnabled then
-						return true
-					end
+			local isVRS = false
+			pcall(function()
+				isVRS = (self == VRS) or (typeof(self) == "Instance" and self.ClassName == "VRService")
+			end)
+			if isVRS then
+				if key == "VREnabled" then
+					if ST.VREnabled then return true end
+					-- fall through to real false on PC
+				elseif key == "GetVRFocus" then
+					return fakeVRFocus
 				end
 			end
 			return oldIdx(self, key)
 		end)
 	end)
+
 	-- keep DID_VR only while VR is on (don't re-stamp after user turns VR off)
 	task.spawn(function()
 		while not ST.isUnloaded do
@@ -2547,18 +2587,29 @@ function releaseVRCamera()
 	pcall(function()
 		UIS.MouseIconEnabled = true
 		UIS.MouseBehavior = Enum.MouseBehavior.Default
+		UIS.MouseIcon = ""
 	end)
 	pcall(function()
 		LocalPlayer.CameraMode = Enum.CameraMode.Classic
+		LocalPlayer.CameraMinZoomDistance = 0.5
+		LocalPlayer.CameraMaxZoomDistance = math.max(LocalPlayer.CameraMaxZoomDistance, 128)
 	end)
 	if cam then
-		cam.CameraType = Enum.CameraType.Custom
+		pcall(function()
+			cam.CameraType = Enum.CameraType.Custom
+			cam.FieldOfView = ST.CameraFOVLocked and (ST.CameraFOVValue or 70) or 70
+		end)
 		local live = LocalPlayer.Character
 		local liveHum = live and live:FindFirstChildOfClass("Humanoid")
 		if liveHum and liveHum.Health > 0 then
-			cam.CameraSubject = liveHum
+			pcall(function()
+				cam.CameraSubject = liveHum
+				liveHum.CameraOffset = Vector3.zero
+			end)
 		end
 	end
+	-- clear VR camera rotation state
+	pcall(function() VR_Cam_Rotation = CFrame.new() end)
 end
 
 function vrDisableShoulders(char)
@@ -3599,6 +3650,11 @@ oldNamecall = hookmetamethod(game, "__namecall", function(self, ...)
 		if setnamecallmethod then pcall(setnamecallmethod, method) end
 		return oldNamecall(self, ...)
 	end
+	-- PC fake-VR: CameraModule needs GetVRFocus when VREnabled is spoofed
+	if method == "GetVRFocus" then
+		local cam = workspace.CurrentCamera
+		return cam and cam.CFrame or CFrame.new()
+	end
 	if type(checkcaller) == "function" then
 		local okc, mine = pcall(checkcaller)
 		if okc and mine then
@@ -3880,7 +3936,7 @@ fit(); workspace.CurrentCamera:GetPropertyChangedSignal("ViewportSize"):Connect(
 local header = new("Frame", { Size = UDim2.new(1, 0, 0, 62), BackgroundTransparency = 1, Parent = window })
 local logoLabel = label({ Text = "CLL", Font = Enum.Font.Michroma, TextSize = 26, TextTruncate = Enum.TextTruncate.AtEnd, Size = UDim2.fromOffset(100, 62), Position = UDim2.fromOffset(23, 0), Parent = header })
 logoLabel.TextColor3 = Color3.fromRGB(255, 255, 255) -- Always white
-local verLabel = label({ Text = "v11.41-k", Font = Enum.Font.GothamBold, TextSize = 12, TextColor3 = Theme.Dim, Size = UDim2.fromOffset(50, 62), Position = UDim2.fromOffset(85, 2), Parent = header })
+local verLabel = label({ Text = "v11.42-m", Font = Enum.Font.GothamBold, TextSize = 12, TextColor3 = Theme.Dim, Size = UDim2.fromOffset(50, 62), Position = UDim2.fromOffset(85, 2), Parent = header })
 local timeLabel = label({ Text = "Session: 00:00", Font = Enum.Font.GothamMedium, TextSize = 13, TextColor3 = Theme.Dim, Size = UDim2.fromOffset(150, 62), Position = UDim2.fromOffset(150, 0), Parent = header })
 task.spawn(function()
 	while not ST.isUnloaded do
@@ -4961,9 +5017,11 @@ pcall(function() if watermarkMain then watermarkMain:Destroy() end end)
 	local friendList = new("Frame", { Size = UDim2.new(1, 0, 0, 100), Position = UDim2.fromOffset(0, rY), BackgroundTransparency = 1, Parent = rScroll }, { new("UIListLayout", { Padding = UDim.new(0, 4) }) }); rY += 110
 	local function refreshFriends()
 		for _, v in ipairs(friendList:GetChildren()) do if v:IsA("Frame") then v:Destroy() end end
-		for id, _ in pairs(FriendsList) do
+		for id, stored in pairs(FriendsList) do
 			local p = Players:GetPlayerByUserId(id)
-			local name = p and (p.DisplayName .. "  @" .. p.Name) or ("ID: " .. tostring(id))
+			local name = p and (p.DisplayName .. "  @" .. p.Name)
+				or (type(stored) == "string" and stored)
+				or ("ID: " .. tostring(id))
 			local row = new("Frame", { Size = UDim2.new(1, 0, 0, 30), BackgroundColor3 = Theme.Row, Parent = friendList }, { corner(6) })
 			label({ Text = name, TextSize = 13, Size = UDim2.new(1, -40, 1, 0), Position = UDim2.fromOffset(10, 0), Parent = row })
 			local btn = new("TextButton", { Text = "X", Size = UDim2.fromOffset(20, 20), Position = UDim2.new(1, -25, 0.5, -10), BackgroundTransparency = 1, TextColor3 = Color3.fromRGB(255, 80, 80), Font = Enum.Font.GothamBold, Parent = row })
@@ -4971,9 +5029,41 @@ pcall(function() if watermarkMain then watermarkMain:Destroy() end end)
 		end
 	end
 	RefreshFriendsUI = refreshFriends
-	addFriend.MouseButton1Click:Connect(function() 
-		local p = Players:FindFirstChild(friendBox.Text)
-		if p and p ~= LocalPlayer then FriendsList[p.UserId] = true; friendBox.Text = ""; refreshFriends() end 
+	addFriend.MouseButton1Click:Connect(function()
+		local text = friendBox.Text:gsub("^%s+", ""):gsub("%s+$", "")
+		if text == "" then return end
+		local plr = Players:FindFirstChild(text)
+		if not plr then
+			for _, x in ipairs(Players:GetPlayers()) do
+				if x.Name:lower() == text:lower() or x.DisplayName:lower() == text:lower() then
+					plr = x; break
+				end
+			end
+		end
+		if plr and plr ~= LocalPlayer then
+			FriendsList[plr.UserId] = plr.DisplayName .. " (@" .. plr.Name .. ")"
+			friendBox.Text = ""
+			refreshFriends()
+			if CLL_Notify then CLL_Notify("Friend added", FriendsList[plr.UserId]) end
+			return
+		end
+		-- offline resolve
+		task.spawn(function()
+			local ok, uid = pcall(function()
+				return Players:GetUserIdFromNameAsync(text)
+			end)
+			if ok and type(uid) == "number" and uid > 1000 then
+				local ok2, name = pcall(function()
+					return Players:GetNameFromUserIdAsync(uid)
+				end)
+				FriendsList[uid] = (ok2 and name and (name .. " (#" .. uid .. ")")) or ("@" .. text)
+				friendBox.Text = ""
+				refreshFriends()
+				if CLL_Notify then CLL_Notify("Friend added", tostring(FriendsList[uid])) end
+			else
+				if CLL_Notify then CLL_Notify("Friend", "Player not found") end
+			end
+		end)
 	end)
 	refreshFriends()
 
@@ -5226,13 +5316,25 @@ function applyConfig(data)
 		if type(data.friends) == "table" then
 			table.clear(FriendsList)
 			for k, v in pairs(data.friends) do
-				local id, name = nil, true
-				if type(k) == "number" then id, name = k, (type(v) == "string" and v) or true
-				elseif type(v) == "number" then id = v
-				elseif type(v) == "string" then id = tonumber(v)
-				elseif type(v) == "table" then id = tonumber(v.id or v.UserId or v[1]); name = v.name or v.Name or true
+				local id, name = nil, nil
+				-- array form {12345,67890} → keys 1,2 values are ids
+				if type(k) == "number" and type(v) == "number" then
+					id, name = v, true
+				elseif type(k) == "number" and type(v) == "string" then
+					id, name = k, v
+				elseif type(k) == "string" then
+					id = tonumber(k)
+					name = (type(v) == "string" and v) or true
+				elseif type(v) == "table" then
+					id = tonumber(v.id or v.UserId or v[1])
+					name = v.name or v.Name or v[2] or true
+				elseif type(v) == "number" then
+					id = v
+					name = true
 				end
-				if id then FriendsList[id] = name or true end
+				if id and id > 1000 then -- ignore bogus 1,2 from bad array loads
+					FriendsList[id] = name or true
+				end
 			end
 			if type(data.whitelist) == "table" then
 				table.clear(Whitelist)
@@ -5283,6 +5385,7 @@ function saveConfigNamed(name, overwrite)
 			return false, "exists"
 		end
 		local ok, err = fs_write(path, HttpService:JSONEncode(collectConfig()))
+		if ok and CLL_Notify and ST.NotifyConfig ~= false then CLL_Notify("Config saved", tostring(name)) end
 		return ok, err
 	end
 
@@ -5644,24 +5747,38 @@ buildFeaturePage(pages.Effects, "EFFECTS", {
 
 	{ name = "China Hat", initial = false, onToggle = function(v) ST.ChinaHatEnabled = v; pcall(function() Cosmetics.setHat(v) end) end, buildDetail = nil },
 	{ name = "Custom Wings", initial = false, onToggle = function(v) ST.WingsEnabled = v; pcall(function() Cosmetics.setWings(v) end) end, buildDetail = nil },
-	{ name = "Anti-Lag", initial = false, onToggle = function(s) ST.AntiLagEnabled = s; if s then CleanDebris() end end, buildDetail = nil },
+	{ name = "Anti-Lag", initial = false, onToggle = function(s) ST.AntiLagEnabled = s; if s then CleanDebris(); applyAntiLagMaterials(true) else applyAntiLagMaterials(false) end end, buildDetail = nil },
 		{ name = "Remove Rain/Weather", initial = false, onToggle = function(s)
+		ST.RemoveRainEnabled = s and true or false
 		pcall(function()
-			local L = game:GetService("Lighting")
-			for _, v in ipairs(L:GetChildren()) do
-				if v:IsA("Atmosphere") or (v:IsA("Sky") and v.Name ~= "CLL_Sky") then
-					if s then v:Destroy() end
-				end
-				if v:IsA("BloomEffect") or v:IsA("BlurEffect") or v:IsA("SunRaysEffect") then
-					if s then v.Enabled = false end
+			local function scrub(v)
+				local n = string.lower(v.Name or "")
+				local rainish = n:find("rain") or n:find("weather") or n:find("storm") or n:find("cloud") or n:find("drizzle")
+				if v:IsA("Sound") and (rainish or (v.SoundId and tostring(v.SoundId):find("rain"))) then
+					v.Volume = 0; v:Stop(); v:Destroy()
+				elseif (v:IsA("ParticleEmitter") or v:IsA("Trail") or v:IsA("Beam")) and rainish then
+					v.Enabled = false; v:Destroy()
+				elseif v:IsA("BasePart") and rainish and v.Transparency > 0.2 then
+					v:Destroy()
+				elseif v:IsA("Sky") and v.Name ~= "CLL_Sky" then
+					-- clear cloudy sky textures
+					pcall(function()
+						v.StarCount = 0
+					end)
 				end
 			end
-			for _, v in ipairs(workspace:GetDescendants()) do
-				if s and (v:IsA("ParticleEmitter") or v:IsA("Rain") or (v:IsA("Sound") and v.Name:lower():find("rain"))) then
-					if v.Name:lower():find("rain") or v.Name:lower():find("weather") then
-						v.Enabled = false
-					end
+			local L = game:GetService("Lighting")
+			if s then
+				L.FogEnd = 1e6
+				L.FogStart = 0
+				pcall(function() L.Atmosphere.Density = 0 end)
+				for _, v in ipairs(L:GetChildren()) do
+					if v:IsA("Atmosphere") then v.Density = 0; v.Haze = 0; v.Glare = 0 end
+					if v:IsA("BloomEffect") or v:IsA("BlurEffect") or v:IsA("DepthOfFieldEffect") then v.Enabled = false end
+					if v:IsA("Sky") and v.Name ~= "CLL_Sky" then scrub(v) end
 				end
+				for _, v in ipairs(workspace:GetDescendants()) do scrub(v) end
+				for _, v in ipairs(game:GetService("SoundService"):GetDescendants()) do scrub(v) end
 			end
 		end)
 	end, buildDetail = nil },
@@ -5791,8 +5908,20 @@ function createWatermark(name, pos, width)
 	return wm
 end
 
-watermarkMain = createWatermark("Main", UDim2.fromOffset(14, 70), 180)
-local wmLogo = label({ Text = "CLL", Font = Enum.Font.GothamBold, TextSize = 12, TextColor3 = Color3.fromRGB(255, 255, 255), AutomaticSize = Enum.AutomaticSize.X, Size = UDim2.fromOffset(0, 32), Parent = watermarkMain })
+watermarkMain = createWatermark("Main", UDim2.fromOffset(14, 70), 210)
+pcall(function()
+	watermarkMain.BackgroundTransparency = 0.25
+	local st = watermarkMain:FindFirstChildOfClass("UIStroke")
+	if st then st.Color = Theme.Accent; st.Thickness = 1.2 end
+end)
+local wmLogo = label({ Text = "CLL", Font = Enum.Font.GothamBold, TextSize = 13, TextColor3 = Theme.Accent, AutomaticSize = Enum.AutomaticSize.X, Size = UDim2.fromOffset(0, 32), Parent = watermarkMain })
+subscribeTheme(function()
+	pcall(function()
+		wmLogo.TextColor3 = Theme.Accent
+		local st = watermarkMain:FindFirstChildOfClass("UIStroke")
+		if st then st.Color = Theme.Accent end
+	end)
+end)
 function wmSep(parent) return new("Frame", { Size = UDim2.fromOffset(1, 12), BackgroundColor3 = Theme.Stroke, BorderSizePixel = 0, Parent = parent }) end
 wmSep(watermarkMain)
 local fpsLbl = label({ Text = "-- FPS", Font = Enum.Font.GothamMedium, TextSize = 12, TextColor3 = Theme.Text, AutomaticSize = Enum.AutomaticSize.X, Size = UDim2.fromOffset(0, 32), Parent = watermarkMain })
@@ -6245,44 +6374,54 @@ ST.VREnabled = false
 
 
 
--- ==================== AUTO BLOCK (dump: Swing:FireServer("Block")) ====================
+-- ==================== AUTO BLOCK (melee + dropkick toward you) ====================
 task.spawn(function()
 	local lastBlock = 0
 	while not ST.isUnloaded do
-		task.wait(0.05)
-		if not ST.AutoBlockEnabled then continue end
-		if ST.VREnabled then continue end
+		task.wait(0.04)
+		if not ST.AutoBlockEnabled or ST.VREnabled then continue end
 		local char = LocalPlayer.Character
 		local hum = char and char:FindFirstChildOfClass("Humanoid")
 		local root = char and char:FindFirstChild("HumanoidRootPart")
 		if not (char and hum and root) or hum.Health <= 0 then continue end
 		if char:GetAttribute("Downed") or char:GetAttribute("Ragdoll") then continue end
 		if os.clock() - lastBlock < (ST.AutoBlockCooldown or 0.55) then continue end
-		local range = ST.AutoBlockRange or 12
+		local range = ST.AutoBlockRange or 14
 		local threat = false
 		for _, plr in ipairs(Players:GetPlayers()) do
-			if plr ~= LocalPlayer and plr.Character and not IsProtected(plr) then
-				local o = plr.Character
-				local oroot = o:FindFirstChild("HumanoidRootPart")
-				local ohum = o:FindFirstChildOfClass("Humanoid")
-				if oroot and ohum and ohum.Health > 0 then
-					local d = (oroot.Position - root.Position).Magnitude
-					if d <= range then
-						if ST.AutoBlockMeleeOnly then
-							local tool = o:FindFirstChildOfClass("Tool")
-							local n = tool and string.lower(tool.Name) or ""
-							if tool and (n:find("gun") or n:find("spas") or n:find("ak") or n:find("deagle") or n:find("p250") or n:find("ar")) then
-								-- ranged: skip
-							else
-								threat = true
-							end
-						else
-							threat = true
-						end
+			if plr == LocalPlayer or IsProtected(plr) then continue end
+			local o = plr.Character
+			if not o then continue end
+			local oroot = o:FindFirstChild("HumanoidRootPart")
+			local ohum = o:FindFirstChildOfClass("Humanoid")
+			if not (oroot and ohum) or ohum.Health <= 0 then continue end
+			local delta = root.Position - oroot.Position
+			local dist = delta.Magnitude
+			if dist > range then continue end
+			-- dropkick / flying tackle toward us
+			local dropping = o:GetAttribute("Dropkick") or o:GetAttribute("DropKick") or o:GetAttribute("Kicking")
+			local vel = oroot.AssemblyLinearVelocity
+			local toward = delta.Unit:Dot(vel.Unit) > 0.35 and vel.Magnitude > 18
+			local meleeAnim = false
+			pcall(function()
+				for _, tr in ipairs(ohum:GetPlayingAnimationTracks()) do
+					local n = string.lower(tr.Name or "")
+					if n:find("punch") or n:find("kick") or n:find("swing") or n:find("uber") or n:find("attack") or n:find("melee") or n:find("drop") then
+						meleeAnim = true
+						break
 					end
 				end
+			end)
+			local tool = o:FindFirstChildOfClass("Tool")
+			local ranged = false
+			if tool then
+				local n = string.lower(tool.Name)
+				ranged = n:find("gun") or n:find("spas") or n:find("ak") or n:find("deagle") or n:find("p250") or n:find("ar") or n:find("rifle") or n:find("shot")
 			end
-			if threat then break end
+			if dropping or toward or meleeAnim or (not ranged and dist < range * 0.65) then
+				threat = true
+				break
+			end
 		end
 		if threat then
 			lastBlock = os.clock()
@@ -6293,10 +6432,8 @@ task.spawn(function()
 				end
 				if SwingRemote then
 					SwingRemote:FireServer("Block")
-					task.delay(ST.AutoBlockHold or 0.35, function()
-						pcall(function()
-							if SwingRemote then SwingRemote:FireServer("UnBlock") end
-						end)
+					task.delay(ST.AutoBlockHold or 0.4, function()
+						pcall(function() if SwingRemote then SwingRemote:FireServer("UnBlock") end end)
 					end)
 				end
 			end)
@@ -6325,7 +6462,7 @@ task.spawn(function()
 	end
 end)
 
--- ==================== CURSOR TRAIL ====================
+-- ==================== CURSOR TRAIL (smooth lag + accent alpha) ====================
 do
 	local trailGui = Instance.new("ScreenGui")
 	trailGui.Name = "CLL_CursorTrail"
@@ -6335,37 +6472,54 @@ do
 	pcall(function()
 		trailGui.Parent = (gethui and gethui()) or game:GetService("CoreGui")
 	end)
+	local positions = {}
 	local dots = {}
-	RunService.RenderStepped:Connect(function()
+	local smooth = Vector2.new()
+	local hasSmooth = false
+	RunService.RenderStepped:Connect(function(dt)
 		if ST.isUnloaded or not ST.CursorTrailEnabled then
 			for _, d in ipairs(dots) do d.Visible = false end
+			hasSmooth = false
 			return
 		end
 		local m = UIS:GetMouseLocation()
-		local len = math.clamp(math.floor(ST.CursorTrailLength or 12), 3, 40)
-		local sz = math.clamp(ST.CursorTrailSize or 6, 2, 20)
+		local target = Vector2.new(m.X, m.Y)
+		if not hasSmooth then
+			smooth = target
+			hasSmooth = true
+		else
+			-- lag behind cursor
+			local k = math.clamp(dt * 10, 0.05, 0.35)
+			smooth = smooth:Lerp(target, k)
+		end
+		local len = math.clamp(math.floor(ST.CursorTrailLength or 14), 4, 48)
+		local sz = math.clamp(ST.CursorTrailSize or 7, 2, 20)
+		local accent = Theme.Accent or Color3.fromRGB(90, 160, 255)
+		table.insert(positions, 1, smooth)
+		while #positions > len do table.remove(positions) end
 		while #dots < len do
 			local f = Instance.new("Frame")
 			f.AnchorPoint = Vector2.new(0.5, 0.5)
 			f.BorderSizePixel = 0
-			f.BackgroundColor3 = ST.CursorTrailColor or Color3.fromRGB(90, 160, 255)
 			Instance.new("UICorner", f).CornerRadius = UDim.new(1, 0)
 			f.Parent = trailGui
 			dots[#dots + 1] = f
 		end
-		for i = #dots, 2, -1 do
-			local prev = dots[i - 1]
-			dots[i].Position = prev.Position
-			dots[i].Size = prev.Size
-			dots[i].BackgroundTransparency = math.clamp((i / len) * (ST.CursorTrailFade or 0.35) + 0.15, 0, 1)
-			dots[i].BackgroundColor3 = ST.CursorTrailColor or dots[i].BackgroundColor3
-			dots[i].Visible = true
+		for i = 1, len do
+			local d = dots[i]
+			local pos = positions[i]
+			if pos then
+				local t = (i - 1) / math.max(len - 1, 1)
+				local s = sz * (1 - t * 0.7)
+				d.Position = UDim2.fromOffset(pos.X, pos.Y)
+				d.Size = UDim2.fromOffset(s, s)
+				d.BackgroundColor3 = accent
+				d.BackgroundTransparency = 0.25 + t * 0.7
+				d.Visible = true
+			else
+				d.Visible = false
+			end
 		end
-		dots[1].Position = UDim2.fromOffset(m.X, m.Y)
-		dots[1].Size = UDim2.fromOffset(sz, sz)
-		dots[1].BackgroundTransparency = 0.1
-		dots[1].BackgroundColor3 = ST.CursorTrailColor or Color3.fromRGB(90, 160, 255)
-		dots[1].Visible = true
 	end)
 end
 
@@ -6421,6 +6575,96 @@ do
 		end
 	end)
 end
+
+
+
+-- ==================== TOAST NOTIFY (bottom-right) ====================
+ST.NotifyJoin = ST.NotifyJoin ~= false
+ST.NotifyConfig = ST.NotifyConfig ~= false
+local function CLL_Notify(title, body, dur)
+	pcall(function()
+		local parent = (gethui and gethui()) or game:GetService("CoreGui")
+		local gui = parent:FindFirstChild("CLL_Toasts")
+		if not gui then
+			gui = Instance.new("ScreenGui")
+			gui.Name = "CLL_Toasts"
+			gui.IgnoreGuiInset = true
+			gui.ResetOnSpawn = false
+			gui.DisplayOrder = 200
+			gui.Parent = parent
+			local lay = Instance.new("UIListLayout")
+			lay.FillDirection = Enum.FillDirection.Vertical
+			lay.VerticalAlignment = Enum.VerticalAlignment.Bottom
+			lay.HorizontalAlignment = Enum.HorizontalAlignment.Right
+			lay.Padding = UDim.new(0, 8)
+			lay.Parent = gui
+			local pad = Instance.new("UIPadding")
+			pad.PaddingBottom = UDim.new(0, 24)
+			pad.PaddingRight = UDim.new(0, 24)
+			pad.Parent = gui
+		end
+		local card = Instance.new("Frame")
+		card.Size = UDim2.fromOffset(280, 58)
+		card.BackgroundColor3 = Color3.fromRGB(16, 16, 22)
+		card.BackgroundTransparency = 1
+		card.BorderSizePixel = 0
+		card.Parent = gui
+		Instance.new("UICorner", card).CornerRadius = UDim.new(0, 10)
+		local st = Instance.new("UIStroke")
+		st.Color = Theme.Accent or Color3.fromRGB(80, 140, 255)
+		st.Thickness = 1.2
+		st.Transparency = 1
+		st.Parent = card
+		local t1 = Instance.new("TextLabel")
+		t1.BackgroundTransparency = 1
+		t1.Font = Enum.Font.GothamBold
+		t1.TextSize = 13
+		t1.TextColor3 = Color3.fromRGB(240, 244, 255)
+		t1.TextXAlignment = Enum.TextXAlignment.Left
+		t1.Text = title or "CLL"
+		t1.Size = UDim2.new(1, -20, 0, 22)
+		t1.Position = UDim2.fromOffset(12, 8)
+		t1.TextTransparency = 1
+		t1.Parent = card
+		local t2 = Instance.new("TextLabel")
+		t2.BackgroundTransparency = 1
+		t2.Font = Enum.Font.Gotham
+		t2.TextSize = 12
+		t2.TextColor3 = Color3.fromRGB(160, 168, 190)
+		t2.TextXAlignment = Enum.TextXAlignment.Left
+		t2.Text = body or ""
+		t2.Size = UDim2.new(1, -20, 0, 20)
+		t2.Position = UDim2.fromOffset(12, 30)
+		t2.TextTransparency = 1
+		t2.Parent = card
+		-- slide + fade in
+		card.Position = UDim2.new(0, 0, 0, 20)
+		TweenService:Create(card, TweenInfo.new(0.35, Enum.EasingStyle.Quint, Enum.EasingDirection.Out), {
+			BackgroundTransparency = 0.12
+		}):Play()
+		TweenService:Create(st, TweenInfo.new(0.35), { Transparency = 0.4 }):Play()
+		TweenService:Create(t1, TweenInfo.new(0.35), { TextTransparency = 0 }):Play()
+		TweenService:Create(t2, TweenInfo.new(0.35), { TextTransparency = 0 }):Play()
+		task.delay(dur or 2.8, function()
+			local a = TweenService:Create(card, TweenInfo.new(0.4, Enum.EasingStyle.Sine, Enum.EasingDirection.In), {
+				BackgroundTransparency = 1
+			})
+			TweenService:Create(st, TweenInfo.new(0.4), { Transparency = 1 }):Play()
+			TweenService:Create(t1, TweenInfo.new(0.4), { TextTransparency = 1 }):Play()
+			TweenService:Create(t2, TweenInfo.new(0.4), { TextTransparency = 1 }):Play()
+			a:Play()
+			a.Completed:Wait()
+			card:Destroy()
+		end)
+	end)
+end
+_G.CLL_Notify = CLL_Notify
+
+Players.PlayerAdded:Connect(function(plr)
+	if ST.NotifyJoin then
+		CLL_Notify("Player joined", plr.DisplayName .. " @" .. plr.Name)
+	end
+end)
 
 
 selectTab("Combat")
