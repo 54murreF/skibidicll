@@ -1,6 +1,6 @@
 --[[
     ╔═══════════════════════════════════════════════════════════════╗
-    ║              CLL CHEAT - FULL INTEGRATION v11.57-ab (native Q/G grab mirror + VR restore)                ║
+    ║              CLL CHEAT - FULL INTEGRATION v11.58-ac (native Q/G grab mirror + VR restore)                ║
     ╠═══════════════════════════════════════════════════════════════╣
     ║  SUK head-hit, real crosshair, tracers, ESP outline nick,     ║
     ║  ChinaHat/Wings fix, VR hands, anti-flash/shake, antibypass   ║
@@ -2939,8 +2939,8 @@ local function vrHideHeadAccessories(char, hide)
 end
 
 
---// ==================== VR ENABLED FORCE (real Keybinds path) ====================
--- Spoof VRService.VREnabled for Grabmove arms; stub signals so CameraModule does not hard-crash.
+--// ==================== VR ENABLED FORCE (cheap like 10.8) ====================
+-- CRITICAL: never ClassName/pcall on every __index — that tanks FPS on all Instances.
 do
 	local VRS = game:GetService("VRService")
 	local fakeEv = Instance.new("BindableEvent")
@@ -2951,21 +2951,17 @@ do
 	pcall(function()
 		local oldIdx
 		oldIdx = hookmetamethod(game, "__index", function(self, key)
-			local isVRS = false
-			pcall(function()
-				isVRS = (self == VRS) or (typeof(self) == "Instance" and self.ClassName == "VRService")
-			end)
-			if isVRS and ST.VREnabled then
+			-- fast path: only care about VRService keys when VR on
+			if ST.VREnabled and self == VRS then
 				if key == "VREnabled" then
 					return true
 				elseif key == "GetVRFocus" then
 					return fakeFocus
-				elseif key == "UserCFrameChanged" or key == "NavigationRayChanged"
-					or key == "TouchpadModeChanged" then
+				elseif key == "UserCFrameChanged" or key == "NavigationRayChanged" then
 					return fakeEv.Event
-				elseif key == "AvatarGestures" then
-					return false
 				end
+			elseif key == "VREnabled" and ST.VREnabled and self == VRS then
+				return true
 			end
 			return oldIdx(self, key)
 		end)
@@ -2986,6 +2982,7 @@ do
 		end
 	end)
 end
+
 
 function setVREnabled(on, fromUser)
 	on = on and true or false
@@ -3953,9 +3950,7 @@ end)
 -- kill highlight queue only (custom sounds removed)
 RunService.Heartbeat:Connect(function()
 	if ST.isUnloaded then return end
-	CLL_PendingGunName = nil
-	CLL_PendingKillSound = false
-	CLL_PendingHitSound = false
+	-- only act when a kill is pending (was clearing every frame → FPS + broken highlights)
 	if CLL_PendingKillChar then
 		local model = CLL_PendingKillChar
 		CLL_PendingKillChar = nil
@@ -4084,7 +4079,7 @@ fit(); workspace.CurrentCamera:GetPropertyChangedSignal("ViewportSize"):Connect(
 local header = new("Frame", { Size = UDim2.new(1, 0, 0, 62), BackgroundTransparency = 1, Parent = window })
 local logoLabel = label({ Text = "CLL", Font = Enum.Font.Michroma, TextSize = 26, TextTruncate = Enum.TextTruncate.AtEnd, Size = UDim2.fromOffset(100, 62), Position = UDim2.fromOffset(23, 0), Parent = header })
 logoLabel.TextColor3 = Color3.fromRGB(255, 255, 255) -- Always white
-local verLabel = label({ Text = "v11.57-ab", Font = Enum.Font.GothamBold, TextSize = 12, TextColor3 = Theme.Dim, Size = UDim2.fromOffset(50, 62), Position = UDim2.fromOffset(85, 2), Parent = header })
+local verLabel = label({ Text = "v11.58-ac", Font = Enum.Font.GothamBold, TextSize = 12, TextColor3 = Theme.Dim, Size = UDim2.fromOffset(50, 62), Position = UDim2.fromOffset(85, 2), Parent = header })
 local timeLabel = label({ Text = "Session: 00:00", Font = Enum.Font.GothamMedium, TextSize = 13, TextColor3 = Theme.Dim, Size = UDim2.fromOffset(150, 62), Position = UDim2.fromOffset(150, 0), Parent = header })
 task.spawn(function()
 	while not ST.isUnloaded do
@@ -5973,69 +5968,71 @@ local menuGridFolder = nil
 local menuGridConn = nil
 rebuildMenuGrid = function()
 	pcall(function()
-		if menuGridFolder then menuGridFolder:Destroy() end
-		menuGridFolder = nil
 		if menuGridConn then menuGridConn:Disconnect(); menuGridConn = nil end
+		if menuGridFolder then menuGridFolder:Destroy(); menuGridFolder = nil end
 		if not ST.MenuGridEnabled or not window or not window.Parent then return end
+
 		local folder = Instance.new("Frame")
 		folder.Name = "CLL_MenuGrid"
 		folder.BackgroundTransparency = 1
+		folder.BorderSizePixel = 0
 		folder.Size = UDim2.fromScale(1, 1)
-		folder.ClipsDescendants = true
-		folder.ZIndex = 0
+		folder.Position = UDim2.fromScale(0, 0)
+		folder.ZIndex = 1
+		folder.Active = false
+		folder.ClipsDescendants = false
 		folder.Parent = window
 		menuGridFolder = folder
+
 		local col = ST.MenuGridColor or Color3.fromRGB(80, 140, 255)
-		local tr = math.clamp(ST.MenuGridTransparency or 0.85, 0.2, 0.98)
-		local spacing = 32
+		local tr = math.clamp(ST.MenuGridTransparency or 0.85, 0.25, 0.97)
+		local spacing = 30
 		local lines = {}
-		-- vertical
-		for i = 0, 28 do
+
+		for i = -1, 24 do
 			local ln = Instance.new("Frame")
+			ln.Name = "V"
+			ln.BorderSizePixel = 0
 			ln.BackgroundColor3 = col
 			ln.BackgroundTransparency = tr
-			ln.BorderSizePixel = 0
-			ln.Size = UDim2.new(0, 1, 1, 40)
-			ln.Position = UDim2.fromOffset(i * spacing, -20)
-			ln.ZIndex = 0
+			ln.Size = UDim2.new(0, 1, 1, 60)
+			ln.Position = UDim2.fromOffset(i * spacing, -30)
+			ln.ZIndex = 1
 			ln.Parent = folder
-			lines[#lines+1] = { ln = ln, axis = "v", i = i }
+			lines[#lines + 1] = { ln = ln, axis = "v", i = i }
 		end
-		-- horizontal
-		for i = 0, 22 do
+		for i = -1, 18 do
 			local ln = Instance.new("Frame")
+			ln.Name = "H"
+			ln.BorderSizePixel = 0
 			ln.BackgroundColor3 = col
 			ln.BackgroundTransparency = tr
-			ln.BorderSizePixel = 0
-			ln.Size = UDim2.new(1, 40, 0, 1)
-			ln.Position = UDim2.fromOffset(-20, i * spacing)
-			ln.ZIndex = 0
+			ln.Size = UDim2.new(1, 60, 0, 1)
+			ln.Position = UDim2.fromOffset(-30, i * spacing)
+			ln.ZIndex = 1
 			ln.Parent = folder
-			lines[#lines+1] = { ln = ln, axis = "h", i = i }
+			lines[#lines + 1] = { ln = ln, axis = "h", i = i }
 		end
+
 		local t0 = os.clock()
-		local accG = 0
-		menuGridConn = RunService.Heartbeat:Connect(function(dt)
-			if ST.isUnloaded or not ST.MenuGridEnabled or not folder.Parent then
-				return
-			end
+		menuGridConn = RunService.RenderStepped:Connect(function()
+			if ST.isUnloaded or not ST.MenuGridEnabled then return end
+			if not folder or not folder.Parent then return end
 			if not isOpen then return end
-			accG += dt
-			if accG < 0.03 then return end
-			accG = 0
 			local spd = math.clamp(ST.MenuGridSpeed or 1, 0.05, 8)
-			local off = ((os.clock() - t0) * spd * 22) % spacing
+			local off = (os.clock() - t0) * spd * 28
+			off = off % spacing
 			local c = ST.MenuGridColor or col
-			local tr2 = math.clamp(ST.MenuGridTransparency or tr, 0.2, 0.98)
+			local tr2 = math.clamp(ST.MenuGridTransparency or tr, 0.25, 0.97)
 			for _, d in ipairs(lines) do
 				local ln = d.ln
-				if ln and ln.Parent then
+				if ln then
 					ln.BackgroundColor3 = c
 					ln.BackgroundTransparency = tr2
 					if d.axis == "v" then
-						ln.Position = UDim2.fromOffset(d.i * spacing - off, -20)
+						ln.Position = UDim2.fromOffset(d.i * spacing - off, -30)
 					else
-						ln.Position = UDim2.fromOffset(-20, d.i * spacing - off)
+						ln.Position = UDim2.fromOffset(-30, d.i * spacing - off)
 					end
 				end
 			end
@@ -6212,8 +6209,12 @@ end
 if LocalPlayer.Character then hookCharTools(LocalPlayer.Character) end
 LocalPlayer.CharacterAdded:Connect(hookCharTools)
 
-RunService.RenderStepped:Connect(function()
+local _ammoAcc = 0
+RunService.Heartbeat:Connect(function(dt)
 	if ST.isUnloaded then return end
+	_ammoAcc += dt
+	if _ammoAcc < 0.15 then return end
+	_ammoAcc = 0
 	refreshAmmoLabel()
 	if not ammoLbl.Visible then return end
 	local m = UIS:GetMouseLocation()
