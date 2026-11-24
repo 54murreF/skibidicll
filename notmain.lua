@@ -1,6 +1,6 @@
 --[[
     ╔═══════════════════════════════════════════════════════════════╗
-    ║              CLL CHEAT - FULL INTEGRATION v11.64-ai (native Q/G grab mirror + VR restore)                ║
+    ║              CLL CHEAT - FULL INTEGRATION v11.65-aj (native Q/G grab mirror + VR restore)                ║
     ╠═══════════════════════════════════════════════════════════════╣
     ║  SUK head-hit, real crosshair, tracers, ESP outline nick,     ║
     ║  ChinaHat/Wings fix, VR hands, anti-flash/shake, antibypass   ║
@@ -1131,7 +1131,7 @@ function EnsureSpasEquipped()
 		pcall(function() hum:EquipTool(tool) end)
 		return GetSpas()
 	end
-	if os.clock() - (lastSpasPickup or 0) < 0.5 then return nil end
+	if os.clock() - (lastSpasPickup or 0) < 0.2 then return nil end
 	lastSpasPickup = os.clock()
 
 	local function byName(parent)
@@ -1167,23 +1167,38 @@ function EnsureSpasEquipped()
 	if not pos then return nil end
 
 	local saved = root.CFrame
-	pcall(function() root.CFrame = CFrame.new(pos + Vector3.new(0, 3, 0)) end)
-	task.wait(0.1)
-	pcall(function()
-		local prompt = spasObj:FindFirstChildWhichIsA("ProximityPrompt", true)
-		if prompt then
-			if fireproximityprompt then
-				pcall(fireproximityprompt, prompt)
-				pcall(fireproximityprompt, prompt, 1)
+	-- sit right on the table/handle (3 studs up was often too high for prompt)
+	pcall(function() root.CFrame = CFrame.new(pos + Vector3.new(0, 1.5, 0)) end)
+	task.wait(0.05)
+	pcall(function() root.CFrame = CFrame.new(pos + Vector3.new(0, 2.2, 0)) end)
+	for _ = 1, 4 do
+		pcall(function()
+			local prompt = spasObj:FindFirstChildWhichIsA("ProximityPrompt", true)
+			if not prompt then
+				local parent = spasObj.Parent
+				prompt = parent and parent:FindFirstChildWhichIsA("ProximityPrompt", true)
 			end
-			pcall(function()
-				prompt:InputHoldBegin()
-			end)
-			task.wait(0.08)
-			pcall(function() prompt:InputHoldEnd() end)
-		end
-	end)
-	task.wait(0.15)
+			if prompt then
+				pcall(function() prompt.MaxActivationDistance = math.max(prompt.MaxActivationDistance, 24) end)
+				pcall(function() prompt.HoldDuration = 0 end)
+				if fireproximityprompt then
+					pcall(fireproximityprompt, prompt)
+					pcall(fireproximityprompt, prompt, 1)
+				end
+				pcall(function() prompt:InputHoldBegin() end)
+				task.wait(0.05)
+				pcall(function() prompt:InputHoldEnd() end)
+			end
+			-- some tables use ClickDetector / TouchInterest
+			local cd = spasObj:FindFirstChildWhichIsA("ClickDetector", true)
+			if cd and fireclickdetector then
+				pcall(fireclickdetector, cd)
+			end
+		end)
+		task.wait(0.06)
+		tool = GetSpas()
+		if tool then break end
+	end
 	tool = GetSpas()
 	if tool then
 		pcall(function() hum:EquipTool(tool) end)
@@ -1311,7 +1326,6 @@ end
 
 local targetIndex = 1
 function MultiFireAt()
-	if ST.reloadInProgress then return end
 	if not FireRemote or not FireRemote.Parent then
 		pcall(function()
 			local r = ReplicatedStorage:FindFirstChild("Remotes")
@@ -1395,28 +1409,30 @@ function MultiFireAt()
 	-- invalid/missing head → skip shot (never fire into floor/self)
 	if not aimPos or not head or not head.Parent then return end
 
-	-- REAL firepoint only — server validates distance to gun model
+	-- muzzle + near-head origin (enemies "teleport" tracers by firing from near the skull)
 	local fp = tool:FindFirstChild("Firepoint", true)
 	if not fp then
 		local base = tool:FindFirstChild("Base")
 		fp = base and base:FindFirstChild("Firepoint")
 	end
-	local origin
+	local muzzle
 	if fp then
-		origin = fp.WorldPosition or (fp.Position)
+		muzzle = fp.WorldPosition or fp.Position
 	else
-		-- last resort: right hand / HRP forward (still better than no shot)
 		local char = LocalPlayer.Character
 		local hrp = char and char:FindFirstChild("HumanoidRootPart")
 		local hand = char and char:FindFirstChild("Right Arm")
-		origin = (hand and hand.Position) or (hrp and (hrp.Position + hrp.CFrame.LookVector * 1.5 + Vector3.new(0, 1.2, 0)))
+		muzzle = (hand and hand.Position) or (hrp and (hrp.Position + hrp.CFrame.LookVector * 1.5 + Vector3.new(0, 1.2, 0)))
 	end
-	if typeof(origin) ~= "Vector3" then return end
-	local dir = (aimPos - origin)
-	if dir.Magnitude < 0.05 then return end
-	dir = dir.Unit
+	if typeof(muzzle) ~= "Vector3" then return end
 
-	-- dump Spas onActivate: one Remotes.Fire + 8 Helper "Fire Bullet"
+	local hitPos = aimPos
+	local dir = (hitPos - muzzle)
+	if dir.Magnitude < 0.05 then dir = Vector3.new(0, 0, -1) else dir = dir.Unit end
+	-- origin jammed just in front of the head → tracer starts on target, Hit still registers
+	local nearHead = hitPos - dir * 1.25
+	local origin = nearHead
+
 	if not FireRemote then
 		pcall(function()
 			FireRemote = ReplicatedStorage:FindFirstChild("Remotes") and ReplicatedStorage.Remotes:FindFirstChild("Fire")
@@ -1424,37 +1440,48 @@ function MultiFireAt()
 	end
 	if not FireRemote then return end
 
-	-- Fire + Hit: Hit packet is what registers damage past walls (old CLL path)
-	local payload = {
-		velocity = 2000,
-		bullet = bulletModel,
-		origin = origin,
-		direction = dir,
-	}
+	-- hard-clear cooldown so empty-chamber delay after reload does not stall 1s
 	pcall(function()
-		FireRemote:FireServer(tool, "Fire", payload)
+		tool:SetAttribute("Cooldown", false)
+		tool:SetAttribute("ClientCooldownUntil", 0)
+		tool:SetAttribute("Debounce", false)
+		tool:SetAttribute("Reloading", false)
+		tool:SetAttribute("CanFire", true)
+		ST.reloadInProgress = false
 	end)
-	markLocalShot(origin)
 
-	-- dump Gun Base Hit: velocity is cast vector; Helper takes 5 args
+	local function firePayload(org)
+		local payload = {
+			velocity = 2000,
+			bullet = bulletModel,
+			origin = org,
+			direction = dir,
+		}
+		pcall(function()
+			FireRemote:FireServer(tool, "Fire", payload)
+		end)
+	end
+
+	-- muzzle shot (server distance checks) + near-head shot (teleport tracer / damage path)
+	firePayload(muzzle)
+	firePayload(nearHead)
+	markLocalShot(nearHead)
+
 	if head and head.Parent then
-		local hitPos = head.Position
 		local vel = dir * 2000
 		local bcf = CFrame.lookAt(hitPos - dir * 0.5, hitPos)
-		-- 8 head pellets = one Spas blast on the head (single Hit was not lethal)
-		for _ = 1, 8 do
+		-- dense Hit burst on the living head (what enemy SUKs spam)
+		for _ = 1, 10 do
 			pcall(function()
-				-- dump: Hit.velocity is cast Vector3 (dir * speed), Fire keeps scalar 2000
 				FireRemote:FireServer(tool, "Hit", {
 					hit = head,
 					normal = -dir,
 					position = hitPos,
-					velocity = dir * 2000,
+					velocity = vel,
 					bullet_cframe = bcf,
 				})
 			end)
 		end
-		-- Helper:Fire("Gun Base", "Hit", instance, position, normal, velocity, bulletObj)
 		HelperFire("Gun Base", "Hit", head, hitPos, -dir, vel, bulletModel)
 		HelperFire("Fx", "Hitmarker", head)
 		markKillCandidate(head.Parent)
@@ -1465,12 +1492,12 @@ function MultiFireAt()
 		end)
 	end
 
-	-- 8 pellets same dir (visual + client fx); no cone
+	-- visual pellets from near-head so tracers match enemy style
 	for i = 0, 7 do
 		HelperFire("Fx", "Fire Bullet", tool, {
 			velocity = 2000,
 			bullet = bulletModel,
-			origin = origin,
+			origin = nearHead,
 			direction = dir,
 		})
 	end
@@ -1495,14 +1522,17 @@ function MultiFireAt()
 end
 
 
--- SUK tick (was missing — MultiFireAt never called)
+-- SUK tick: burst MultiFireAt up to MaxPerTick so many heads get Hit packets quickly
 task.spawn(function()
 	while not ST.isUnloaded do
 		if ST.isMultiSuk then
 			local rps = tonumber(ST.SUK_FIRERATE_RPS) or 10
 			local delay = tonumber(ST.SUK_FireDelay) or 0.1
-			local waitT = math.max(0.03, math.min(1 / math.max(1, rps), delay))
-			pcall(MultiFireAt)
+			local waitT = math.max(0.02, math.min(1 / math.max(1, rps), delay))
+			local n = math.clamp(tonumber(ST.SUK_MaxPerTick) or 3, 1, 16)
+			for _ = 1, n do
+				pcall(MultiFireAt)
+			end
 			task.wait(waitT)
 		else
 			task.wait(0.15)
@@ -1626,31 +1656,26 @@ end
 
 function stopLocalInvis()
 	ST.LocalInvisEnabled = false
+	if InvisConn then
+		pcall(function() InvisConn:Disconnect() end)
+		InvisConn = nil
+	end
+	destroyInvisClone()
 	local char = LocalPlayer.Character
 	local root = char and char:FindFirstChild("HumanoidRootPart")
 	local hum = char and char:FindFirstChildOfClass("Humanoid")
-	local cloneCF = InvisClone and InvisClone:FindFirstChild("HumanoidRootPart") and InvisClone.HumanoidRootPart.CFrame
-	destroyInvisClone()
 	if char and root then
-		local dest = cloneCF or InvisSavedCF
 		root.Anchored = false
-		if dest then root.CFrame = dest end
-		root.AssemblyLinearVelocity = Vector3.zero
-		root.AssemblyAngularVelocity = Vector3.zero
-		for _, part in ipairs(char:GetDescendants()) do
-			if part:IsA("BasePart") then
-				part.LocalTransparencyModifier = 0
-				if part ~= root or not ST.FlyEnabled then
-					part.Anchored = false
-				end
-			elseif part:IsA("Decal") or part:IsA("Texture") then
-				part.Transparency = 0
-			end
+		if InvisSavedCF then
+			pcall(function() root.CFrame = InvisSavedCF end)
 		end
-		if hum then
-			hum.PlatformStand = false
-			hum.AutoRotate = true
-			if ST.WalkSpeedEnabled then hum.WalkSpeed = ST.WalkSpeedValue end
+		root.AssemblyLinearVelocity = Vector3.zero
+		for _, p in ipairs(char:GetDescendants()) do
+			if p:IsA("BasePart") then
+				p.LocalTransparencyModifier = 0
+			elseif p:IsA("Decal") then
+				p.Transparency = 0
+			end
 		end
 		local cam = workspace.CurrentCamera
 		if cam and hum then
@@ -1662,21 +1687,18 @@ function stopLocalInvis()
 	InvisFarPos = nil
 end
 
-	-- no 0.4s transparency/anchor scrub (10.8 stable path)
-
-
 LocalPlayer.CharacterAdded:Connect(function()
 	destroyInvisClone()
 	InvisSavedCF = nil
 	InvisFarPos = nil
 	if ST.LocalInvisEnabled then
-		task.delay(0.6, function()
+		task.delay(0.5, function()
 			if ST.LocalInvisEnabled then startLocalInvis() end
 		end)
 	end
 end)
 
-
+-- Local invis: NO clone. Teleport real character far away every 0.1s (Y always positive).
 function startLocalInvis()
 	local char = LocalPlayer.Character
 	if not char then return end
@@ -1685,174 +1707,53 @@ function startLocalInvis()
 	if not root or not hum or hum.Health <= 0 then return end
 
 	destroyInvisClone()
-	InvisSavedCF = root.CFrame
+	if InvisConn then pcall(function() InvisConn:Disconnect() end); InvisConn = nil end
 
-	local dist = 30000 + math.random(0, 70000)
-	local ang = math.random() * math.pi * 2
-	InvisFarPos = Vector3.new(math.cos(ang) * dist, 500, math.sin(ang) * dist)
-	root.CFrame = CFrame.new(InvisFarPos)
-	root.Anchored = true
-	root.AssemblyLinearVelocity = Vector3.zero
+	if not InvisSavedCF then
+		InvisSavedCF = root.CFrame
+	end
 
+	local function pickFar()
+		local dist = 25000 + math.random(0, 50000)
+		local ang = math.random() * math.pi * 2
+		-- never negative Y
+		local y = 400 + math.random(0, 800)
+		return Vector3.new(math.cos(ang) * dist, y, math.sin(ang) * dist)
+	end
+	InvisFarPos = pickFar()
+
+	-- hide local mesh so you don't see yourself flash
 	for _, p in ipairs(char:GetDescendants()) do
-		if p:IsA("BasePart") then p.LocalTransparencyModifier = 1
-		elseif p:IsA("Decal") then p.Transparency = 1 end
-	end
-
-	local function deepClone(model)
-		-- ensure Archivable on all descendants
-		local saved = {}
-		for _, d in ipairs(model:GetDescendants()) do
-			saved[d] = d.Archivable
-			pcall(function() d.Archivable = true end)
-		end
-		model.Archivable = true
-		local ok, c = pcall(function() return model:Clone() end)
-		model.Archivable = false
-		for d, v in pairs(saved) do
-			pcall(function() if d and d.Parent then d.Archivable = v end end)
-		end
-		if ok and c then return c end
-		-- fallback: manual visual shell
-		local shell = Instance.new("Model")
-		shell.Name = "CLL_InvisClone"
-		local root0 = model:FindFirstChild("HumanoidRootPart")
-		local root = Instance.new("Part")
-		root.Name = "HumanoidRootPart"
-		root.Size = root0 and root0.Size or Vector3.new(2, 2, 1)
-		root.Transparency = 0.5
-		root.Anchored = false
-		root.CanCollide = true
-		root.CFrame = root0 and root0.CFrame or CFrame.new()
-		root.Parent = shell
-		for _, name in ipairs({"Head", "Torso", "UpperTorso", "LowerTorso", "Left Arm", "Right Arm", "Left Leg", "Right Leg",
-			"LeftUpperArm", "RightUpperArm", "LeftLowerArm", "RightLowerArm", "LeftHand", "RightHand",
-			"LeftUpperLeg", "RightUpperLeg", "LeftLowerLeg", "RightLowerLeg", "LeftFoot", "RightFoot"}) do
-			local src = model:FindFirstChild(name)
-			if src and src:IsA("BasePart") then
-				local p = src:Clone()
-				p.Anchored = false
-				p.CanCollide = false
-				p.LocalTransparencyModifier = 0.4
-				p.Parent = shell
-				local w = Instance.new("WeldConstraint")
-				w.Part0 = root
-				w.Part1 = p
-				w.Parent = root
-				p.CFrame = src.CFrame
-			end
-		end
-		local hum = Instance.new("Humanoid")
-		hum.Parent = shell
-		shell.PrimaryPart = root
-		return shell
-	end
-	local clone = deepClone(char)
-	if not clone then stopLocalInvis(); return end
-	InvisClone = clone
-	clone.Name = "CLL_InvisClone"
-	for _, d in ipairs(clone:GetDescendants()) do
-		if d:IsA("BasePart") then
-			d.CanCollide = d.Name == "HumanoidRootPart" or d.Name == "Torso" or d.Name == "UpperTorso" or d.Name == "LowerTorso"
-			d.CanQuery = false
-			d.Anchored = false
-			d.LocalTransparencyModifier = 0.4
-			d.Massless = false
-		elseif d:IsA("Script") or d:IsA("LocalScript") then
-			d:Destroy()
-		elseif d:IsA("Humanoid") then
-			d.DisplayDistanceType = Enum.HumanoidDisplayDistanceType.None
-			if ST.WalkSpeedEnabled then d.WalkSpeed = ST.WalkSpeedValue end
-			d.JumpPower = 50
-			d.PlatformStand = false
+		if p:IsA("BasePart") then
+			p.LocalTransparencyModifier = 1
+		elseif p:IsA("Decal") then
+			p.Transparency = 1
 		end
 	end
-	clone.Parent = workspace
-	local cRoot = clone:FindFirstChild("HumanoidRootPart")
-	local cHum = clone:FindFirstChildOfClass("Humanoid")
-	if cRoot then
-		cRoot.CFrame = InvisSavedCF
-		cRoot.Anchored = false
-		cRoot.AssemblyLinearVelocity = Vector3.zero
-	end
-	local cam = workspace.CurrentCamera
-	if cam then
-		if cHum then
-			cam.CameraSubject = cHum
-		elseif cRoot then
-			cam.CameraSubject = cRoot
+
+	local acc = 0
+	InvisConn = RunService.Heartbeat:Connect(function(dt)
+		if not ST.LocalInvisEnabled or ST.isUnloaded then return end
+		local c = LocalPlayer.Character
+		local r = c and c:FindFirstChild("HumanoidRootPart")
+		local h = c and c:FindFirstChildOfClass("Humanoid")
+		if not r or not h or h.Health <= 0 then return end
+		acc += dt
+		if acc < 0.1 then return end
+		acc = 0
+		-- re-roll occasionally so you don't sit on one fixed cell
+		if math.random() < 0.15 or not InvisFarPos then
+			InvisFarPos = pickFar()
 		end
-		cam.CameraType = Enum.CameraType.Custom
-	end
-	print("[CLL] LocalInvis clone parented", clone:GetFullName(), "parts", #clone:GetChildren())
-
-	local velocityY = 0
-	InvisConn = RunService.RenderStepped:Connect(function(dt)
-		if not ST.LocalInvisEnabled or not InvisClone or not InvisClone.Parent then return end
-		local cr = InvisClone:FindFirstChild("HumanoidRootPart")
-		local ch = InvisClone:FindFirstChildOfClass("Humanoid")
-		local real = LocalPlayer.Character
-		local rr = real and real:FindFirstChild("HumanoidRootPart")
-		if not cr then return end
-		if rr and InvisFarPos then
-			rr.Anchored = true
-			rr.CFrame = CFrame.new(InvisFarPos)
-			rr.AssemblyLinearVelocity = Vector3.zero
+		local pos = InvisFarPos
+		if typeof(pos) ~= "Vector3" or pos.Y < 50 then
+			InvisFarPos = pickFar()
+			pos = InvisFarPos
 		end
-		local cam = workspace.CurrentCamera
-		if not cam then return end
-
-		-- camera-relative walk (XZ only) + gravity jump — no free fly
-		local move = Vector3.zero
-		local look = cam.CFrame.LookVector
-		local right = cam.CFrame.RightVector
-		local flatLook = Vector3.new(look.X, 0, look.Z)
-		local flatRight = Vector3.new(right.X, 0, right.Z)
-		if flatLook.Magnitude > 0.05 then flatLook = flatLook.Unit end
-		if flatRight.Magnitude > 0.05 then flatRight = flatRight.Unit end
-		if UIS:IsKeyDown(Enum.KeyCode.W) then move += flatLook end
-		if UIS:IsKeyDown(Enum.KeyCode.S) then move -= flatLook end
-		if UIS:IsKeyDown(Enum.KeyCode.A) then move -= flatRight end
-		if UIS:IsKeyDown(Enum.KeyCode.D) then move += flatRight end
-		local speed = (ch and ch.WalkSpeed) or (ST.WalkSpeedEnabled and ST.WalkSpeedValue or 16)
-
-		-- ground ray
-		local params = RaycastParams.new()
-		params.FilterType = Enum.RaycastFilterType.Exclude
-		params.FilterDescendantsInstances = { InvisClone, real, workspace.CurrentCamera }
-		local ground = workspace:Raycast(cr.Position + Vector3.new(0, 1, 0), Vector3.new(0, -4, 0), params)
-		InvisGrounded = ground ~= nil
-
-		if UIS:IsKeyDown(Enum.KeyCode.Space) and InvisGrounded then
-			velocityY = 50
-			InvisGrounded = false
-		end
-		if not InvisGrounded then
-			velocityY = velocityY - 120 * dt -- gravity
-		else
-			if velocityY < 0 then velocityY = 0 end
-			-- snap to ground
-			if ground then
-				local gy = ground.Position.Y + 3
-				if cr.Position.Y < gy + 0.2 then
-					cr.CFrame = CFrame.new(cr.Position.X, gy, cr.Position.Z) * (cr.CFrame - cr.CFrame.Position)
-					velocityY = 0
-				end
-			end
-		end
-
-		local delta = Vector3.zero
-		if move.Magnitude > 0 then
-			delta = move.Unit * speed * dt
-		end
-		delta = delta + Vector3.new(0, velocityY * dt, 0)
-		local newPos = cr.Position + delta
-		local face = flatLook.Magnitude > 0.05 and flatLook or Vector3.new(cr.CFrame.LookVector.X, 0, cr.CFrame.LookVector.Z)
-		if face.Magnitude < 0.05 then face = Vector3.new(0, 0, -1) end
-		cr.CFrame = CFrame.new(newPos, newPos + face.Unit)
-		cr.AssemblyLinearVelocity = Vector3.zero
-
-		if cam.CameraSubject ~= ch and ch then cam.CameraSubject = ch end
+		r.Anchored = true
+		r.AssemblyLinearVelocity = Vector3.zero
+		r.AssemblyAngularVelocity = Vector3.zero
+		r.CFrame = CFrame.new(pos)
 	end)
 	table.insert(Connections, InvisConn)
 end
@@ -4060,7 +3961,7 @@ fit(); workspace.CurrentCamera:GetPropertyChangedSignal("ViewportSize"):Connect(
 local header = new("Frame", { Size = UDim2.new(1, 0, 0, 62), BackgroundTransparency = 1, Parent = window })
 local logoLabel = label({ Text = "CLL", Font = Enum.Font.Michroma, TextSize = 26, TextTruncate = Enum.TextTruncate.AtEnd, Size = UDim2.fromOffset(100, 62), Position = UDim2.fromOffset(23, 0), Parent = header })
 logoLabel.TextColor3 = Color3.fromRGB(255, 255, 255) -- Always white
-local verLabel = label({ Text = "v11.64-ai", Font = Enum.Font.GothamBold, TextSize = 12, TextColor3 = Theme.Dim, Size = UDim2.fromOffset(50, 62), Position = UDim2.fromOffset(85, 2), Parent = header })
+local verLabel = label({ Text = "v11.65-aj", Font = Enum.Font.GothamBold, TextSize = 12, TextColor3 = Theme.Dim, Size = UDim2.fromOffset(50, 62), Position = UDim2.fromOffset(85, 2), Parent = header })
 local timeLabel = label({ Text = "Session: 00:00", Font = Enum.Font.GothamMedium, TextSize = 13, TextColor3 = Theme.Dim, Size = UDim2.fromOffset(150, 62), Position = UDim2.fromOffset(150, 0), Parent = header })
 task.spawn(function()
 	while not ST.isUnloaded do
