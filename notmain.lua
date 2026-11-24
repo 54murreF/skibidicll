@@ -1,6 +1,6 @@
 --[[
     ╔═══════════════════════════════════════════════════════════════╗
-    ║              CLL CHEAT - FULL INTEGRATION v11.65-aj (native Q/G grab mirror + VR restore)                ║
+    ║              CLL CHEAT - FULL INTEGRATION v11.66-ak (native Q/G grab mirror + VR restore)                ║
     ╠═══════════════════════════════════════════════════════════════╣
     ║  SUK head-hit, real crosshair, tracers, ESP outline nick,     ║
     ║  ChinaHat/Wings fix, VR hands, anti-flash/shake, antibypass   ║
@@ -1267,11 +1267,12 @@ function InstantReload(tool)
 				local need = math.max(0, max - current)
 				-- min ~0.07s per shell is safe; 0.004 was rejecting
 				-- balanced: fast enough for bind, not so fast server rejects
-				local step = math.clamp(ST.ReloadSpeed or 0.055, 0.04, 0.2)
+				local step = math.clamp(ST.ReloadSpeed or 0.07, 0.055, 0.2)
 				for i = 1, need do
 					if ST.isUnloaded or not tool or not tool.Parent then break end
 					ReloadRemote:InvokeServer(tool, "New Shell")
-					task.wait(math.max(0.025, step * 0.4))
+					-- ~0.05–0.08s/shell: fast, server still accepts
+					task.wait(math.max(0.05, step * 0.75))
 					ReloadRemote:InvokeServer(tool, "Insert Shell")
 					boostReloadAnims()
 					task.wait(step)
@@ -1326,6 +1327,7 @@ end
 
 local targetIndex = 1
 function MultiFireAt()
+	if ST.reloadInProgress then return end
 	if not FireRemote or not FireRemote.Parent then
 		pcall(function()
 			local r = ReplicatedStorage:FindFirstChild("Remotes")
@@ -1409,7 +1411,6 @@ function MultiFireAt()
 	-- invalid/missing head → skip shot (never fire into floor/self)
 	if not aimPos or not head or not head.Parent then return end
 
-	-- muzzle + near-head origin (enemies "teleport" tracers by firing from near the skull)
 	local fp = tool:FindFirstChild("Firepoint", true)
 	if not fp then
 		local base = tool:FindFirstChild("Base")
@@ -1429,9 +1430,8 @@ function MultiFireAt()
 	local hitPos = aimPos
 	local dir = (hitPos - muzzle)
 	if dir.Magnitude < 0.05 then dir = Vector3.new(0, 0, -1) else dir = dir.Unit end
-	-- origin jammed just in front of the head → tracer starts on target, Hit still registers
-	local nearHead = hitPos - dir * 1.25
-	local origin = nearHead
+	-- tracer starts near skull; server Fire still uses muzzle so distance checks pass
+	local nearHead = hitPos - dir * 0.8
 
 	if not FireRemote then
 		pcall(function()
@@ -1440,38 +1440,35 @@ function MultiFireAt()
 	end
 	if not FireRemote then return end
 
-	-- hard-clear cooldown so empty-chamber delay after reload does not stall 1s
+	-- clear gun locks but DO NOT clear reloadInProgress (that caused phantom shells)
 	pcall(function()
 		tool:SetAttribute("Cooldown", false)
 		tool:SetAttribute("ClientCooldownUntil", 0)
 		tool:SetAttribute("Debounce", false)
-		tool:SetAttribute("Reloading", false)
 		tool:SetAttribute("CanFire", true)
-		ST.reloadInProgress = false
 	end)
+	if ST.reloadInProgress then return end
 
 	local function firePayload(org)
-		local payload = {
-			velocity = 2000,
-			bullet = bulletModel,
-			origin = org,
-			direction = dir,
-		}
 		pcall(function()
-			FireRemote:FireServer(tool, "Fire", payload)
+			FireRemote:FireServer(tool, "Fire", {
+				velocity = 2000,
+				bullet = bulletModel,
+				origin = org,
+				direction = dir,
+			})
 		end)
 	end
 
-	-- muzzle shot (server distance checks) + near-head shot (teleport tracer / damage path)
 	firePayload(muzzle)
 	firePayload(nearHead)
 	markLocalShot(nearHead)
 
 	if head and head.Parent then
 		local vel = dir * 2000
-		local bcf = CFrame.lookAt(hitPos - dir * 0.5, hitPos)
-		-- dense Hit burst on the living head (what enemy SUKs spam)
-		for _ = 1, 10 do
+		local bcf = CFrame.lookAt(hitPos - dir * 0.4, hitPos)
+		-- 4 Hits: enough to register, not enough to flood as phantoms
+		for _ = 1, 4 do
 			pcall(function()
 				FireRemote:FireServer(tool, "Hit", {
 					hit = head,
@@ -1492,7 +1489,6 @@ function MultiFireAt()
 		end)
 	end
 
-	-- visual pellets from near-head so tracers match enemy style
 	for i = 0, 7 do
 		HelperFire("Fx", "Fire Bullet", tool, {
 			velocity = 2000,
@@ -1529,8 +1525,9 @@ task.spawn(function()
 			local rps = tonumber(ST.SUK_FIRERATE_RPS) or 10
 			local delay = tonumber(ST.SUK_FireDelay) or 0.1
 			local waitT = math.max(0.02, math.min(1 / math.max(1, rps), delay))
-			local n = math.clamp(tonumber(ST.SUK_MaxPerTick) or 3, 1, 16)
+			local n = math.clamp(tonumber(ST.SUK_MaxPerTick) or 3, 1, 8)
 			for _ = 1, n do
+				if ST.reloadInProgress then break end
 				pcall(MultiFireAt)
 			end
 			task.wait(waitT)
@@ -1699,6 +1696,7 @@ LocalPlayer.CharacterAdded:Connect(function()
 end)
 
 -- Local invis: NO clone. Teleport real character far away every 0.1s (Y always positive).
+-- Local invis: NO clone. Full-body PivotTo far away (Y always high).
 function startLocalInvis()
 	local char = LocalPlayer.Character
 	if not char then return end
@@ -1713,16 +1711,25 @@ function startLocalInvis()
 		InvisSavedCF = root.CFrame
 	end
 
+	-- if VR was anchoring only arms, release body parts so whole model moves
+	pcall(function()
+		for _, p in ipairs(char:GetDescendants()) do
+			if p:IsA("BasePart") then
+				p.Anchored = false
+				p.AssemblyLinearVelocity = Vector3.zero
+			end
+		end
+	end)
+
 	local function pickFar()
-		local dist = 25000 + math.random(0, 50000)
-		local ang = math.random() * math.pi * 2
-		-- never negative Y
-		local y = 400 + math.random(0, 800)
-		return Vector3.new(math.cos(ang) * dist, y, math.sin(ang) * dist)
+		-- wide X/Z, Y always high (never bottom / never negative)
+		local x = (math.random() * 2 - 1) * (30000 + math.random(0, 40000))
+		local z = (math.random() * 2 - 1) * (30000 + math.random(0, 40000))
+		local y = 600 + math.random(0, 1400)
+		return Vector3.new(x, y, z)
 	end
 	InvisFarPos = pickFar()
 
-	-- hide local mesh so you don't see yourself flash
 	for _, p in ipairs(char:GetDescendants()) do
 		if p:IsA("BasePart") then
 			p.LocalTransparencyModifier = 1
@@ -1735,25 +1742,30 @@ function startLocalInvis()
 	InvisConn = RunService.Heartbeat:Connect(function(dt)
 		if not ST.LocalInvisEnabled or ST.isUnloaded then return end
 		local c = LocalPlayer.Character
-		local r = c and c:FindFirstChild("HumanoidRootPart")
-		local h = c and c:FindFirstChildOfClass("Humanoid")
+		if not c then return end
+		local r = c:FindFirstChild("HumanoidRootPart")
+		local h = c:FindFirstChildOfClass("Humanoid")
 		if not r or not h or h.Health <= 0 then return end
 		acc += dt
-		if acc < 0.1 then return end
+		-- faster: ~30 Hz
+		if acc < 0.033 then return end
 		acc = 0
-		-- re-roll occasionally so you don't sit on one fixed cell
-		if math.random() < 0.15 or not InvisFarPos then
-			InvisFarPos = pickFar()
-		end
+		InvisFarPos = pickFar()
 		local pos = InvisFarPos
-		if typeof(pos) ~= "Vector3" or pos.Y < 50 then
-			InvisFarPos = pickFar()
-			pos = InvisFarPos
-		end
-		r.Anchored = true
-		r.AssemblyLinearVelocity = Vector3.zero
-		r.AssemblyAngularVelocity = Vector3.zero
-		r.CFrame = CFrame.new(pos)
+		if pos.Y < 200 then pos = Vector3.new(pos.X, 600 + math.random(0, 400), pos.Z) end
+
+		-- move ENTIRE character (arms/head/torso), not only HRP
+		pcall(function()
+			for _, part in ipairs(c:GetDescendants()) do
+				if part:IsA("BasePart") then
+					part.AssemblyLinearVelocity = Vector3.zero
+					part.AssemblyAngularVelocity = Vector3.zero
+				end
+			end
+			-- PivotTo moves all welded parts together
+			c:PivotTo(CFrame.new(pos))
+			r.Anchored = true
+		end)
 	end)
 	table.insert(Connections, InvisConn)
 end
@@ -3961,7 +3973,7 @@ fit(); workspace.CurrentCamera:GetPropertyChangedSignal("ViewportSize"):Connect(
 local header = new("Frame", { Size = UDim2.new(1, 0, 0, 62), BackgroundTransparency = 1, Parent = window })
 local logoLabel = label({ Text = "CLL", Font = Enum.Font.Michroma, TextSize = 26, TextTruncate = Enum.TextTruncate.AtEnd, Size = UDim2.fromOffset(100, 62), Position = UDim2.fromOffset(23, 0), Parent = header })
 logoLabel.TextColor3 = Color3.fromRGB(255, 255, 255) -- Always white
-local verLabel = label({ Text = "v11.65-aj", Font = Enum.Font.GothamBold, TextSize = 12, TextColor3 = Theme.Dim, Size = UDim2.fromOffset(50, 62), Position = UDim2.fromOffset(85, 2), Parent = header })
+local verLabel = label({ Text = "v11.66-ak", Font = Enum.Font.GothamBold, TextSize = 12, TextColor3 = Theme.Dim, Size = UDim2.fromOffset(50, 62), Position = UDim2.fromOffset(85, 2), Parent = header })
 local timeLabel = label({ Text = "Session: 00:00", Font = Enum.Font.GothamMedium, TextSize = 13, TextColor3 = Theme.Dim, Size = UDim2.fromOffset(150, 62), Position = UDim2.fromOffset(150, 0), Parent = header })
 task.spawn(function()
 	while not ST.isUnloaded do
@@ -5031,19 +5043,73 @@ pcall(function() if watermarkMain then watermarkMain:Destroy() end end)
 	local addFriend = new("TextButton", { Text = "Add", Font = Enum.Font.GothamMedium, TextSize = 12, TextColor3 = Theme.Text, Size = UDim2.fromOffset(90, 32), Position = UDim2.new(1, -90, 0, rY), BackgroundColor3 = Theme.Row, AutoButtonColor = false, Parent = rScroll }, { corner(8), stroke() })
     rY += 40
 	
-	local friendList = new("Frame", { Size = UDim2.new(1, 0, 0, 100), Position = UDim2.fromOffset(0, rY), BackgroundTransparency = 1, Parent = rScroll }, { new("UIListLayout", { Padding = UDim.new(0, 4) }) }); rY += 110
+	-- fixed-height list that scrolls internally so rows never cover CONFIG below
+	local friendList = Instance.new("ScrollingFrame")
+	friendList.Name = "CLL_FriendList"
+	friendList.Size = UDim2.new(1, 0, 0, 160)
+	friendList.Position = UDim2.fromOffset(0, rY)
+	friendList.BackgroundTransparency = 1
+	friendList.BorderSizePixel = 0
+	friendList.ScrollBarThickness = 5
+	friendList.ScrollingDirection = Enum.ScrollingDirection.Y
+	friendList.CanvasSize = UDim2.new(0, 0, 0, 0)
+	friendList.AutomaticCanvasSize = Enum.AutomaticSize.Y
+	friendList.ClipsDescendants = true
+	friendList.ZIndex = 2
+	friendList.Parent = rScroll
+	local flLayout = Instance.new("UIListLayout")
+	flLayout.Padding = UDim.new(0, 4)
+	flLayout.SortOrder = Enum.SortOrder.LayoutOrder
+	flLayout.Parent = friendList
+	rY += 170
 	local function refreshFriends()
-		for _, v in ipairs(friendList:GetChildren()) do if v:IsA("Frame") then v:Destroy() end end
+		for _, v in ipairs(friendList:GetChildren()) do
+			if v:IsA("Frame") then v:Destroy() end
+		end
+		local n = 0
 		for id, stored in pairs(FriendsList) do
-			local p = Players:GetPlayerByUserId(id)
-			local name = p and (p.DisplayName .. "  @" .. p.Name)
+			n += 1
+			local pl = Players:GetPlayerByUserId(id)
+			local name = pl and (pl.DisplayName .. "  @" .. pl.Name)
 				or (type(stored) == "string" and stored)
 				or ("ID: " .. tostring(id))
-			local row = new("Frame", { Size = UDim2.new(1, 0, 0, 30), BackgroundColor3 = Theme.Row, Parent = friendList }, { corner(6) })
-			label({ Text = name, TextSize = 13, Size = UDim2.new(1, -40, 1, 0), Position = UDim2.fromOffset(10, 0), Parent = row })
-			local btn = new("TextButton", { Text = "X", Size = UDim2.fromOffset(20, 20), Position = UDim2.new(1, -25, 0.5, -10), BackgroundTransparency = 1, TextColor3 = Color3.fromRGB(255, 80, 80), Font = Enum.Font.GothamBold, Parent = row })
-			btn.MouseButton1Click:Connect(function() FriendsList[id] = nil; refreshFriends() end)
+			local row = Instance.new("Frame")
+			row.Size = UDim2.new(1, -8, 0, 30)
+			row.BackgroundColor3 = Theme.Row
+			row.BorderSizePixel = 0
+			row.LayoutOrder = n
+			row.Parent = friendList
+			pcall(function()
+				local c = Instance.new("UICorner"); c.CornerRadius = UDim.new(0, 6); c.Parent = row
+			end)
+			local lab = Instance.new("TextLabel")
+			lab.BackgroundTransparency = 1
+			lab.Text = name
+			lab.Font = Enum.Font.Gotham
+			lab.TextSize = 13
+			lab.TextColor3 = Theme.Text
+			lab.TextXAlignment = Enum.TextXAlignment.Left
+			lab.TextTruncate = Enum.TextTruncate.AtEnd
+			lab.Size = UDim2.new(1, -40, 1, 0)
+			lab.Position = UDim2.fromOffset(10, 0)
+			lab.Parent = row
+			local btn = Instance.new("TextButton")
+			btn.Text = "X"
+			btn.Size = UDim2.fromOffset(22, 22)
+			btn.Position = UDim2.new(1, -28, 0.5, -11)
+			btn.BackgroundTransparency = 1
+			btn.TextColor3 = Color3.fromRGB(255, 80, 80)
+			btn.Font = Enum.Font.GothamBold
+			btn.TextSize = 14
+			btn.Parent = row
+			btn.MouseButton1Click:Connect(function()
+				FriendsList[id] = nil
+				refreshFriends()
+			end)
 		end
+		pcall(function()
+			rScroll.CanvasSize = UDim2.new(0, 0, 0, math.max(rY + 80, 400))
+		end)
 	end
 	RefreshFriendsUI = refreshFriends
 	addFriend.MouseButton1Click:Connect(function()
