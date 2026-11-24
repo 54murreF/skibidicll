@@ -1,6 +1,6 @@
 --[[
     ╔═══════════════════════════════════════════════════════════════╗
-    ║              CLL CHEAT - FULL INTEGRATION v11.66-ak (native Q/G grab mirror + VR restore)                ║
+    ║              CLL CHEAT - FULL INTEGRATION v11.67-al (native Q/G grab mirror + VR restore)                ║
     ╠═══════════════════════════════════════════════════════════════╣
     ║  SUK head-hit, real crosshair, tracers, ESP outline nick,     ║
     ║  ChinaHat/Wings fix, VR hands, anti-flash/shake, antibypass   ║
@@ -1133,6 +1133,7 @@ function EnsureSpasEquipped()
 	end
 	if os.clock() - (lastSpasPickup or 0) < 0.2 then return nil end
 	lastSpasPickup = os.clock()
+	ST._spasPickupBusy = true
 
 	local function byName(parent)
 		if not parent then return nil end
@@ -1148,7 +1149,7 @@ function EnsureSpasEquipped()
 	if not spasObj then
 		spasObj = workspace:FindFirstChild("Spas 12", true) or workspace:FindFirstChild("Spas12", true)
 	end
-	if not spasObj then return nil end
+	if not spasObj then ST._spasPickupBusy = false; return nil end
 
 	local pos = nil
 	pcall(function()
@@ -1164,7 +1165,7 @@ function EnsureSpasEquipped()
 			pos = p and p.Position
 		end
 	end)
-	if not pos then return nil end
+	if not pos then ST._spasPickupBusy = false; return nil end
 
 	local saved = root.CFrame
 	-- sit right on the table/handle (3 studs up was often too high for prompt)
@@ -1208,6 +1209,7 @@ function EnsureSpasEquipped()
 		local live = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
 		if live then live.CFrame = saved end
 	end)
+	ST._spasPickupBusy = false
 	return GetSpas()
 end
 
@@ -1261,30 +1263,27 @@ function InstantReload(tool)
 			boostReloadAnims()
 
 			if isShotgun then
-				-- Spas: don't insert shells too fast — server rejects → phantom ammo
+				-- same path as ReloadSpas bind: ST.ReloadSpeed per shell (real shells, not phantoms)
 				ReloadRemote:InvokeServer(tool, "Start Reload")
 				boostReloadAnims()
 				local need = math.max(0, max - current)
-				-- min ~0.07s per shell is safe; 0.004 was rejecting
-				-- balanced: fast enough for bind, not so fast server rejects
-				local step = math.clamp(ST.ReloadSpeed or 0.07, 0.055, 0.2)
+				if need <= 0 then need = max or 8 end
+				local step = math.clamp(tonumber(ST.ReloadSpeed) or 0.055, 0.04, 0.15)
 				for i = 1, need do
 					if ST.isUnloaded or not tool or not tool.Parent then break end
 					ReloadRemote:InvokeServer(tool, "New Shell")
-					-- ~0.05–0.08s/shell: fast, server still accepts
-					task.wait(math.max(0.05, step * 0.75))
 					ReloadRemote:InvokeServer(tool, "Insert Shell")
 					boostReloadAnims()
 					task.wait(step)
-					-- sync client ammo attr gradually so UI matches server
 					pcall(function()
-						local ca = (tool:GetAttribute("ClientAmmo") or current) + 1
-						if ca > max then ca = max end
+						local ca = math.min(max, (current or 0) + i)
 						tool:SetAttribute("ClientAmmo", ca)
 						tool:SetAttribute("CurrentAmmo", ca)
+						local cv = tool:FindFirstChild("CurrentAmmo")
+						if cv and (cv:IsA("NumberValue") or cv:IsA("IntValue")) then cv.Value = ca end
 					end)
 				end
-				task.wait(0.05)
+				task.wait(0.03)
 				ReloadRemote:InvokeServer(tool, "Stop Reload")
 			else
 				-- mag guns (not used by SUK but keep fast)
@@ -1780,6 +1779,8 @@ function StartHealLoop()
 	
 	healConnection = RunService.Heartbeat:Connect(function()
 		if not ST.HealEnabled or ST.isUnloaded then return end
+		-- let EnsureSpasEquipped TP to the table first
+		if ST._spasPickupBusy then return end
 		local char, hum, root = getCharacterParts()
 		if not char or not hum or not root or hum.Health <= 0 then return end
 		local healBrick = workspace:FindFirstChild("Heal100Brick", true)
@@ -3556,6 +3557,8 @@ playKillHighlight = function(char)
 	pcall(function()
 		local oldHl = char:FindFirstChild("CLL_KillHL")
 		if oldHl then oldHl:Destroy() end
+		local oldBeam = workspace:FindFirstChild("CLL_KillBeam_" .. tostring(char:GetDebugId and char:GetDebugId() or char.Name))
+		if oldBeam then oldBeam:Destroy() end
 		local col = ST.KillHighlightColor or Color3.fromRGB(40, 160, 255)
 		-- chams-style: AlwaysOnTop Highlight, soft fill + crisp outline, smooth fade
 		local hl = Instance.new("Highlight")
@@ -3570,12 +3573,59 @@ playKillHighlight = function(char)
 		)
 		local fill0 = math.clamp(ESP_Config.ChamsFillTrans or 0.5, 0.15, 0.85)
 		local out0 = math.clamp(ESP_Config.ChamsOutlineTrans or 0, 0, 0.4)
-		-- brief pop-in: denser fill, then settle to chams fill
 		hl.FillTransparency = math.max(0.05, fill0 - 0.25)
 		hl.OutlineTransparency = out0
 		hl.Parent = char
 		local hold = math.clamp(ST.KillHighlightDuration or 0.55, 0.05, 5)
 		local fade = math.clamp(ST.KillHighlightFade or 0.65, 0.05, 5)
+		-- sky beam (same color as kill highlight), fades with hold+fade
+		pcall(function()
+			local head = char:FindFirstChild("Head") or char:FindFirstChild("HumanoidRootPart")
+			if not head then return end
+			local anchor = Instance.new("Part")
+			anchor.Name = "CLL_KillBeam_" .. (char.Name or "x")
+			anchor.Anchored = true
+			anchor.CanCollide = false
+			anchor.CanQuery = false
+			anchor.Transparency = 1
+			anchor.Size = Vector3.new(0.2, 0.2, 0.2)
+			local base = head.Position
+			anchor.CFrame = CFrame.new(base + Vector3.new(0, 90, 0))
+			anchor.Parent = workspace
+			local a0 = Instance.new("Attachment")
+			a0.Parent = anchor
+			local a1 = Instance.new("Attachment")
+			a1.Parent = head
+			local beam = Instance.new("Beam")
+			beam.Attachment0 = a0
+			beam.Attachment1 = a1
+			beam.Color = ColorSequence.new(col)
+			beam.Width0 = 2.4
+			beam.Width1 = 0.2
+			beam.FaceCamera = true
+			beam.LightEmission = 1
+			beam.LightInfluence = 0
+			beam.Transparency = NumberSequence.new({
+				NumberSequenceKeypoint.new(0, 0.05),
+				NumberSequenceKeypoint.new(1, 0.35),
+			})
+			beam.Parent = anchor
+			task.spawn(function()
+				local t0 = os.clock()
+				local life = hold + fade
+				while anchor.Parent and os.clock() - t0 < life do
+					local a = (os.clock() - t0) / life
+					local tr = math.clamp(a, 0, 1)
+					beam.Transparency = NumberSequence.new({
+						NumberSequenceKeypoint.new(0, tr),
+						NumberSequenceKeypoint.new(1, math.min(1, tr + 0.3)),
+					})
+					beam.Width0 = 2.4 * (1 - tr * 0.7)
+					task.wait(0.03)
+				end
+				pcall(function() anchor:Destroy() end)
+			end)
+		end)
 		-- settle pop to normal chams look over ~0.12s
 		task.spawn(function()
 			local t0 = os.clock()
@@ -3973,7 +4023,7 @@ fit(); workspace.CurrentCamera:GetPropertyChangedSignal("ViewportSize"):Connect(
 local header = new("Frame", { Size = UDim2.new(1, 0, 0, 62), BackgroundTransparency = 1, Parent = window })
 local logoLabel = label({ Text = "CLL", Font = Enum.Font.Michroma, TextSize = 26, TextTruncate = Enum.TextTruncate.AtEnd, Size = UDim2.fromOffset(100, 62), Position = UDim2.fromOffset(23, 0), Parent = header })
 logoLabel.TextColor3 = Color3.fromRGB(255, 255, 255) -- Always white
-local verLabel = label({ Text = "v11.66-ak", Font = Enum.Font.GothamBold, TextSize = 12, TextColor3 = Theme.Dim, Size = UDim2.fromOffset(50, 62), Position = UDim2.fromOffset(85, 2), Parent = header })
+local verLabel = label({ Text = "v11.67-al", Font = Enum.Font.GothamBold, TextSize = 12, TextColor3 = Theme.Dim, Size = UDim2.fromOffset(50, 62), Position = UDim2.fromOffset(85, 2), Parent = header })
 local timeLabel = label({ Text = "Session: 00:00", Font = Enum.Font.GothamMedium, TextSize = 13, TextColor3 = Theme.Dim, Size = UDim2.fromOffset(150, 62), Position = UDim2.fromOffset(150, 0), Parent = header })
 task.spawn(function()
 	while not ST.isUnloaded do
@@ -5046,7 +5096,7 @@ pcall(function() if watermarkMain then watermarkMain:Destroy() end end)
 	-- fixed-height list that scrolls internally so rows never cover CONFIG below
 	local friendList = Instance.new("ScrollingFrame")
 	friendList.Name = "CLL_FriendList"
-	friendList.Size = UDim2.new(1, 0, 0, 160)
+	friendList.Size = UDim2.new(1, 0, 0, 120)
 	friendList.Position = UDim2.fromOffset(0, rY)
 	friendList.BackgroundTransparency = 1
 	friendList.BorderSizePixel = 0
@@ -5061,7 +5111,7 @@ pcall(function() if watermarkMain then watermarkMain:Destroy() end end)
 	flLayout.Padding = UDim.new(0, 4)
 	flLayout.SortOrder = Enum.SortOrder.LayoutOrder
 	flLayout.Parent = friendList
-	rY += 170
+	rY += 130
 	local function refreshFriends()
 		for _, v in ipairs(friendList:GetChildren()) do
 			if v:IsA("Frame") then v:Destroy() end
@@ -5693,6 +5743,12 @@ function saveConfigNamed(name, overwrite)
 	end
 
 	refreshCfgList()
+	-- outer panel must scroll so CONFIG is reachable under FRIENDS list
+	pcall(function()
+		rScroll.ScrollingDirection = Enum.ScrollingDirection.Y
+		rScroll.ScrollBarThickness = 6
+		rScroll.CanvasSize = UDim2.new(0, 0, 0, math.max(rY + 24, 500))
+	end)
 
 	-- autoload on boot
 	task.spawn(function()
