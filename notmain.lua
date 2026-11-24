@@ -1,6 +1,6 @@
 --[[
     ╔═══════════════════════════════════════════════════════════════╗
-    ║              CLL CHEAT - FULL INTEGRATION v11.67-am (native Q/G grab mirror + VR restore)                ║
+    ║              CLL CHEAT - FULL INTEGRATION v11.68-an (native Q/G grab mirror + VR restore)                ║
     ╠═══════════════════════════════════════════════════════════════╣
     ║  SUK head-hit, real crosshair, tracers, ESP outline nick,     ║
     ║  ChinaHat/Wings fix, VR hands, anti-flash/shake, antibypass   ║
@@ -80,6 +80,7 @@ local ST = {
 	KillHighlightDuration = 0.55,
 	KillHighlightFade = 0.65,
 	KillHighlightColor = Color3.fromRGB(40, 160, 255),
+	KillBeamEnabled = true,
 	AntiCamShakeEnabled = false,
 	CustomKillSoundEnabled = false, -- REMOVED
 	CustomGunSoundsEnabled = false, -- REMOVED
@@ -87,7 +88,6 @@ local ST = {
 	AntiCCEnabled = false,
 	SUK_MaxPerTick = 3,
 	TracersEnabled = false,
-	SparksEnabled = false,
 	AutoBlockEnabled = false,
 	AutoBlockRange = 12,
 	AutoBlockHold = 0.35,
@@ -725,62 +725,9 @@ function CreateTracer(origin, targetPos, color)
 		if part then part:Destroy() end
 	end)
 	-- sparks burst at muzzle, same color as tracer (optional toggle)
-	if ST.SparksEnabled then
-		pcall(function()
-			CreateSparks(origin, (targetPos - origin).Unit, color)
-		end)
-	end
+
 end
 
-function CreateSparks(origin, dir, color)
-	if not ST.SparksEnabled then return end
-	if typeof(origin) ~= "Vector3" then return end
-	color = color or ST.ColorSelf
-	local white = Color3.fromRGB(255, 255, 255)
-	dir = typeof(dir) == "Vector3" and dir.Magnitude > 0.01 and dir.Unit or Vector3.new(0, 0, -1)
-	local dur = math.clamp(ST.TracerDuration or 0.5, 0.05, 3)
-	local folder = tracerFolder
-	if not folder then return end
-	local up = Vector3.new(0, 1, 0)
-	local right = dir:Cross(up)
-	if right.Magnitude < 0.08 then right = dir:Cross(Vector3.new(1, 0, 0)) end
-	right = right.Unit
-	up = right:Cross(dir).Unit
-	for n = 1, 60 do
-		-- alternate colors clearly: even = tracer color, odd = pure white
-		local col = (n % 2 == 0) and color or white
-		local rx = (math.random() - 0.5) * 1.6
-		local ry = (math.random() - 0.5) * 1.6
-		local spread = right * rx + up * ry
-		local forward = 0.2 + math.random() * 3.0
-		local pos0 = origin + dir * 0.05
-		local pos1 = origin + dir * forward + spread * (0.4 + math.random() * 0.8)
-		local dist = math.max((pos1 - pos0).Magnitude, 0.08)
-		local part = Instance.new("Part")
-		part.Name = "CLL_Spark"
-		part.Anchored = true
-		part.CanCollide = false
-		part.CanQuery = false
-		part.CanTouch = false
-		part.CastShadow = false
-		part.Material = Enum.Material.Neon
-		part.Color = col
-		part.Transparency = 0
-		part.Size = Vector3.new(0.06, 0.06, dist)
-		part.CFrame = CFrame.lookAt(pos0, pos1) * CFrame.new(0, 0, -dist / 2)
-		part.Parent = folder
-		local life = dur * (0.4 + math.random() * 0.6)
-		pcall(function()
-			TweenService:Create(part, TweenInfo.new(life, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
-				Transparency = 1,
-				Size = Vector3.new(0.02, 0.02, dist * 0.2),
-			}):Play()
-		end)
-		task.delay(life + 0.08, function()
-			if part then part:Destroy() end
-		end)
-	end
-end
 
 
 function tracerColorForCharacter(char)
@@ -1221,7 +1168,10 @@ function StopReload(tool)
 end
 
 function InstantReload(tool)
-	if not ReloadRemote or not tool or ST.reloadInProgress then return end
+	if not ReloadRemote or not tool then return end
+	-- allow caller (SUK) to pre-set reloadInProgress; block only parallel runs
+	if ST._reloadRunning then return end
+	ST._reloadRunning = true
 	ST.reloadInProgress = true
 
 	-- speed up any playing reload animations on character/tool
@@ -1255,7 +1205,10 @@ function InstantReload(tool)
 	task.spawn(function()
 		pcall(function()
 			local current, max = ReadAmmo(tool)
-			if current >= max then return end
+			current = tonumber(current) or 0
+			max = tonumber(max) or 8
+			-- always run full shell insert for SUK chamber (ignore stale ClientAmmo)
+			if current >= max then current = 0 end
 
 			local nameL = string.lower(tool.Name)
 			local isShotgun = tool:GetAttribute("Shotgun") or nameL:find("spas") or nameL:find("remington")
@@ -1320,7 +1273,14 @@ function InstantReload(tool)
 			end)
 		end)
 		pcall(function() if tool then ReloadRemote:InvokeServer(tool, "Stop Reload") end end)
+		local maxA = 8
+		pcall(function()
+			local _, m = ReadAmmo(tool)
+			maxA = tonumber(m) or tool:GetAttribute("MaxAmmo") or 8
+		end)
+		ST._sukChamber = maxA
 		ST.reloadInProgress = false
+		ST._reloadRunning = false
 	end)
 end
 
@@ -1354,14 +1314,20 @@ function MultiFireAt()
 		return
 	end
 
-	local cur, maxA = ReadAmmo(tool)
-	maxA = maxA or tool:GetAttribute("MaxAmmo") or 8
+	local _, maxA = ReadAmmo(tool)
+	maxA = tonumber(maxA) or tool:GetAttribute("MaxAmmo") or 8
+	maxA = math.clamp(maxA, 1, 12)
+	-- dedicated SUK chamber: must empty then full reload before next volley
+	if ST._sukChamber == nil then
+		ST._sukChamber = maxA
+	end
+	local cur = ST._sukChamber
+	if ST.reloadInProgress then return end
 	if cur <= 0 then
-		if not ST.reloadInProgress then
-			task.spawn(function()
-				pcall(InstantReload, tool)
-			end)
-		end
+		ST.reloadInProgress = true
+		task.spawn(function()
+			pcall(InstantReload, tool) -- chamber refilled inside InstantReload when done
+		end)
 		return
 	end
 
@@ -1498,11 +1464,10 @@ function MultiFireAt()
 	end
 	if ST.TracersEnabled and ST.TracerSelfEnabled then
 		CreateTracer(origin, aimPos, ST.ColorSelf)
-	elseif ST.SparksEnabled then
-		CreateSparks(origin, dir, ST.ColorSelf)
 	end
 
-	local ca = math.max(0, cur - 1)
+	ST._sukChamber = math.max(0, cur - 1)
+	local ca = ST._sukChamber
 	pcall(function()
 		tool:SetAttribute("ClientAmmo", ca)
 		tool:SetAttribute("CurrentAmmo", ca)
@@ -3578,54 +3543,61 @@ playKillHighlight = function(char)
 		hl.Parent = char
 		local hold = math.clamp(ST.KillHighlightDuration or 0.55, 0.05, 5)
 		local fade = math.clamp(ST.KillHighlightFade or 0.65, 0.05, 5)
-		-- sky beam (same color as kill highlight), fades with hold+fade
-		pcall(function()
-			local head = char:FindFirstChild("Head") or char:FindFirstChild("HumanoidRootPart")
-			if not head then return end
-			local anchor = Instance.new("Part")
-			anchor.Name = "CLL_KillBeam_" .. (char.Name or "x")
-			anchor.Anchored = true
-			anchor.CanCollide = false
-			anchor.CanQuery = false
-			anchor.Transparency = 1
-			anchor.Size = Vector3.new(0.2, 0.2, 0.2)
-			local base = head.Position
-			anchor.CFrame = CFrame.new(base + Vector3.new(0, 90, 0))
-			anchor.Parent = workspace
-			local a0 = Instance.new("Attachment")
-			a0.Parent = anchor
-			local a1 = Instance.new("Attachment")
-			a1.Parent = head
-			local beam = Instance.new("Beam")
-			beam.Attachment0 = a0
-			beam.Attachment1 = a1
-			beam.Color = ColorSequence.new(col)
-			beam.Width0 = 2.4
-			beam.Width1 = 0.2
-			beam.FaceCamera = true
-			beam.LightEmission = 1
-			beam.LightInfluence = 0
-			beam.Transparency = NumberSequence.new({
-				NumberSequenceKeypoint.new(0, 0.05),
-				NumberSequenceKeypoint.new(1, 0.35),
-			})
-			beam.Parent = anchor
-			task.spawn(function()
-				local t0 = os.clock()
-				local life = hold + fade
-				while anchor.Parent and os.clock() - t0 < life do
-					local a = (os.clock() - t0) / life
-					local tr = math.clamp(a, 0, 1)
-					beam.Transparency = NumberSequence.new({
-						NumberSequenceKeypoint.new(0, tr),
-						NumberSequenceKeypoint.new(1, math.min(1, tr + 0.3)),
-					})
-					beam.Width0 = 2.4 * (1 - tr * 0.7)
-					task.wait(0.03)
-				end
-				pcall(function() anchor:Destroy() end)
+		-- vertical kill pillar (world-space, always up); toggle ST.KillBeamEnabled
+		if ST.KillBeamEnabled then
+			pcall(function()
+				local head = char:FindFirstChild("Head") or char:FindFirstChild("HumanoidRootPart")
+				if not head then return end
+				local base = head.Position
+				local pillar = Instance.new("Part")
+				pillar.Name = "CLL_KillBeam_" .. (char.Name or "x")
+				pillar.Anchored = true
+				pillar.CanCollide = false
+				pillar.CanQuery = false
+				pillar.CanTouch = false
+				pillar.Transparency = 1
+				pillar.Size = Vector3.new(0.1, 0.1, 0.1)
+				pillar.CFrame = CFrame.new(base) -- origin at body; attachments define pure +Y span
+				pillar.Parent = workspace
+				local aBot = Instance.new("Attachment")
+				aBot.Name = "Bot"
+				aBot.Position = Vector3.new(0, 0, 0)
+				aBot.Parent = pillar
+				local aTop = Instance.new("Attachment")
+				aTop.Name = "Top"
+				aTop.Position = Vector3.new(0, 100, 0) -- pure vertical
+				aTop.Parent = pillar
+				local beam = Instance.new("Beam")
+				beam.Attachment0 = aTop
+				beam.Attachment1 = aBot
+				beam.Color = ColorSequence.new(col)
+				beam.Width0 = 2.2
+				beam.Width1 = 0.25
+				beam.FaceCamera = true
+				beam.LightEmission = 1
+				beam.LightInfluence = 0
+				beam.Segments = 10
+				beam.Transparency = NumberSequence.new({
+					NumberSequenceKeypoint.new(0, 0.05),
+					NumberSequenceKeypoint.new(1, 0.4),
+				})
+				beam.Parent = pillar
+				task.spawn(function()
+					local t0 = os.clock()
+					local life = hold + fade
+					while pillar.Parent and os.clock() - t0 < life do
+						local tr = math.clamp((os.clock() - t0) / life, 0, 1)
+						beam.Transparency = NumberSequence.new({
+							NumberSequenceKeypoint.new(0, tr),
+							NumberSequenceKeypoint.new(1, math.min(1, tr + 0.35)),
+						})
+						beam.Width0 = 2.2 * (1 - tr * 0.75)
+						task.wait(0.03)
+					end
+					pcall(function() pillar:Destroy() end)
+				end)
 			end)
-		end)
+		end
 		-- settle pop to normal chams look over ~0.12s
 		task.spawn(function()
 			local t0 = os.clock()
@@ -4023,7 +3995,7 @@ fit(); workspace.CurrentCamera:GetPropertyChangedSignal("ViewportSize"):Connect(
 local header = new("Frame", { Size = UDim2.new(1, 0, 0, 62), BackgroundTransparency = 1, Parent = window })
 local logoLabel = label({ Text = "CLL", Font = Enum.Font.Michroma, TextSize = 26, TextTruncate = Enum.TextTruncate.AtEnd, Size = UDim2.fromOffset(100, 62), Position = UDim2.fromOffset(23, 0), Parent = header })
 logoLabel.TextColor3 = Color3.fromRGB(255, 255, 255) -- Always white
-local verLabel = label({ Text = "v11.67-am", Font = Enum.Font.GothamBold, TextSize = 12, TextColor3 = Theme.Dim, Size = UDim2.fromOffset(50, 62), Position = UDim2.fromOffset(85, 2), Parent = header })
+local verLabel = label({ Text = "v11.68-an", Font = Enum.Font.GothamBold, TextSize = 12, TextColor3 = Theme.Dim, Size = UDim2.fromOffset(50, 62), Position = UDim2.fromOffset(85, 2), Parent = header })
 local timeLabel = label({ Text = "Session: 00:00", Font = Enum.Font.GothamMedium, TextSize = 13, TextColor3 = Theme.Dim, Size = UDim2.fromOffset(150, 62), Position = UDim2.fromOffset(150, 0), Parent = header })
 task.spawn(function()
 	while not ST.isUnloaded do
@@ -5311,6 +5283,7 @@ pcall(function() if watermarkMain then watermarkMain:Destroy() end end)
 			killHLDur = ST.KillHighlightDuration,
 			killHLFade = ST.KillHighlightFade,
 			killHLColor = {ST.KillHighlightColor.R, ST.KillHighlightColor.G, ST.KillHighlightColor.B},
+			killBeam = ST.KillBeamEnabled ~= false,
 			friends = (function()
 				local a = {}
 				for id, name in pairs(FriendsList) do
@@ -5442,6 +5415,7 @@ function applyConfig(data)
 		if data.killHLDur then ST.KillHighlightDuration = data.killHLDur end
 		if data.killHLFade then ST.KillHighlightFade = data.killHLFade end
 		if data.killHLColor then local c = arrToColor(data.killHLColor); if c then ST.KillHighlightColor = c end end
+		if data.killBeam ~= nil then ST.KillBeamEnabled = data.killBeam and true or false end
 		if type(data.friends) == "table" then
 			table.clear(FriendsList)
 			for k, v in pairs(data.friends) do
@@ -5865,7 +5839,6 @@ buildFeaturePage(pages.Effects, "EFFECTS", {
 	{ name = "Aim Visualizer", initial = true, onToggle = function(v) ST.TrueCrosshairEnabled = v; if aimDot then aimDot.Visible = v end; if aimRing then aimRing.Visible = v end end, buildDetail = nil },
 	{ name = "Bullet Tracers", initial = false, onToggle = function(v) ST.TracersEnabled = v end, buildDetail = function(d)
 		detailSlider(d, 1, "Duration", 0.1, 2, ST.TracerDuration, 0.1, function(v) ST.TracerDuration = v end)
-		detailToggle(d, 2, "Sparks on shot", ST.SparksEnabled, function(v) ST.SparksEnabled = v end)
 		detailToggle(d, 3, "My tracers", ST.TracerSelfEnabled, function(v) ST.TracerSelfEnabled = v end)
 		detailColor(d, 3, "My color (red)", function() return ST.ColorSelf end, function(c) ST.ColorSelf = c end)
 		detailToggle(d, 4, "Players' tracers", ST.TracerOthersEnabled, function(v) ST.TracerOthersEnabled = v; ST.TracersOthers = v end)
@@ -5877,6 +5850,7 @@ buildFeaturePage(pages.Effects, "EFFECTS", {
 		detailSlider(d, 1, "Hold (sec)", 0.1, 2, ST.KillHighlightDuration or 0.5, 0.05, function(v) ST.KillHighlightDuration = v end)
 		detailSlider(d, 2, "Fade out (sec)", 0.05, 2, ST.KillHighlightFade or 0.4, 0.05, function(v) ST.KillHighlightFade = v end)
 		detailColor(d, 3, "Color", function() return ST.KillHighlightColor end, function(c) ST.KillHighlightColor = c end)
+		detailToggle(d, 4, "Sky pillar", ST.KillBeamEnabled ~= false, function(v) ST.KillBeamEnabled = v end)
 	end },
 	{ name = "Anti Flash", initial = true, onToggle = function(v) ST.AntiFlashEnabled = v end, buildDetail = function(d)
 		detailToggle(d, 1, "Block kill highlight", ST.AntiFlashBlockKill, function(v) ST.AntiFlashBlockKill = v end)
