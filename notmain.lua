@@ -1,6 +1,6 @@
 --[[
     ╔═══════════════════════════════════════════════════════════════╗
-    ║              CLL CHEAT - FULL INTEGRATION v11.68-an (native Q/G grab mirror + VR restore)                ║
+    ║              CLL CHEAT - FULL INTEGRATION v11.69-ao (native Q/G grab mirror + VR restore)                ║
     ╠═══════════════════════════════════════════════════════════════╣
     ║  SUK head-hit, real crosshair, tracers, ESP outline nick,     ║
     ║  ChinaHat/Wings fix, VR hands, anti-flash/shake, antibypass   ║
@@ -1167,31 +1167,41 @@ function StopReload(tool)
     end 
 end
 
+function clearSukReloadState()
+	ST.reloadInProgress = false
+	ST._reloadRunning = false
+	ST._sukChamber = nil
+	pcall(function()
+		local t = GetSpas()
+		if t then
+			StopReload(t)
+			local char = LocalPlayer.Character
+			if char then char:SetAttribute("Reloading", false) end
+			t:SetAttribute("Reloading", false)
+		end
+	end)
+end
+
 function InstantReload(tool)
 	if not ReloadRemote or not tool then return end
-	-- allow caller (SUK) to pre-set reloadInProgress; block only parallel runs
 	if ST._reloadRunning then return end
 	ST._reloadRunning = true
 	ST.reloadInProgress = true
 
-	-- speed up any playing reload animations on character/tool
 	local function boostReloadAnims()
 		pcall(function()
 			local char = LocalPlayer.Character
 			if not char then return end
 			local hum = char:FindFirstChildOfClass("Humanoid")
 			local animator = hum and (hum:FindFirstChildOfClass("Animator") or hum)
-			local tracks = {}
 			if animator and animator.GetPlayingAnimationTracks then
-				tracks = animator:GetPlayingAnimationTracks()
-			end
-			for _, tr in ipairs(tracks) do
-				local n = string.lower(tostring(tr.Name or (tr.Animation and tr.Animation.Name) or ""))
-				if n:find("reload") or n:find("shell") or n:find("insert") or n:find("pump") then
-					tr:AdjustSpeed(3.5)
+				for _, tr in ipairs(animator:GetPlayingAnimationTracks()) do
+					local n = string.lower(tostring(tr.Name or (tr.Animation and tr.Animation.Name) or ""))
+					if n:find("reload") or n:find("shell") or n:find("insert") or n:find("pump") then
+						tr:AdjustSpeed(3.5)
+					end
 				end
 			end
-			-- also tool-local animation controllers
 			for _, d in ipairs(tool:GetDescendants()) do
 				if d:IsA("AnimationController") or d:IsA("Animator") then
 					for _, tr in ipairs(d:GetPlayingAnimationTracks()) do
@@ -1203,33 +1213,39 @@ function InstantReload(tool)
 	end
 
 	task.spawn(function()
+		local maxA = 8
+		local okReload = false
 		pcall(function()
 			local current, max = ReadAmmo(tool)
-			current = tonumber(current) or 0
-			max = tonumber(max) or 8
-			-- always run full shell insert for SUK chamber (ignore stale ClientAmmo)
-			if current >= max then current = 0 end
+			current = math.max(0, tonumber(current) or 0)
+			max = math.clamp(tonumber(max) or 8, 1, 12)
+			maxA = max
+			local need = max - current
+			if need <= 0 then
+				-- already full — just sync chamber, do not spam shells
+				ST._sukChamber = max
+				okReload = true
+				return
+			end
 
 			local nameL = string.lower(tool.Name)
 			local isShotgun = tool:GetAttribute("Shotgun") or nameL:find("spas") or nameL:find("remington")
-
 			boostReloadAnims()
 
 			if isShotgun then
-				-- same path as ReloadSpas bind: ST.ReloadSpeed per shell (real shells, not phantoms)
 				ReloadRemote:InvokeServer(tool, "Start Reload")
 				boostReloadAnims()
-				local need = math.max(0, max - current)
-				if need <= 0 then need = max or 8 end
 				local step = math.clamp(tonumber(ST.ReloadSpeed) or 0.055, 0.04, 0.15)
 				for i = 1, need do
 					if ST.isUnloaded or not tool or not tool.Parent then break end
+					-- abort mid-reload if SUK was turned off and caller cleared flags
+					if not ST._reloadRunning then break end
 					ReloadRemote:InvokeServer(tool, "New Shell")
 					ReloadRemote:InvokeServer(tool, "Insert Shell")
 					boostReloadAnims()
 					task.wait(step)
+					local ca = math.min(max, current + i)
 					pcall(function()
-						local ca = math.min(max, (current or 0) + i)
 						tool:SetAttribute("ClientAmmo", ca)
 						tool:SetAttribute("CurrentAmmo", ca)
 						local cv = tool:FindFirstChild("CurrentAmmo")
@@ -1239,7 +1255,6 @@ function InstantReload(tool)
 				task.wait(0.03)
 				ReloadRemote:InvokeServer(tool, "Stop Reload")
 			else
-				-- mag guns (not used by SUK but keep fast)
 				ReloadRemote:InvokeServer(tool)
 				task.wait(0.02)
 				ReloadRemote:InvokeServer(tool, "MagOut")
@@ -1256,29 +1271,27 @@ function InstantReload(tool)
 			end
 
 			local char = LocalPlayer.Character
-			if char then
-				pcall(function() char:SetAttribute("Reloading", false) end)
-			end
-			-- force client ammo full so next SUK tick doesn't stall
-			pcall(function()
-				local _, maxA = ReadAmmo(tool)
-				tool:SetAttribute("ClientAmmo", maxA)
-				if tool:GetAttribute("CurrentAmmo") ~= nil then
-					tool:SetAttribute("CurrentAmmo", maxA)
-				end
-				local cv = tool:FindFirstChild("CurrentAmmo")
-				if cv and cv:IsA("NumberValue") or cv and cv:IsA("IntValue") then
-					cv.Value = maxA
-				end
-			end)
+			if char then pcall(function() char:SetAttribute("Reloading", false) end) end
+			okReload = true
 		end)
-		pcall(function() if tool then ReloadRemote:InvokeServer(tool, "Stop Reload") end end)
-		local maxA = 8
+		pcall(function() if tool and tool.Parent then ReloadRemote:InvokeServer(tool, "Stop Reload") end end)
+		-- chamber = what client thinks after reload (prefer ReadAmmo, fallback max)
+		local finalCur = nil
 		pcall(function()
-			local _, m = ReadAmmo(tool)
-			maxA = tonumber(m) or tool:GetAttribute("MaxAmmo") or 8
+			local c, m = ReadAmmo(tool)
+			finalCur = tonumber(c)
+			maxA = tonumber(m) or maxA
 		end)
-		ST._sukChamber = maxA
+		if okReload then
+			ST._sukChamber = (finalCur and finalCur > 0) and finalCur or maxA
+			pcall(function()
+				tool:SetAttribute("ClientAmmo", ST._sukChamber)
+				tool:SetAttribute("CurrentAmmo", ST._sukChamber)
+			end)
+		else
+			-- failed — leave empty so we do not spray phantoms
+			ST._sukChamber = 0
+		end
 		ST.reloadInProgress = false
 		ST._reloadRunning = false
 	end)
@@ -1314,19 +1327,27 @@ function MultiFireAt()
 		return
 	end
 
-	local _, maxA = ReadAmmo(tool)
-	maxA = tonumber(maxA) or tool:GetAttribute("MaxAmmo") or 8
-	maxA = math.clamp(maxA, 1, 12)
-	-- dedicated SUK chamber: must empty then full reload before next volley
+	if ST.reloadInProgress or ST._reloadRunning then return end
+
+	local realCur, maxA = ReadAmmo(tool)
+	realCur = tonumber(realCur) or 0
+	maxA = math.clamp(tonumber(maxA) or tool:GetAttribute("MaxAmmo") or 8, 1, 12)
+
+	-- chamber tracks shells we are allowed to spend; never above real ClientAmmo
 	if ST._sukChamber == nil then
-		ST._sukChamber = maxA
+		ST._sukChamber = realCur
+	end
+	if realCur < ST._sukChamber then
+		ST._sukChamber = realCur
 	end
 	local cur = ST._sukChamber
-	if ST.reloadInProgress then return end
-	if cur <= 0 then
+
+	-- empty → real reload only, zero Fire/Hit packets
+	if cur <= 0 or realCur <= 0 then
+		ST._sukChamber = 0
 		ST.reloadInProgress = true
 		task.spawn(function()
-			pcall(InstantReload, tool) -- chamber refilled inside InstantReload when done
+			pcall(InstantReload, tool)
 		end)
 		return
 	end
@@ -1412,7 +1433,17 @@ function MultiFireAt()
 		tool:SetAttribute("Debounce", false)
 		tool:SetAttribute("CanFire", true)
 	end)
-	if ST.reloadInProgress then return end
+	if ST.reloadInProgress or ST._reloadRunning then return end
+	-- spend shell NOW so concurrent MultiFireAt in same tick cannot reuse it
+	if (ST._sukChamber or 0) <= 0 then return end
+	ST._sukChamber = math.max(0, (ST._sukChamber or 1) - 1)
+	cur = ST._sukChamber
+	pcall(function()
+		tool:SetAttribute("ClientAmmo", cur)
+		tool:SetAttribute("CurrentAmmo", cur)
+		local cv = tool:FindFirstChild("CurrentAmmo")
+		if cv and (cv:IsA("NumberValue") or cv:IsA("IntValue")) then cv.Value = cur end
+	end)
 
 	local function firePayload(org)
 		pcall(function()
@@ -1432,8 +1463,8 @@ function MultiFireAt()
 	if head and head.Parent then
 		local vel = dir * 2000
 		local bcf = CFrame.lookAt(hitPos - dir * 0.4, hitPos)
-		-- 4 Hits: enough to register, not enough to flood as phantoms
-		for _ = 1, 4 do
+		-- 2 Hits per real shell (register damage, avoid empty-mag phantom flood)
+		for _ = 1, 2 do
 			pcall(function()
 				FireRemote:FireServer(tool, "Hit", {
 					hit = head,
@@ -1466,15 +1497,8 @@ function MultiFireAt()
 		CreateTracer(origin, aimPos, ST.ColorSelf)
 	end
 
-	ST._sukChamber = math.max(0, cur - 1)
-	local ca = ST._sukChamber
+	local ca = ST._sukChamber or 0
 	pcall(function()
-		tool:SetAttribute("ClientAmmo", ca)
-		tool:SetAttribute("CurrentAmmo", ca)
-		local cv = tool:FindFirstChild("CurrentAmmo")
-		if cv and (cv:IsA("NumberValue") or cv:IsA("IntValue")) then
-			cv.Value = ca
-		end
 		HelperFire("Fx", "Ammo", ca, maxA, false)
 	end)
 	HelperFire("Gun Base", "Shot", tool)
@@ -1486,15 +1510,24 @@ end
 task.spawn(function()
 	while not ST.isUnloaded do
 		if ST.isMultiSuk then
-			local rps = tonumber(ST.SUK_FIRERATE_RPS) or 10
-			local delay = tonumber(ST.SUK_FireDelay) or 0.1
-			local waitT = math.max(0.02, math.min(1 / math.max(1, rps), delay))
-			local n = math.clamp(tonumber(ST.SUK_MaxPerTick) or 3, 1, 8)
-			for _ = 1, n do
-				if ST.reloadInProgress then break end
-				pcall(MultiFireAt)
+			if ST.reloadInProgress or ST._reloadRunning then
+				task.wait(0.05)
+			else
+				local rps = tonumber(ST.SUK_FIRERATE_RPS) or 10
+				local delay = tonumber(ST.SUK_FireDelay) or 0.1
+				local waitT = math.max(0.02, math.min(1 / math.max(1, rps), delay))
+				local n = math.clamp(tonumber(ST.SUK_MaxPerTick) or 3, 1, 8)
+				local chamber = ST._sukChamber
+				if chamber ~= nil then
+					n = math.min(n, math.max(0, chamber))
+				end
+				for _ = 1, n do
+					if ST.reloadInProgress or ST._reloadRunning then break end
+					if (ST._sukChamber or 1) <= 0 then break end
+					pcall(MultiFireAt)
+				end
+				task.wait(waitT)
 			end
-			task.wait(waitT)
 		else
 			task.wait(0.15)
 		end
@@ -3995,7 +4028,7 @@ fit(); workspace.CurrentCamera:GetPropertyChangedSignal("ViewportSize"):Connect(
 local header = new("Frame", { Size = UDim2.new(1, 0, 0, 62), BackgroundTransparency = 1, Parent = window })
 local logoLabel = label({ Text = "CLL", Font = Enum.Font.Michroma, TextSize = 26, TextTruncate = Enum.TextTruncate.AtEnd, Size = UDim2.fromOffset(100, 62), Position = UDim2.fromOffset(23, 0), Parent = header })
 logoLabel.TextColor3 = Color3.fromRGB(255, 255, 255) -- Always white
-local verLabel = label({ Text = "v11.68-an", Font = Enum.Font.GothamBold, TextSize = 12, TextColor3 = Theme.Dim, Size = UDim2.fromOffset(50, 62), Position = UDim2.fromOffset(85, 2), Parent = header })
+local verLabel = label({ Text = "v11.69-ao", Font = Enum.Font.GothamBold, TextSize = 12, TextColor3 = Theme.Dim, Size = UDim2.fromOffset(50, 62), Position = UDim2.fromOffset(85, 2), Parent = header })
 local timeLabel = label({ Text = "Session: 00:00", Font = Enum.Font.GothamMedium, TextSize = 13, TextColor3 = Theme.Dim, Size = UDim2.fromOffset(150, 62), Position = UDim2.fromOffset(150, 0), Parent = header })
 task.spawn(function()
 	while not ST.isUnloaded do
@@ -4592,7 +4625,7 @@ function buildTarget()
 	label({ Text = "COMBAT TARGET", Font = Enum.Font.GothamBold, TextSize = 11, TextColor3 = Theme.Dim, Size = UDim2.fromOffset(200, 18), Position = UDim2.fromOffset(14, 12), Parent = left })
 	local scroll = new("ScrollingFrame", { Size = UDim2.new(1, 0, 1, -38), Position = UDim2.fromOffset(0, 34), BackgroundTransparency = 1, BorderSizePixel = 0, ScrollBarThickness = 3, ScrollBarImageColor3 = Theme.Stroke, CanvasSize = UDim2.fromOffset(0, 640), Parent = left })
 	local y = 18
-	toggle(scroll, y, "Enable SUK", function(v) ST.isMultiSuk = v; if not v then ST.reloadInProgress = false; local t = GetSpas(); if t then StopReload(t) end end end, false, function() return ST.isMultiSuk end); y += 48
+	toggle(scroll, y, "Enable SUK", function(v) ST.isMultiSuk = v; if not v then clearSukReloadState() end end, false, function() return ST.isMultiSuk end); y += 48
 	slider(scroll, y, "Firerate RPS", 1, 30, ST.SUK_FIRERATE_RPS, 1, function(v) ST.SUK_FIRERATE_RPS = v end, function() return ST.SUK_FIRERATE_RPS end); y += 64
 	slider(scroll, y, "Fire Delay (Safe)", 0.01, 0.5, ST.SUK_FireDelay, 0.01, function(v) ST.SUK_FireDelay = v end, function() return ST.SUK_FireDelay end); y += 64
 	slider(scroll, y, "Targets / tick", 1, 16, ST.SUK_MaxPerTick, 1, function(v) ST.SUK_MaxPerTick = v end, function() return ST.SUK_MaxPerTick end); y += 64
@@ -6389,10 +6422,8 @@ UIS.InputBegan:Connect(function(input, gp)
 	local function pressed(bind) return bind ~= nil and bind ~= Enum.KeyCode.Unknown and key == bind end
 		if pressed(Keys.SUK) then 
         ST.isMultiSuk = not ST.isMultiSuk
-        if not ST.isMultiSuk then 
-            ST.reloadInProgress = false
-            local t = GetSpas()
-            if t then StopReload(t) end 
+        if not ST.isMultiSuk then
+            clearSukReloadState()
         end
 	elseif pressed(Keys.AntiCC) then 
         ST.AntiCCEnabled = not ST.AntiCCEnabled
