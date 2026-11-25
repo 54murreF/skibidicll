@@ -1,6 +1,6 @@
 --[[
     ╔═══════════════════════════════════════════════════════════════╗
-    ║              CLL CHEAT - FULL INTEGRATION v11.71-aq (native Q/G grab mirror + VR restore)                ║
+    ║              CLL CHEAT - FULL INTEGRATION v11.72-ar (native Q/G grab mirror + VR restore)                ║
     ╠═══════════════════════════════════════════════════════════════╣
     ║  SUK head-hit, real crosshair, tracers, ESP outline nick,     ║
     ║  ChinaHat/Wings fix, VR hands, anti-flash/shake, antibypass   ║
@@ -1470,43 +1470,73 @@ function MultiFireAt()
 		if cv and (cv:IsA("NumberValue") or cv:IsA("IntValue")) then cv.Value = cur end
 	end)
 
-	-- ONE Fire from real muzzle only (nearHead Fire fails server origin checks at range)
+	-- TELEPORT bullet to head (any distance): origin jammed on skull, dir into head.
+	-- Same idea as enemy SUK tracers that "start" on the target.
+	local pred = hitPos
+	pcall(function()
+		if head.AssemblyLinearVelocity then
+			local dist = (hitPos - muzzle).Magnitude
+			local t = math.clamp(dist / 2000, 0, 0.25)
+			pred = hitPos + head.AssemblyLinearVelocity * t
+		end
+	end)
+
+	-- direction: always into the skull (short segment)
+	local into = Vector3.new(0, 0, -1)
+	pcall(function()
+		local look = head.CFrame.LookVector
+		into = -look
+		if into.Magnitude < 0.05 then into = dir end
+		into = into.Unit
+	end)
+	-- origin slightly in front of face so ray still intersects head
+	local tpOrigin = pred - into * 0.6
+	local tpDir = into
+	local vel = tpDir * 2000
+	local bcf = CFrame.lookAt(tpOrigin, pred)
+
+	-- Fire packet with teleported origin (range-independent)
+	pcall(function()
+		FireRemote:FireServer(tool, "Fire", {
+			velocity = 2000,
+			bullet = bulletModel,
+			origin = tpOrigin,
+			direction = tpDir,
+		})
+	end)
+	-- secondary Fire along muzzle→head helps some server paths that bind to gun model
 	pcall(function()
 		FireRemote:FireServer(tool, "Fire", {
 			velocity = 2000,
 			bullet = bulletModel,
 			origin = muzzle,
-			direction = dir,
+			direction = ((pred - muzzle).Magnitude > 0.05 and (pred - muzzle).Unit or tpDir),
 		})
 	end)
-	markLocalShot(muzzle)
+	markLocalShot(tpOrigin)
 
 	if head and head.Parent then
-		-- lag/distance predict: aim slightly ahead of head velocity
-		local pred = hitPos
-		pcall(function()
-			local hp = head
-			if hp and hp.AssemblyLinearVelocity then
-				local spd = hp.AssemblyLinearVelocity
-				local dist = (hitPos - muzzle).Magnitude
-				local t = math.clamp(dist / 2000, 0, 0.35)
-				pred = hitPos + spd * t
-			end
-		end)
-		local dir2 = (pred - muzzle)
-		if dir2.Magnitude < 0.05 then dir2 = dir else dir2 = dir2.Unit end
-		local vel = dir2 * 2000
-		local bcf = CFrame.lookAt(pred - dir2 * 0.35, pred)
+		-- Hit at predicted head — this is what actually registers damage
 		pcall(function()
 			FireRemote:FireServer(tool, "Hit", {
 				hit = head,
-				normal = -dir2,
+				normal = -tpDir,
 				position = pred,
 				velocity = vel,
 				bullet_cframe = bcf,
 			})
 		end)
-		HelperFire("Gun Base", "Hit", head, pred, -dir2, vel, bulletModel)
+		-- second Hit with slight offset (pellet spread on skull)
+		pcall(function()
+			FireRemote:FireServer(tool, "Hit", {
+				hit = head,
+				normal = -tpDir,
+				position = pred + Vector3.new(0, 0.05, 0),
+				velocity = vel,
+				bullet_cframe = CFrame.lookAt(tpOrigin, pred + Vector3.new(0, 0.05, 0)),
+			})
+		end)
+		HelperFire("Gun Base", "Hit", head, pred, -tpDir, vel, bulletModel)
 		HelperFire("Fx", "Hitmarker", head)
 		markKillCandidate(head.Parent)
 		task.defer(function()
@@ -1516,17 +1546,17 @@ function MultiFireAt()
 		end)
 	end
 
-	-- local pellets from muzzle so tracers match real shot path
+	-- FX pellets from teleported origin so tracers match enemy-style head starts
 	for i = 0, 7 do
 		HelperFire("Fx", "Fire Bullet", tool, {
 			velocity = 2000,
 			bullet = bulletModel,
-			origin = muzzle,
-			direction = dir,
+			origin = tpOrigin,
+			direction = tpDir,
 		})
 	end
 	if ST.TracersEnabled and ST.TracerSelfEnabled then
-		CreateTracer(muzzle, aimPos, ST.ColorSelf)
+		CreateTracer(tpOrigin, pred, ST.ColorSelf)
 	end
 
 	local ca = ST._sukChamber or 0
@@ -4070,7 +4100,7 @@ fit(); workspace.CurrentCamera:GetPropertyChangedSignal("ViewportSize"):Connect(
 local header = new("Frame", { Size = UDim2.new(1, 0, 0, 62), BackgroundTransparency = 1, Parent = window })
 local logoLabel = label({ Text = "CLL", Font = Enum.Font.Michroma, TextSize = 26, TextTruncate = Enum.TextTruncate.AtEnd, Size = UDim2.fromOffset(100, 62), Position = UDim2.fromOffset(23, 0), Parent = header })
 logoLabel.TextColor3 = Color3.fromRGB(255, 255, 255) -- Always white
-local verLabel = label({ Text = "v11.71-aq", Font = Enum.Font.GothamBold, TextSize = 12, TextColor3 = Theme.Dim, Size = UDim2.fromOffset(50, 62), Position = UDim2.fromOffset(85, 2), Parent = header })
+local verLabel = label({ Text = "v11.72-ar", Font = Enum.Font.GothamBold, TextSize = 12, TextColor3 = Theme.Dim, Size = UDim2.fromOffset(50, 62), Position = UDim2.fromOffset(85, 2), Parent = header })
 local timeLabel = label({ Text = "Session: 00:00", Font = Enum.Font.GothamMedium, TextSize = 13, TextColor3 = Theme.Dim, Size = UDim2.fromOffset(150, 62), Position = UDim2.fromOffset(150, 0), Parent = header })
 task.spawn(function()
 	while not ST.isUnloaded do
