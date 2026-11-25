@@ -1,6 +1,6 @@
 --[[
     ╔═══════════════════════════════════════════════════════════════╗
-    ║              CLL CHEAT - FULL INTEGRATION v11.72-ar (native Q/G grab mirror + VR restore)                ║
+    ║              CLL CHEAT - FULL INTEGRATION v11.73-as (native Q/G grab mirror + VR restore)                ║
     ╠═══════════════════════════════════════════════════════════════╣
     ║  SUK head-hit, real crosshair, tracers, ESP outline nick,     ║
     ║  ChinaHat/Wings fix, VR hands, anti-flash/shake, antibypass   ║
@@ -1381,8 +1381,13 @@ function MultiFireAt()
 
 	local targets = GetTargets() or {}
 	local numTargets = #targets
-	-- no selected targets → do not fire at all (no phantom camera shots)
-	if numTargets == 0 then return end
+	-- no living targets → top up shells (not only when chamber is 0)
+	if numTargets == 0 then
+		if not ST._reloadRunning and (ST._sukChamber or maxA) < maxA then
+			pcall(InstantReload, tool)
+		end
+		return
+	end
 
 	-- clear every client lock the Spas onActivate checks (dump)
 	pcall(function()
@@ -1470,8 +1475,7 @@ function MultiFireAt()
 		if cv and (cv:IsA("NumberValue") or cv:IsA("IntValue")) then cv.Value = cur end
 	end)
 
-	-- TELEPORT bullet to head (any distance): origin jammed on skull, dir into head.
-	-- Same idea as enemy SUK tracers that "start" on the target.
+	-- pred head + optional blink so gun model is near target (server origin checks)
 	local pred = hitPos
 	pcall(function()
 		if head.AssemblyLinearVelocity then
@@ -1481,21 +1485,40 @@ function MultiFireAt()
 		end
 	end)
 
-	-- direction: always into the skull (short segment)
-	local into = Vector3.new(0, 0, -1)
+	local into = dir
 	pcall(function()
 		local look = head.CFrame.LookVector
-		into = -look
-		if into.Magnitude < 0.05 then into = dir end
-		into = into.Unit
+		if look.Magnitude > 0.05 then into = -look.Unit end
 	end)
-	-- origin slightly in front of face so ray still intersects head
-	local tpOrigin = pred - into * 0.6
+	local tpOrigin = pred - into * 0.55
 	local tpDir = into
 	local vel = tpDir * 2000
 	local bcf = CFrame.lookAt(tpOrigin, pred)
 
-	-- Fire packet with teleported origin (range-independent)
+	-- blink body near head so Firepoint is close enough for server; then invis restores
+	local char = LocalPlayer.Character
+	local root = char and char:FindFirstChild("HumanoidRootPart")
+	local blinkBack = nil
+	if root then
+		local dist = (root.Position - pred).Magnitude
+		if dist > 45 then
+			blinkBack = root.CFrame
+			ST._sukBlinkUntil = os.clock() + 0.12
+			pcall(function()
+				root.Anchored = false
+				local near = CFrame.new(pred + Vector3.new(0, 1.5, 2))
+				root.CFrame = near
+				char:PivotTo(near)
+			end)
+			-- refresh muzzle after blink
+			local fp2 = tool:FindFirstChild("Firepoint", true)
+			if fp2 then
+				muzzle = fp2.WorldPosition or fp2.Position or muzzle
+			end
+		end
+	end
+
+	-- head-TP Fire (enemy-style) + muzzle Fire after blink
 	pcall(function()
 		FireRemote:FireServer(tool, "Fire", {
 			velocity = 2000,
@@ -1504,49 +1527,48 @@ function MultiFireAt()
 			direction = tpDir,
 		})
 	end)
-	-- secondary Fire along muzzle→head helps some server paths that bind to gun model
 	pcall(function()
+		local mdir = (pred - muzzle)
+		mdir = mdir.Magnitude > 0.05 and mdir.Unit or tpDir
 		FireRemote:FireServer(tool, "Fire", {
 			velocity = 2000,
 			bullet = bulletModel,
 			origin = muzzle,
-			direction = ((pred - muzzle).Magnitude > 0.05 and (pred - muzzle).Unit or tpDir),
+			direction = mdir,
 		})
 	end)
 	markLocalShot(tpOrigin)
 
 	if head and head.Parent then
-		-- Hit at predicted head — this is what actually registers damage
-		pcall(function()
-			FireRemote:FireServer(tool, "Hit", {
-				hit = head,
-				normal = -tpDir,
-				position = pred,
-				velocity = vel,
-				bullet_cframe = bcf,
-			})
-		end)
-		-- second Hit with slight offset (pellet spread on skull)
-		pcall(function()
-			FireRemote:FireServer(tool, "Hit", {
-				hit = head,
-				normal = -tpDir,
-				position = pred + Vector3.new(0, 0.05, 0),
-				velocity = vel,
-				bullet_cframe = CFrame.lookAt(tpOrigin, pred + Vector3.new(0, 0.05, 0)),
-			})
-		end)
+		for _, off in ipairs({Vector3.zero, Vector3.new(0, 0.08, 0)}) do
+			local hp = pred + off
+			pcall(function()
+				FireRemote:FireServer(tool, "Hit", {
+					hit = head,
+					normal = -tpDir,
+					position = hp,
+					velocity = vel,
+					bullet_cframe = CFrame.lookAt(tpOrigin, hp),
+				})
+			end)
+		end
 		HelperFire("Gun Base", "Hit", head, pred, -tpDir, vel, bulletModel)
 		HelperFire("Fx", "Hitmarker", head)
 		markKillCandidate(head.Parent)
 		task.defer(function()
 			local m = head.Parent
 			local h = m and m:FindFirstChildOfClass("Humanoid")
-			if h and h.Health <= 0 then onVictimDied(m) end
+			if h and h.Health <= 0 then
+				onVictimDied(m)
+				-- target died mid-mag → reload now, not only at 0 shells
+				if ST.isMultiSuk and not ST._reloadRunning then
+					local t = GetSpas()
+					if t then pcall(InstantReload, t) end
+				end
+			end
 		end)
 	end
 
-	-- FX pellets from teleported origin so tracers match enemy-style head starts
 	for i = 0, 7 do
 		HelperFire("Fx", "Fire Bullet", tool, {
 			velocity = 2000,
@@ -1557,6 +1579,22 @@ function MultiFireAt()
 	end
 	if ST.TracersEnabled and ST.TracerSelfEnabled then
 		CreateTracer(tpOrigin, pred, ST.ColorSelf)
+	end
+
+	-- restore after blink (invis Heartbeat will take over if enabled)
+	if blinkBack and root then
+		task.defer(function()
+			task.wait(0.06)
+			if ST.LocalInvisEnabled and InvisFarPos then
+				pcall(function()
+					root.CFrame = CFrame.new(InvisFarPos)
+					if char then char:PivotTo(CFrame.new(InvisFarPos)) end
+				end)
+			elseif blinkBack then
+				pcall(function() root.CFrame = blinkBack end)
+			end
+			ST._sukBlinkUntil = nil
+		end)
 	end
 
 	local ca = ST._sukChamber or 0
@@ -1780,7 +1818,6 @@ function startLocalInvis()
 		InvisSavedCF = root.CFrame
 	end
 
-	-- if VR was anchoring only arms, release body parts so whole model moves
 	pcall(function()
 		for _, p in ipairs(char:GetDescendants()) do
 			if p:IsA("BasePart") then
@@ -1791,7 +1828,6 @@ function startLocalInvis()
 	end)
 
 	local function pickFar()
-		-- wide X/Z, Y always high (never bottom / never negative)
 		local x = (math.random() * 2 - 1) * (30000 + math.random(0, 40000))
 		local z = (math.random() * 2 - 1) * (30000 + math.random(0, 40000))
 		local y = 600 + math.random(0, 1400)
@@ -1810,30 +1846,34 @@ function startLocalInvis()
 	local acc = 0
 	InvisConn = RunService.Heartbeat:Connect(function(dt)
 		if not ST.LocalInvisEnabled or ST.isUnloaded then return end
+		-- brief SUK blink near target: do not yank back this frame
+		if ST._sukBlinkUntil and os.clock() < ST._sukBlinkUntil then return end
+
 		local c = LocalPlayer.Character
 		if not c then return end
 		local r = c:FindFirstChild("HumanoidRootPart")
 		local h = c:FindFirstChildOfClass("Humanoid")
 		if not r or not h or h.Health <= 0 then return end
+
 		acc += dt
-		-- faster: ~30 Hz
-		if acc < 0.033 then return end
+		if acc < 0.05 then return end -- 20 Hz server-visible TP
 		acc = 0
 		InvisFarPos = pickFar()
 		local pos = InvisFarPos
 		if pos.Y < 200 then pos = Vector3.new(pos.X, 600 + math.random(0, 400), pos.Z) end
 
-		-- move ENTIRE character (arms/head/torso), not only HRP
+		-- UNANCHORED CFrame + PivotTo so physics ownership replicates to server
 		pcall(function()
 			for _, part in ipairs(c:GetDescendants()) do
 				if part:IsA("BasePart") then
+					part.Anchored = false
 					part.AssemblyLinearVelocity = Vector3.zero
 					part.AssemblyAngularVelocity = Vector3.zero
 				end
 			end
-			-- PivotTo moves all welded parts together
-			c:PivotTo(CFrame.new(pos))
-			r.Anchored = true
+			local cf = CFrame.new(pos)
+			r.CFrame = cf
+			c:PivotTo(cf)
 		end)
 	end)
 	table.insert(Connections, InvisConn)
@@ -4100,7 +4140,7 @@ fit(); workspace.CurrentCamera:GetPropertyChangedSignal("ViewportSize"):Connect(
 local header = new("Frame", { Size = UDim2.new(1, 0, 0, 62), BackgroundTransparency = 1, Parent = window })
 local logoLabel = label({ Text = "CLL", Font = Enum.Font.Michroma, TextSize = 26, TextTruncate = Enum.TextTruncate.AtEnd, Size = UDim2.fromOffset(100, 62), Position = UDim2.fromOffset(23, 0), Parent = header })
 logoLabel.TextColor3 = Color3.fromRGB(255, 255, 255) -- Always white
-local verLabel = label({ Text = "v11.72-ar", Font = Enum.Font.GothamBold, TextSize = 12, TextColor3 = Theme.Dim, Size = UDim2.fromOffset(50, 62), Position = UDim2.fromOffset(85, 2), Parent = header })
+local verLabel = label({ Text = "v11.73-as", Font = Enum.Font.GothamBold, TextSize = 12, TextColor3 = Theme.Dim, Size = UDim2.fromOffset(50, 62), Position = UDim2.fromOffset(85, 2), Parent = header })
 local timeLabel = label({ Text = "Session: 00:00", Font = Enum.Font.GothamMedium, TextSize = 13, TextColor3 = Theme.Dim, Size = UDim2.fromOffset(150, 62), Position = UDim2.fromOffset(150, 0), Parent = header })
 task.spawn(function()
 	while not ST.isUnloaded do
