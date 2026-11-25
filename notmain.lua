@@ -1,6 +1,6 @@
 --[[
     ╔═══════════════════════════════════════════════════════════════╗
-    ║              CLL CHEAT - FULL INTEGRATION v11.69-ao (native Q/G grab mirror + VR restore)                ║
+    ║              CLL CHEAT - FULL INTEGRATION v11.70-ap (native Q/G grab mirror + VR restore)                ║
     ╠═══════════════════════════════════════════════════════════════╣
     ║  SUK head-hit, real crosshair, tracers, ESP outline nick,     ║
     ║  ChinaHat/Wings fix, VR hands, anti-flash/shake, antibypass   ║
@@ -86,7 +86,7 @@ local ST = {
 	CustomGunSoundsEnabled = false, -- REMOVED
 	ReloadSpeed = 0.055,
 	AntiCCEnabled = false,
-	SUK_MaxPerTick = 3,
+	SUK_MaxPerTick = 1,
 	TracersEnabled = false,
 	AutoBlockEnabled = false,
 	AutoBlockRange = 12,
@@ -1220,9 +1220,16 @@ function InstantReload(tool)
 			current = math.max(0, tonumber(current) or 0)
 			max = math.clamp(tonumber(max) or 8, 1, 12)
 			maxA = max
+			-- SUK emptied chamber → always top up to full mag
+			if ST._sukChamber == 0 or current <= 0 then
+				current = 0
+				pcall(function()
+					tool:SetAttribute("ClientAmmo", 0)
+					tool:SetAttribute("CurrentAmmo", 0)
+				end)
+			end
 			local need = max - current
 			if need <= 0 then
-				-- already full — just sync chamber, do not spam shells
 				ST._sukChamber = max
 				okReload = true
 				return
@@ -1283,13 +1290,15 @@ function InstantReload(tool)
 			maxA = tonumber(m) or maxA
 		end)
 		if okReload then
-			ST._sukChamber = (finalCur and finalCur > 0) and finalCur or maxA
+			-- Spas full tube after reload
+			ST._sukChamber = maxA
 			pcall(function()
-				tool:SetAttribute("ClientAmmo", ST._sukChamber)
-				tool:SetAttribute("CurrentAmmo", ST._sukChamber)
+				tool:SetAttribute("ClientAmmo", maxA)
+				tool:SetAttribute("CurrentAmmo", maxA)
+				local cv = tool:FindFirstChild("CurrentAmmo")
+				if cv and (cv:IsA("NumberValue") or cv:IsA("IntValue")) then cv.Value = maxA end
 			end)
 		else
-			-- failed — leave empty so we do not spray phantoms
 			ST._sukChamber = 0
 		end
 		ST.reloadInProgress = false
@@ -1333,22 +1342,26 @@ function MultiFireAt()
 	realCur = tonumber(realCur) or 0
 	maxA = math.clamp(tonumber(maxA) or tool:GetAttribute("MaxAmmo") or 8, 1, 12)
 
-	-- chamber tracks shells we are allowed to spend; never above real ClientAmmo
+	-- first shot: trust ClientAmmo if valid, else full mag
 	if ST._sukChamber == nil then
-		ST._sukChamber = realCur
+		ST._sukChamber = (realCur > 0) and realCur or maxA
 	end
-	if realCur < ST._sukChamber then
+	-- never shoot more than client thinks it has
+	if realCur > 0 and realCur < ST._sukChamber then
 		ST._sukChamber = realCur
 	end
 	local cur = ST._sukChamber
 
-	-- empty → real reload only, zero Fire/Hit packets
-	if cur <= 0 or realCur <= 0 then
+	if cur <= 0 then
+		-- HARD stop fire; start real shell reload once
 		ST._sukChamber = 0
-		ST.reloadInProgress = true
-		task.spawn(function()
+		if not ST._reloadRunning then
+			pcall(function()
+				tool:SetAttribute("ClientAmmo", 0)
+				tool:SetAttribute("CurrentAmmo", 0)
+			end)
 			pcall(InstantReload, tool)
-		end)
+		end
 		return
 	end
 
@@ -1463,18 +1476,16 @@ function MultiFireAt()
 	if head and head.Parent then
 		local vel = dir * 2000
 		local bcf = CFrame.lookAt(hitPos - dir * 0.4, hitPos)
-		-- 2 Hits per real shell (register damage, avoid empty-mag phantom flood)
-		for _ = 1, 2 do
-			pcall(function()
-				FireRemote:FireServer(tool, "Hit", {
-					hit = head,
-					normal = -dir,
-					position = hitPos,
-					velocity = vel,
-					bullet_cframe = bcf,
-				})
-			end)
-		end
+		-- 1 Hit per shell (one bullet → one target cycle)
+		pcall(function()
+			FireRemote:FireServer(tool, "Hit", {
+				hit = head,
+				normal = -dir,
+				position = hitPos,
+				velocity = vel,
+				bullet_cframe = bcf,
+			})
+		end)
 		HelperFire("Gun Base", "Hit", head, hitPos, -dir, vel, bulletModel)
 		HelperFire("Fx", "Hitmarker", head)
 		markKillCandidate(head.Parent)
@@ -1506,30 +1517,20 @@ function MultiFireAt()
 end
 
 
--- SUK tick: burst MultiFireAt up to MaxPerTick so many heads get Hit packets quickly
+-- SUK tick: exactly ONE shell per cycle, then wait (no burst dump into few targets)
 task.spawn(function()
 	while not ST.isUnloaded do
-		if ST.isMultiSuk then
-			if ST.reloadInProgress or ST._reloadRunning then
-				task.wait(0.05)
-			else
-				local rps = tonumber(ST.SUK_FIRERATE_RPS) or 10
-				local delay = tonumber(ST.SUK_FireDelay) or 0.1
-				local waitT = math.max(0.02, math.min(1 / math.max(1, rps), delay))
-				local n = math.clamp(tonumber(ST.SUK_MaxPerTick) or 3, 1, 8)
-				local chamber = ST._sukChamber
-				if chamber ~= nil then
-					n = math.min(n, math.max(0, chamber))
-				end
-				for _ = 1, n do
-					if ST.reloadInProgress or ST._reloadRunning then break end
-					if (ST._sukChamber or 1) <= 0 then break end
-					pcall(MultiFireAt)
-				end
-				task.wait(waitT)
-			end
-		else
+		if not ST.isMultiSuk then
 			task.wait(0.15)
+		elseif ST.reloadInProgress or ST._reloadRunning then
+			task.wait(0.05)
+		else
+			local rps = tonumber(ST.SUK_FIRERATE_RPS) or 8
+			local delay = tonumber(ST.SUK_FireDelay) or 0.1
+			-- cadence between single shots
+			local waitT = math.max(0.06, math.max(1 / math.max(1, rps), delay))
+			pcall(MultiFireAt)
+			task.wait(waitT)
 		end
 	end
 end)
@@ -4028,7 +4029,7 @@ fit(); workspace.CurrentCamera:GetPropertyChangedSignal("ViewportSize"):Connect(
 local header = new("Frame", { Size = UDim2.new(1, 0, 0, 62), BackgroundTransparency = 1, Parent = window })
 local logoLabel = label({ Text = "CLL", Font = Enum.Font.Michroma, TextSize = 26, TextTruncate = Enum.TextTruncate.AtEnd, Size = UDim2.fromOffset(100, 62), Position = UDim2.fromOffset(23, 0), Parent = header })
 logoLabel.TextColor3 = Color3.fromRGB(255, 255, 255) -- Always white
-local verLabel = label({ Text = "v11.69-ao", Font = Enum.Font.GothamBold, TextSize = 12, TextColor3 = Theme.Dim, Size = UDim2.fromOffset(50, 62), Position = UDim2.fromOffset(85, 2), Parent = header })
+local verLabel = label({ Text = "v11.70-ap", Font = Enum.Font.GothamBold, TextSize = 12, TextColor3 = Theme.Dim, Size = UDim2.fromOffset(50, 62), Position = UDim2.fromOffset(85, 2), Parent = header })
 local timeLabel = label({ Text = "Session: 00:00", Font = Enum.Font.GothamMedium, TextSize = 13, TextColor3 = Theme.Dim, Size = UDim2.fromOffset(150, 62), Position = UDim2.fromOffset(150, 0), Parent = header })
 task.spawn(function()
 	while not ST.isUnloaded do
