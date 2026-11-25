@@ -1,6 +1,6 @@
 --[[
     ╔═══════════════════════════════════════════════════════════════╗
-    ║              CLL CHEAT - FULL INTEGRATION v11.70-ap (native Q/G grab mirror + VR restore)                ║
+    ║              CLL CHEAT - FULL INTEGRATION v11.71-aq (native Q/G grab mirror + VR restore)                ║
     ╠═══════════════════════════════════════════════════════════════╣
     ║  SUK head-hit, real crosshair, tracers, ESP outline nick,     ║
     ║  ChinaHat/Wings fix, VR hands, anti-flash/shake, antibypass   ║
@@ -965,9 +965,14 @@ function GetTargets()
         if target == LocalPlayer or not target.Parent then return end
         if (ST.SUK_IgnoreFriends and IsFriend(target)) or IsWhitelisted(target) then return end
         local char = target.Character
-        local head = char and char:FindFirstChild("Head")
-        local hum = char and char:FindFirstChildOfClass("Humanoid")
-        if head and hum and hum.Health > 0 then table.insert(targets, {char = char, head = head, plr = target}) end
+        if not char then return end
+        -- server ignores damage on these; Hit would be pure phantoms
+        if char:GetAttribute("Ragdoll") or char:GetAttribute("Downed") or char:GetAttribute("Carried") then return end
+        local head = char:FindFirstChild("Head")
+        local hum = char:FindFirstChildOfClass("Humanoid")
+        if not head or not hum or hum.Health <= 0 then return end
+        if hum:GetState() == Enum.HumanoidStateType.Dead then return end
+        table.insert(targets, {char = char, head = head, plr = target, hum = hum})
     end
     local function addNPCs()
         if #NPC_List == 0 and ST.SUK_TargetNPCs then
@@ -1187,6 +1192,7 @@ function InstantReload(tool)
 	if ST._reloadRunning then return end
 	ST._reloadRunning = true
 	ST.reloadInProgress = true
+	ST._reloadStartedAt = os.clock()
 
 	local function boostReloadAnims()
 		pcall(function()
@@ -1447,6 +1453,12 @@ function MultiFireAt()
 		tool:SetAttribute("CanFire", true)
 	end)
 	if ST.reloadInProgress or ST._reloadRunning then return end
+	if not tool or tool.Parent ~= LocalPlayer.Character then return end
+	if not head or not head.Parent then return end
+	local liveChar = head.Parent
+	if liveChar:GetAttribute("Ragdoll") or liveChar:GetAttribute("Downed") then return end
+	local liveHum = liveChar:FindFirstChildOfClass("Humanoid")
+	if not liveHum or liveHum.Health <= 0 then return end
 	-- spend shell NOW so concurrent MultiFireAt in same tick cannot reuse it
 	if (ST._sukChamber or 0) <= 0 then return end
 	ST._sukChamber = math.max(0, (ST._sukChamber or 1) - 1)
@@ -1458,35 +1470,43 @@ function MultiFireAt()
 		if cv and (cv:IsA("NumberValue") or cv:IsA("IntValue")) then cv.Value = cur end
 	end)
 
-	local function firePayload(org)
-		pcall(function()
-			FireRemote:FireServer(tool, "Fire", {
-				velocity = 2000,
-				bullet = bulletModel,
-				origin = org,
-				direction = dir,
-			})
-		end)
-	end
-
-	firePayload(muzzle)
-	firePayload(nearHead)
-	markLocalShot(nearHead)
+	-- ONE Fire from real muzzle only (nearHead Fire fails server origin checks at range)
+	pcall(function()
+		FireRemote:FireServer(tool, "Fire", {
+			velocity = 2000,
+			bullet = bulletModel,
+			origin = muzzle,
+			direction = dir,
+		})
+	end)
+	markLocalShot(muzzle)
 
 	if head and head.Parent then
-		local vel = dir * 2000
-		local bcf = CFrame.lookAt(hitPos - dir * 0.4, hitPos)
-		-- 1 Hit per shell (one bullet → one target cycle)
+		-- lag/distance predict: aim slightly ahead of head velocity
+		local pred = hitPos
+		pcall(function()
+			local hp = head
+			if hp and hp.AssemblyLinearVelocity then
+				local spd = hp.AssemblyLinearVelocity
+				local dist = (hitPos - muzzle).Magnitude
+				local t = math.clamp(dist / 2000, 0, 0.35)
+				pred = hitPos + spd * t
+			end
+		end)
+		local dir2 = (pred - muzzle)
+		if dir2.Magnitude < 0.05 then dir2 = dir else dir2 = dir2.Unit end
+		local vel = dir2 * 2000
+		local bcf = CFrame.lookAt(pred - dir2 * 0.35, pred)
 		pcall(function()
 			FireRemote:FireServer(tool, "Hit", {
 				hit = head,
-				normal = -dir,
-				position = hitPos,
+				normal = -dir2,
+				position = pred,
 				velocity = vel,
 				bullet_cframe = bcf,
 			})
 		end)
-		HelperFire("Gun Base", "Hit", head, hitPos, -dir, vel, bulletModel)
+		HelperFire("Gun Base", "Hit", head, pred, -dir2, vel, bulletModel)
 		HelperFire("Fx", "Hitmarker", head)
 		markKillCandidate(head.Parent)
 		task.defer(function()
@@ -1496,16 +1516,17 @@ function MultiFireAt()
 		end)
 	end
 
+	-- local pellets from muzzle so tracers match real shot path
 	for i = 0, 7 do
 		HelperFire("Fx", "Fire Bullet", tool, {
 			velocity = 2000,
 			bullet = bulletModel,
-			origin = nearHead,
+			origin = muzzle,
 			direction = dir,
 		})
 	end
 	if ST.TracersEnabled and ST.TracerSelfEnabled then
-		CreateTracer(origin, aimPos, ST.ColorSelf)
+		CreateTracer(muzzle, aimPos, ST.ColorSelf)
 	end
 
 	local ca = ST._sukChamber or 0
@@ -1535,6 +1556,26 @@ task.spawn(function()
 	end
 end)
 
+
+-- SUK reload watchdog: unstick _reloadRunning after 3s so damage never dies forever
+task.spawn(function()
+	while not ST.isUnloaded do
+		task.wait(0.5)
+		if ST._reloadRunning or ST.reloadInProgress then
+			local t0 = ST._reloadStartedAt
+			if typeof(t0) ~= "number" then
+				ST._reloadStartedAt = os.clock()
+			elseif (os.clock() - t0) > 3.5 then
+				ST.reloadInProgress = false
+				ST._reloadRunning = false
+				ST._reloadStartedAt = nil
+				-- allow next empty cycle to retry InstantReload
+			end
+		else
+			ST._reloadStartedAt = nil
+		end
+	end
+end)
 function FireNormalGun(tool)
     if not FireRemote or not tool then return end
     if tool.Parent ~= LocalPlayer.Character then return end
@@ -4029,7 +4070,7 @@ fit(); workspace.CurrentCamera:GetPropertyChangedSignal("ViewportSize"):Connect(
 local header = new("Frame", { Size = UDim2.new(1, 0, 0, 62), BackgroundTransparency = 1, Parent = window })
 local logoLabel = label({ Text = "CLL", Font = Enum.Font.Michroma, TextSize = 26, TextTruncate = Enum.TextTruncate.AtEnd, Size = UDim2.fromOffset(100, 62), Position = UDim2.fromOffset(23, 0), Parent = header })
 logoLabel.TextColor3 = Color3.fromRGB(255, 255, 255) -- Always white
-local verLabel = label({ Text = "v11.70-ap", Font = Enum.Font.GothamBold, TextSize = 12, TextColor3 = Theme.Dim, Size = UDim2.fromOffset(50, 62), Position = UDim2.fromOffset(85, 2), Parent = header })
+local verLabel = label({ Text = "v11.71-aq", Font = Enum.Font.GothamBold, TextSize = 12, TextColor3 = Theme.Dim, Size = UDim2.fromOffset(50, 62), Position = UDim2.fromOffset(85, 2), Parent = header })
 local timeLabel = label({ Text = "Session: 00:00", Font = Enum.Font.GothamMedium, TextSize = 13, TextColor3 = Theme.Dim, Size = UDim2.fromOffset(150, 62), Position = UDim2.fromOffset(150, 0), Parent = header })
 task.spawn(function()
 	while not ST.isUnloaded do
