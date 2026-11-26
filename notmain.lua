@@ -1,6 +1,6 @@
 --[[
     ╔═══════════════════════════════════════════════════════════════╗
-    ║              CLL CHEAT - FULL INTEGRATION v11.80-bb (native Q/G grab mirror + VR restore)                ║
+    ║              CLL CHEAT - FULL INTEGRATION v11.82-bd (native Q/G grab mirror + VR restore)                ║
     ╠═══════════════════════════════════════════════════════════════╣
     ║  SUK head-hit, real crosshair, tracers, ESP outline nick,     ║
     ║  ChinaHat/Wings fix, VR hands, anti-flash/shake, antibypass   ║
@@ -419,7 +419,19 @@ local LANG = {
 		t_fb = "Fullbright", d_fb = "Делает карту полностью яркой.",
 		t_time = "Время суток", d_time = "Фиксирует время дня.",
 		t_fovlock = "FOV камеры", d_fovlock = "Фиксирует поле зрения камеры.",
-
+		t_rain = "Убрать дождь", d_rain = "Один раз убирает дождь, облака и погоду.",
+		t_wrain = "Дождь", d_wrain = "Включает дождливую погоду.",
+		t_hitbox = "Хитбокс", d_hitbox = "Увеличивает хитбокс цели.",
+		t_norecoil = "Без отдачи", d_norecoil = "Убирает отдачу оружия.",
+		t_firerate = "Скорострельность", d_firerate = "Ускоряет выстрелы при зажатии ЛКМ.",
+		t_nospread = "Без разброса", d_nospread = "Убирает разброс Spas/Remington.",
+		t_maxzoom = "Макс. зум", d_maxzoom = "Меняет максимальную дистанцию камеры.",
+		t_sky = "Цвет неба", d_sky = "Красит небо и ambient.",
+		tab_Combat = "Бой", tab_Movement = "Движение", tab_Visual = "Визуал",
+		tab_Effects = "Эффекты", tab_Target = "Цели", tab_Keybinds = "Бинды",
+		tab_VR = "VR", tab_Settings = "Настройки", tab_Profile = "Профиль",
+		sec_ATTACK = "АТАКА", sec_MOVEMENT = "ДВИЖЕНИЕ", sec_VISUAL = "ВИЗУАЛ", sec_EFFECTS = "ЭФФЕКТЫ",
+		hint_rmb = "ПКМ — настройки",
 	},
 	en = {
 		suk_warn = "⚠ For stable hitreg: RPS 6–8 · Delay 0.12–0.15 · Targets/tick = 1.\nToo high firerate → FX only, no damage.",
@@ -505,13 +517,38 @@ local LANG = {
 		t_fb = "Fullbright", d_fb = "Makes the map fully bright.",
 		t_time = "Time Override", d_time = "Locks the clock time of day.",
 		t_fovlock = "Camera FOV Lock", d_fovlock = "Locks camera field of view.",
-
+		t_rain = "Clear Rain/Weather", d_rain = "Removes rain, clouds and weather once.",
+		t_wrain = "Weather Rain", d_wrain = "Turns rainy weather on.",
+		t_hitbox = "Hitbox Expander", d_hitbox = "Makes target hitboxes larger.",
+		t_norecoil = "No Recoil", d_norecoil = "Removes weapon camera recoil.",
+		t_firerate = "Firerate", d_firerate = "Speeds up shots while you hold fire.",
+		t_nospread = "No Spread", d_nospread = "Removes Spas/Remington pellet spread.",
+		t_maxzoom = "Max Zoom", d_maxzoom = "Changes max camera zoom distance.",
+		t_sky = "Sky Color", d_sky = "Recolors the sky and ambient light.",
+		tab_Combat = "Combat", tab_Movement = "Movement", tab_Visual = "Visual",
+		tab_Effects = "Effects", tab_Target = "Target", tab_Keybinds = "Keybinds",
+		tab_VR = "VR", tab_Settings = "Settings", tab_Profile = "Profile",
+		sec_ATTACK = "ATTACK", sec_MOVEMENT = "MOVEMENT", sec_VISUAL = "VISUAL", sec_EFFECTS = "EFFECTS",
+		hint_rmb = "RMB - settings",
 	},
 }
 
 function L(key)
-	local pack = LANG[ST.Language or "ru"] or LANG.ru
-	return pack[key] or (LANG.en and LANG.en[key]) or key
+	if type(key) ~= "string" or key == "" then return tostring(key or "") end
+	local lang = ST.Language
+	if lang ~= "en" and lang ~= "ru" then lang = "en" end
+	local pack = LANG[lang] or LANG.en or LANG.ru
+	local s = pack and pack[key]
+	if type(s) == "string" then return s end
+	local alt = (lang == "en") and LANG.ru or LANG.en
+	s = alt and alt[key]
+	if type(s) == "string" then return s end
+	return key
+end
+local function Lt(key, fallback)
+	local s = L(key)
+	if type(s) ~= "string" or s == key then return fallback or key end
+	return s
 end
 local UI_LangHooks = {} -- functions() to refresh labels on language change
 local function refreshLanguage()
@@ -524,7 +561,10 @@ local function refreshLanguage()
 			if d:IsA("TextLabel") or d:IsA("TextButton") then
 				local k = d:GetAttribute("CLL_LangKey")
 				if type(k) == "string" and k ~= "" then
-					d.Text = L(k)
+					local t = L(k)
+					if type(t) == "string" and t ~= k then
+						d.Text = t
+					end
 				end
 			end
 		end
@@ -1174,8 +1214,9 @@ function GetTargets()
         if (ST.SUK_IgnoreFriends and IsFriend(target)) or IsWhitelisted(target) then return end
         local char = target.Character
         if not char then return end
-        -- server ignores damage on these; Hit would be pure phantoms
-        if char:GetAttribute("Ragdoll") or char:GetAttribute("Downed") or char:GetAttribute("Carried") then return end
+        -- only skip fully downed/carried; alive ragdoll still takes damage
+        if char:GetAttribute("Downed") or char:GetAttribute("Carried") then return end
+        -- do NOT filter Ragdoll attribute / PlatformStand — still shoot
         local head = char:FindFirstChild("Head")
         local hum = char:FindFirstChildOfClass("Humanoid")
         if not head or not hum or hum.Health <= 0 then return end
@@ -1457,27 +1498,38 @@ function InstantReload(tool)
 			boostReloadAnims()
 
 			if isShotgun then
+				-- always top to full tube (need shells)
+				need = math.max(need, max - current)
+				if need < 1 then need = max end
 				ReloadRemote:InvokeServer(tool, "Start Reload")
 				boostReloadAnims()
 				local step = math.clamp(tonumber(ST.ReloadSpeed) or 0.08, 0.06, 0.2)
+				local loaded = current
 				for i = 1, need do
 					if ST.isUnloaded or not tool or not tool.Parent then break end
-					-- abort mid-reload if SUK was turned off and caller cleared flags
 					if not ST._reloadRunning then break end
 					ReloadRemote:InvokeServer(tool, "New Shell")
 					ReloadRemote:InvokeServer(tool, "Insert Shell")
 					boostReloadAnims()
 					task.wait(step)
-					local ca = math.min(max, current + i)
+					loaded = math.min(max, current + i)
 					pcall(function()
-						tool:SetAttribute("ClientAmmo", ca)
-						tool:SetAttribute("CurrentAmmo", ca)
+						tool:SetAttribute("ClientAmmo", loaded)
+						tool:SetAttribute("CurrentAmmo", loaded)
 						local cv = tool:FindFirstChild("CurrentAmmo")
-						if cv and (cv:IsA("NumberValue") or cv:IsA("IntValue")) then cv.Value = ca end
+						if cv and (cv:IsA("NumberValue") or cv:IsA("IntValue")) then cv.Value = loaded end
 					end)
 				end
-				task.wait(0.03)
+				-- guarantee 8/8 client chamber after cycle
+				pcall(function()
+					tool:SetAttribute("ClientAmmo", max)
+					tool:SetAttribute("CurrentAmmo", max)
+					local cv = tool:FindFirstChild("CurrentAmmo")
+					if cv and (cv:IsA("NumberValue") or cv:IsA("IntValue")) then cv.Value = max end
+				end)
+				task.wait(0.05)
 				ReloadRemote:InvokeServer(tool, "Stop Reload")
+				okReload = true
 			else
 				ReloadRemote:InvokeServer(tool)
 				task.wait(0.02)
@@ -1507,8 +1559,12 @@ function InstantReload(tool)
 			maxA = tonumber(m) or maxA
 		end)
 		if okReload then
-			local ca = tonumber(select(1, ReadAmmo(tool)))
-			ST._sukChamber = (ca and ca > 0) and math.min(ca, maxA) or maxA
+			-- full mag after completed reload cycle
+			ST._sukChamber = maxA
+			pcall(function()
+				tool:SetAttribute("ClientAmmo", maxA)
+				tool:SetAttribute("CurrentAmmo", maxA)
+			end)
 		else
 			ST._sukChamber = 0
 		end
@@ -1663,7 +1719,7 @@ function MultiFireAt()
 	if not tool or tool.Parent ~= LocalPlayer.Character then return end
 	if not head or not head.Parent then return end
 	local liveChar = head.Parent
-	if liveChar:GetAttribute("Ragdoll") or liveChar:GetAttribute("Downed") then return end
+	if liveChar:GetAttribute("Downed") then return end -- ragdoll still takes hits
 	local liveHum = liveChar:FindFirstChildOfClass("Humanoid")
 	if not liveHum or liveHum.Health <= 0 then return end
 	-- spend shell NOW so concurrent MultiFireAt in same tick cannot reuse it
@@ -4261,34 +4317,37 @@ local function repaintThemeTree(root)
 	pcall(function()
 		local function walk(o)
 			if not o then return end
+			local role = o:GetAttribute("CLL_ThemeRole")
 			if o:IsA("TextLabel") or o:IsA("TextButton") or o:IsA("TextBox") then
-				local tc = o.TextColor3
-				local lum = tc.R * 0.3 + tc.G * 0.59 + tc.B * 0.11
-				if ST.ThemeLight then
-					if lum > 0.72 then
-						o.TextColor3 = Theme.Text
-					elseif lum > 0.45 then
-						o.TextColor3 = Theme.Dim
-					end
+				if role == "dim" or (not role and o.TextSize and o.TextSize <= 12) then
+					o.TextColor3 = Theme.Dim
 				else
-					if lum < 0.3 then
-						o.TextColor3 = Theme.Text
+					-- force readable body text
+					local tc = o.TextColor3
+					local lum = tc.R * 0.3 + tc.G * 0.59 + tc.B * 0.11
+					if ST.ThemeLight then
+						if lum > 0.55 then o.TextColor3 = Theme.Text end
+					else
+						if lum < 0.45 then o.TextColor3 = Theme.Text end
 					end
 				end
 			end
 			if o:IsA("UIStroke") then
 				pcall(function() o.Color = Theme.Stroke end)
 			end
-			if o:IsA("Frame") or o:IsA("CanvasGroup") or o:IsA("TextButton") then
-				if o.BackgroundTransparency < 0.9 then
+			if o:IsA("Frame") or o:IsA("CanvasGroup") then
+				if role == "bg" or o == UIRefs.window then
+					o.BackgroundColor3 = Theme.Bg
+				elseif role == "panel" then
+					o.BackgroundColor3 = Theme.Panel
+				elseif role == "row" then
+					o.BackgroundColor3 = Theme.Row
+				elseif o.BackgroundTransparency < 0.85 then
 					local bg = o.BackgroundColor3
 					local lum = bg.R * 0.3 + bg.G * 0.59 + bg.B * 0.11
-					local nm = o.Name or ""
-					if o == UIRefs.window or nm == "Window" then
-						o.BackgroundColor3 = Theme.Bg
-					elseif ST.ThemeLight and lum < 0.25 then
+					if ST.ThemeLight and lum < 0.22 then
 						o.BackgroundColor3 = Theme.Panel
-					elseif (not ST.ThemeLight) and lum > 0.85 then
+					elseif (not ST.ThemeLight) and lum > 0.82 then
 						o.BackgroundColor3 = Theme.Panel
 					end
 				end
@@ -4361,9 +4420,15 @@ label = function(p)
 	p.TextXAlignment = p.TextXAlignment or Enum.TextXAlignment.Left
 	local langKey = p.LangKey
 	p.LangKey = nil
+	local isDim = (p.TextColor3 == Theme.Dim)
 	local o = new("TextLabel", p)
 	if type(langKey) == "string" and langKey ~= "" then
 		o:SetAttribute("CLL_LangKey", langKey)
+	end
+	if isDim then
+		o:SetAttribute("CLL_ThemeRole", "dim")
+	else
+		o:SetAttribute("CLL_ThemeRole", "text")
 	end
 	return o
 end
@@ -4494,7 +4559,7 @@ fit(); workspace.CurrentCamera:GetPropertyChangedSignal("ViewportSize"):Connect(
 local header = new("Frame", { Size = UDim2.new(1, 0, 0, 62), BackgroundTransparency = 1, Parent = window })
 local logoLabel = label({ Text = "CLL", Font = Enum.Font.Michroma, TextSize = 26, TextTruncate = Enum.TextTruncate.AtEnd, Size = UDim2.fromOffset(100, 62), Position = UDim2.fromOffset(23, 0), Parent = header })
 logoLabel.TextColor3 = Color3.fromRGB(255, 255, 255) -- Always white
-local verLabel = label({ Text = "v11.80-bb", Font = Enum.Font.GothamBold, TextSize = 12, TextColor3 = Theme.Dim, Size = UDim2.fromOffset(50, 62), Position = UDim2.fromOffset(85, 2), Parent = header })
+local verLabel = label({ Text = "v11.82-bd", Font = Enum.Font.GothamBold, TextSize = 12, TextColor3 = Theme.Dim, Size = UDim2.fromOffset(50, 62), Position = UDim2.fromOffset(85, 2), Parent = header })
 local timeLabel = label({ Text = "Session: 00:00", Font = Enum.Font.GothamMedium, TextSize = 13, TextColor3 = Theme.Dim, Size = UDim2.fromOffset(150, 62), Position = UDim2.fromOffset(150, 0), Parent = header })
 task.spawn(function()
 	while not ST.isUnloaded do
@@ -4954,19 +5019,28 @@ function buildFeaturePage(page, sectionTitle, features)
 	label({ Text = "RMB - settings", Font = Enum.Font.Gotham, TextSize = 11, TextColor3 = Theme.Dim, TextXAlignment = Enum.TextXAlignment.Right, Size = UDim2.fromOffset(120, 18), Position = UDim2.new(1, -132, 0, 12), Parent = panel })
 	local list = new("ScrollingFrame", { Size = UDim2.new(1, -12, 1, -42), Position = UDim2.fromOffset(6, 36), BackgroundTransparency = 1, BorderSizePixel = 0, ScrollBarThickness = 3, ScrollBarImageColor3 = Theme.Stroke, CanvasSize = UDim2.new(), AutomaticCanvasSize = Enum.AutomaticSize.Y, Parent = panel }, { new("UIListLayout", { Padding = UDim.new(0, 4), SortOrder = Enum.SortOrder.LayoutOrder }), new("UIPadding", { PaddingTop = UDim.new(0, 4), PaddingBottom = UDim.new(0, 8), PaddingLeft = UDim.new(0, 8), PaddingRight = UDim.new(0, 8) }) })
 	for i, feat in ipairs(features) do
-		local descText = (feat.descKey and L(feat.descKey)) or feat.desc
-		local rowH = descText and 52 or 36
+		local descText = (feat.descKey and Lt(feat.descKey, feat.desc)) or feat.desc
+		if not descText or descText == "" then
+			descText = feat.desc
+		end
+		-- always show a short description when we have a name
+		if (not descText or descText == "") and feat.name then
+			descText = nil -- optional
+		end
+		local rowH = descText and 54 or 40
 		local row = new("Frame", { Size = UDim2.new(1, 0, 0, rowH), BackgroundColor3 = Theme.Row, BackgroundTransparency = 0.35, LayoutOrder = i, Parent = list }, { corner(8) })
-		local accentLine = new("Frame", { Size = UDim2.fromOffset(3, 16), Position = UDim2.fromOffset(8, descText and 18 or 10), BackgroundColor3 = Theme.Accent, BackgroundTransparency = feat.buildDetail and 0.3 or 1, BorderSizePixel = 0, Parent = row }, { corner(2) })
+		row:SetAttribute("CLL_ThemeRole", "row")
+		local accentLine = new("Frame", { Size = UDim2.fromOffset(3, 18), Position = UDim2.fromOffset(8, (rowH - 18) / 2), BackgroundColor3 = Theme.Accent, BackgroundTransparency = feat.buildDetail and 0.3 or 1, BorderSizePixel = 0, Parent = row }, { corner(2) })
 		subscribeTheme(function() accentLine.BackgroundColor3 = Theme.Accent end)
-		local titleStr = (feat.nameKey and L(feat.nameKey)) or feat.name
-		label({ Text = titleStr, Font = Enum.Font.GothamMedium, TextSize = 13, Size = UDim2.new(1, -100, 0, 18), Position = UDim2.fromOffset(18, descText and 6 or 9), Parent = row, LangKey = feat.nameKey })
+		local titleStr = (feat.nameKey and Lt(feat.nameKey, feat.name)) or feat.name
+		label({ Text = titleStr, Font = Enum.Font.GothamMedium, TextSize = 13, Size = UDim2.new(1, -100, 0, 18), Position = UDim2.fromOffset(18, descText and 6 or 11), Parent = row, LangKey = feat.nameKey })
 		if descText then
 			label({ Text = descText, Font = Enum.Font.Gotham, TextSize = 11, TextColor3 = Theme.Dim, TextTruncate = Enum.TextTruncate.AtEnd, Size = UDim2.new(1, -100, 0, 16), Position = UDim2.fromOffset(18, 28), Parent = row, LangKey = feat.descKey })
 		end
 		if feat.buildDetail then label({ Text = "⚙", Font = Enum.Font.GothamBold, TextSize = 14, TextColor3 = Theme.Dim, TextXAlignment = Enum.TextXAlignment.Center, Size = UDim2.fromOffset(28, rowH), Position = UDim2.new(1, -78, 0, 0), Parent = row }) end
 		local hit = new("TextButton", { Text = "", AutoButtonColor = false, BackgroundTransparency = 1, Size = UDim2.new(1, -52, 1, 0), Parent = row })
-		local swHolder = new("Frame", { BackgroundTransparency = 1, Size = UDim2.fromOffset(48, 36), Position = UDim2.new(1, -48, 0, 0), ZIndex = 5, Parent = row })
+		-- full row height so toggle sits centered (not stuck to top)
+		local swHolder = new("Frame", { BackgroundTransparency = 1, Size = UDim2.fromOffset(48, rowH), Position = UDim2.new(1, -48, 0, 0), ZIndex = 5, Parent = row })
 		local initOn = feat.getState and (feat.getState() == true) or (feat.initial == true)
 		local setT = makeMiniToggle(swHolder, initOn, function(v) feat.onToggle(v) end)
 		UI_SyncHooks = UI_SyncHooks or {}
@@ -5382,7 +5456,7 @@ function buildProfile()
 		return t, v
 	end
 	local tBuild, vBuild = row("profile_build", 225)
-	vBuild.Text = "v11.80-bb"
+	vBuild.Text = "v11.82-bd"
 	local tSess, vSess = row("profile_session", 250)
 	local tStat, vStat = row("profile_status", 275)
 	vStat.Text = L("profile_active")
