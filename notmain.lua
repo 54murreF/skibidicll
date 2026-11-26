@@ -1,6 +1,6 @@
 --[[
     ╔═══════════════════════════════════════════════════════════════╗
-    ║              CLL CHEAT - FULL INTEGRATION v11.82-bd (native Q/G grab mirror + VR restore)                ║
+    ║              CLL CHEAT - FULL INTEGRATION v11.83-be (native Q/G grab mirror + VR restore)                ║
     ╠═══════════════════════════════════════════════════════════════╣
     ║  SUK head-hit, real crosshair, tracers, ESP outline nick,     ║
     ║  ChinaHat/Wings fix, VR hands, anti-flash/shake, antibypass   ║
@@ -160,6 +160,9 @@ local ST = {
 	MenuGridSpeed = 1,
 	MenuGridTransparency = 0.85,
 	MenuGridColor = Color3.fromRGB(80, 140, 255),
+	MenuBgStyle = "chess",
+	MenuGridRotation = 0,
+	AccentH = 220, AccentS = 0.78, AccentV = 1,
 	WatermarkMainVisible = true,
 	WatermarkBindsVisible = true,
 	WatermarkWorldVisible = true,
@@ -4296,7 +4299,7 @@ local ThemeLight = {
 }
 local Theme = {}
 for k, v in pairs(ThemeDark) do Theme[k] = v end
-ST.ThemeLight = ST.ThemeLight or false
+ST.ThemeLight = false
 
 local CosmeticColorCustom = Color3.fromRGB(55, 120, 255)
 local CosmeticUseCustom = true
@@ -4305,6 +4308,20 @@ local watermarkMain, watermarkBinds, watermarkWorld = nil, nil, nil
 local UIRefs = { window = nil, logoLabel = nil, sidebar = nil, header = nil }
 local ThemeSubscribers = {}
 function subscribeTheme(fn) ThemeSubscribers[#ThemeSubscribers + 1] = fn end
+
+local function accentFromHSV()
+	local h = tonumber(ST.AccentH) or 220
+	local s = tonumber(ST.AccentS) or 0.78
+	local v = tonumber(ST.AccentV) or 1
+	local col = Color3.fromHSV(math.clamp(h, 0, 360) / 360, math.clamp(s, 0, 1), math.clamp(v, 0, 1))
+	Theme.Accent = col
+	Theme.OnTrack = col
+	ST.MenuGridColor = col
+	CosmeticColorCustom = col
+	fireTheme()
+	pcall(function() if rebuildMenuGrid and ST.MenuGridEnabled then rebuildMenuGrid() end end)
+	return col
+end
 
 function fireTheme()
 	Theme.OnTrack = Theme.Accent
@@ -4359,7 +4376,9 @@ local function repaintThemeTree(root)
 end
 
 function applyThemeMode(light, animate)
-	ST.ThemeLight = light and true or false
+	-- light theme removed
+	ST.ThemeLight = false
+	if light then return end
 	local srcT = light and ThemeLight or ThemeDark
 	-- keep accent from current
 	local accent = Theme.Accent
@@ -4559,7 +4578,7 @@ fit(); workspace.CurrentCamera:GetPropertyChangedSignal("ViewportSize"):Connect(
 local header = new("Frame", { Size = UDim2.new(1, 0, 0, 62), BackgroundTransparency = 1, Parent = window })
 local logoLabel = label({ Text = "CLL", Font = Enum.Font.Michroma, TextSize = 26, TextTruncate = Enum.TextTruncate.AtEnd, Size = UDim2.fromOffset(100, 62), Position = UDim2.fromOffset(23, 0), Parent = header })
 logoLabel.TextColor3 = Color3.fromRGB(255, 255, 255) -- Always white
-local verLabel = label({ Text = "v11.82-bd", Font = Enum.Font.GothamBold, TextSize = 12, TextColor3 = Theme.Dim, Size = UDim2.fromOffset(50, 62), Position = UDim2.fromOffset(85, 2), Parent = header })
+local verLabel = label({ Text = "v11.83-be", Font = Enum.Font.GothamBold, TextSize = 12, TextColor3 = Theme.Dim, Size = UDim2.fromOffset(50, 62), Position = UDim2.fromOffset(85, 2), Parent = header })
 local timeLabel = label({ Text = "Session: 00:00", Font = Enum.Font.GothamMedium, TextSize = 13, TextColor3 = Theme.Dim, Size = UDim2.fromOffset(150, 62), Position = UDim2.fromOffset(150, 0), Parent = header })
 task.spawn(function()
 	while not ST.isUnloaded do
@@ -4632,7 +4651,8 @@ for idx, name in ipairs(TAB_ORDER) do
 	local btn = new("TextButton", { Name = name, Text = "", AutoButtonColor = false, Size = UDim2.new(1, -16, 0, 34), Position = UDim2.fromOffset(8, 8 + (idx - 1) * 38), BackgroundColor3 = Theme.TabOn, BackgroundTransparency = 1, Parent = sidebar }, { corner(10) })
 	local iconFrame = new("Frame", { Size = UDim2.fromOffset(22, 22), AnchorPoint = Vector2.new(0, 0.5), Position = UDim2.new(0, 10, 0.5, 0), BackgroundTransparency = 1, Parent = btn })
 	local setColor = makeIcon(iconFrame, IconBuilders[name] or IconBuilders.Settings)
-	local lbl = label({ Text = name, Font = Enum.Font.GothamMedium, TextSize = 13, TextColor3 = Theme.Dim, Size = UDim2.new(1, -48, 1, 0), Position = UDim2.fromOffset(36, 0), Parent = btn })
+	local tabKey = "tab_" .. name
+	local lbl = label({ Text = Lt(tabKey, name), Font = Enum.Font.GothamMedium, TextSize = 13, TextColor3 = Theme.Dim, Size = UDim2.new(1, -48, 1, 0), Position = UDim2.fromOffset(36, 0), Parent = btn, LangKey = tabKey })
 	tabs[name] = { btn = btn, setColor = setColor, lbl = lbl }
 	pages[name] = new("Frame", { Name = name, Size = UDim2.fromScale(1, 1), BackgroundTransparency = 1, Visible = false, Parent = contentFrame })
 	local tabName = name
@@ -5456,7 +5476,7 @@ function buildProfile()
 		return t, v
 	end
 	local tBuild, vBuild = row("profile_build", 225)
-	vBuild.Text = "v11.82-bd"
+	vBuild.Text = "v11.83-be"
 	local tSess, vSess = row("profile_session", 250)
 	local tStat, vStat = row("profile_status", 275)
 	vStat.Text = L("profile_active")
@@ -5577,43 +5597,55 @@ function buildSettings()
 		if langBtn and langBtn.Parent then langBtn.Text = (ST.Language == "en") and "English" or "Русский" end
 	end)
 	y += 44
-	toggle(leftScroll, y, L("t_theme"), function(v)
-		applyThemeMode(v, true)
-	end, ST.ThemeLight == true, function() return ST.ThemeLight == true end, L("d_theme"))
-	y += 54
 	-- Menu grid (spaced so nothing overlaps)
 	toggle(leftScroll, y, L("t_grid"), function(v)
 		ST.MenuGridEnabled = v
 		if rebuildMenuGrid then pcall(rebuildMenuGrid) end
 	end, false, function() return ST.MenuGridEnabled end, L("d_grid"))
 	y += 54
+	label({ Text = "BG Style", TextSize = 13, TextColor3 = Theme.Dim, Size = UDim2.fromOffset(140, 18), Position = UDim2.fromOffset(PAD, y), Parent = leftScroll })
+	local styleBtn = new("TextButton", {
+		Text = tostring(ST.MenuBgStyle or "chess"), Font = Enum.Font.GothamMedium, TextSize = 12, TextColor3 = Theme.Text,
+		AutoButtonColor = false, Size = UDim2.new(1, -PAD * 2 - 150, 0, 28),
+		Position = UDim2.fromOffset(PAD + 150, y - 4), BackgroundColor3 = Theme.Row, Parent = leftScroll,
+	}, { corner(8), stroke() })
+	local styles = { "chess", "grid", "waves" }
+	styleBtn.MouseButton1Click:Connect(function()
+		local cur = ST.MenuBgStyle or "chess"
+		local idx = 1
+		for i, s in ipairs(styles) do if s == cur then idx = i break end end
+		ST.MenuBgStyle = styles[(idx % #styles) + 1]
+		styleBtn.Text = ST.MenuBgStyle
+		if rebuildMenuGrid then pcall(rebuildMenuGrid) end
+	end)
+	y += 44
 	slider(leftScroll, y, "Grid Speed", 0.1, 5, ST.MenuGridSpeed or 1, 0.1, function(v) ST.MenuGridSpeed = v end, function() return ST.MenuGridSpeed or 1 end)
 	y += 58
 	slider(leftScroll, y, "Grid Transparency", 0.3, 0.98, ST.MenuGridTransparency or 0.85, 0.02, function(v) ST.MenuGridTransparency = v end, function() return ST.MenuGridTransparency or 0.85 end)
 	y += 58
-	label({ Text = "Grid Color", TextSize = 13, TextColor3 = Theme.Dim, Size = UDim2.fromOffset(120, 18), Position = UDim2.fromOffset(PAD, y), Parent = leftScroll })
-	local gridPrev = new("Frame", {
-		Size = UDim2.fromOffset(22, 22), Position = UDim2.new(1, -PAD - 22, 0, y - 2),
-		BackgroundColor3 = ST.MenuGridColor or Color3.fromRGB(80, 140, 255), Parent = leftScroll
-	}, { corner(5), stroke() })
-	y += 28
-	local gridPresets = {
-		Color3.fromRGB(80, 140, 255), Color3.fromRGB(255, 80, 120), Color3.fromRGB(80, 255, 160),
-		Color3.fromRGB(255, 200, 60), Color3.fromRGB(180, 100, 255), Color3.fromRGB(255, 255, 255),
-	}
-	local gpi = 1
-	local gridBtn = new("TextButton", {
-		Text = "Cycle grid color", Font = Enum.Font.GothamMedium, TextSize = 12, TextColor3 = Theme.Text,
-		AutoButtonColor = false, Size = UDim2.new(1, -PAD * 2, 0, 28), Position = UDim2.fromOffset(PAD, y),
-		BackgroundColor3 = Theme.Row, Parent = leftScroll
-	}, { corner(8), stroke() })
-	gridBtn.MouseButton1Click:Connect(function()
-		gpi = (gpi % #gridPresets) + 1
-		ST.MenuGridColor = gridPresets[gpi]
-		gridPrev.BackgroundColor3 = ST.MenuGridColor
+	slider(leftScroll, y, "Grid Rotation", 0, 45, ST.MenuGridRotation or 0, 1, function(v)
+		ST.MenuGridRotation = v
 		if rebuildMenuGrid and ST.MenuGridEnabled then pcall(rebuildMenuGrid) end
-	end)
+	end, function() return ST.MenuGridRotation or 0 end)
+	y += 58
+	label({ Text = "Accent HSV", Font = Enum.Font.GothamBold, TextSize = 12, TextColor3 = Theme.Dim, Size = UDim2.fromOffset(200, 18), Position = UDim2.fromOffset(PAD, y), Parent = leftScroll })
+	y += 22
+	local accentPrev = new("Frame", {
+		Size = UDim2.fromOffset(28, 28), Position = UDim2.new(1, -PAD - 28, 0, y - 2),
+		BackgroundColor3 = Theme.Accent, Parent = leftScroll
+	}, { corner(6), stroke() })
+	slider(leftScroll, y, "H", 0, 360, ST.AccentH or 220, 1, function(v)
+		ST.AccentH = v; accentPrev.BackgroundColor3 = accentFromHSV()
+	end, function() return ST.AccentH or 220 end)
 	y += 52
+	slider(leftScroll, y, "S", 0, 1, ST.AccentS or 0.78, 0.01, function(v)
+		ST.AccentS = v; accentPrev.BackgroundColor3 = accentFromHSV()
+	end, function() return ST.AccentS or 0.78 end)
+	y += 52
+	slider(leftScroll, y, "V", 0, 1, ST.AccentV or 1, 0.01, function(v)
+		ST.AccentV = v; accentPrev.BackgroundColor3 = accentFromHSV()
+	end, function() return ST.AccentV or 1 end)
+	y += 56
 	toggle(leftScroll, y, L("t_wm"), function(v) ST.WatermarkMainVisible = v; if watermarkMain then watermarkMain.Visible = v end end, true, function() return ST.WatermarkMainVisible end, L("d_wm")); y += 48
 	toggle(leftScroll, y, L("t_wm_binds"), function(v) ST.WatermarkBindsVisible = v; watermarkBinds.Visible = v end, true, function() return ST.WatermarkBindsVisible end, L("d_wm_binds")); y += 48
 	toggle(leftScroll, y, L("t_wm_world"), function(v) ST.WatermarkWorldVisible = v; watermarkWorld.Visible = v end, true, function() return ST.WatermarkWorldVisible end, L("d_wm_world")); y += 54
@@ -6574,10 +6606,22 @@ buildFeaturePage(pages.Effects, "EFFECTS", {
 		-- one-shot: clear once, do not leave a laggy loop on
 		ST.RemoveRainEnabled = false
 		if not s then return end
+		task.spawn(function()
+			for _ = 1, 40 do
+				pcall(function()
+					local L = game:GetService("Lighting")
+					L.FogStart = 1e9
+					L.FogEnd = 1e9
+					local atm = L:FindFirstChildOfClass("Atmosphere")
+					if atm then atm.Density = 0; atm.Haze = 0; atm.Glare = 0 end
+				end)
+				task.wait(0.12)
+			end
+		end)
 		pcall(function()
 			local L = game:GetService("Lighting")
-			L.FogEnd = 1e6
-			L.FogStart = 0
+			L.FogEnd = 1e9
+			L.FogStart = 1e9
 			L.Brightness = math.max(L.Brightness, 2)
 			for _, v in ipairs(L:GetChildren()) do
 				if v:IsA("Atmosphere") then
@@ -6660,6 +6704,7 @@ rebuildMenuGrid = function()
 		menuGridFolder = nil
 		if menuGridConn then menuGridConn:Disconnect(); menuGridConn = nil end
 		if not ST.MenuGridEnabled or not window or not window.Parent then return end
+
 		local folder = Instance.new("Frame")
 		folder.Name = "CLL_MenuGrid"
 		folder.BackgroundTransparency = 1
@@ -6668,54 +6713,117 @@ rebuildMenuGrid = function()
 		folder.ZIndex = 0
 		folder.Parent = window
 		menuGridFolder = folder
-		local col = ST.MenuGridColor or Color3.fromRGB(80, 140, 255)
-		local tr = math.clamp(ST.MenuGridTransparency or 0.85, 0.2, 0.98)
-		local spacing = 28
-		local lines = {}
-		-- vertical
-		for i = 0, 40 do
-			local ln = Instance.new("Frame")
-			ln.BackgroundColor3 = col
-			ln.BackgroundTransparency = tr
-			ln.BorderSizePixel = 0
-			ln.Size = UDim2.new(0, 1, 1, 40)
-			ln.Position = UDim2.fromOffset(i * spacing, -20)
-			ln.ZIndex = 0
-			ln.Parent = folder
-			lines[#lines+1] = { ln = ln, axis = "v", i = i }
-		end
-		-- horizontal
-		for i = 0, 30 do
-			local ln = Instance.new("Frame")
-			ln.BackgroundColor3 = col
-			ln.BackgroundTransparency = tr
-			ln.BorderSizePixel = 0
-			ln.Size = UDim2.new(1, 40, 0, 1)
-			ln.Position = UDim2.fromOffset(-20, i * spacing)
-			ln.ZIndex = 0
-			ln.Parent = folder
-			lines[#lines+1] = { ln = ln, axis = "h", i = i }
-		end
+
+		local style = ST.MenuBgStyle or "chess"
+		local col = ST.MenuGridColor or Theme.Accent or Color3.fromRGB(80, 140, 255)
+		local tr = math.clamp(ST.MenuGridTransparency or 0.85, 0.15, 0.98)
+		local rot = tonumber(ST.MenuGridRotation) or 0
+		local cell = 26
 		local t0 = os.clock()
-		menuGridConn = RunService.RenderStepped:Connect(function()
-			if ST.isUnloaded or not ST.MenuGridEnabled or not folder.Parent then
-				if menuGridConn then menuGridConn:Disconnect() end
-				return
-			end
-			local spd = math.clamp(ST.MenuGridSpeed or 1, 0.05, 8)
-			local off = ((os.clock() - t0) * spd * 12) % spacing
-			local c = ST.MenuGridColor or col
-			local tr2 = math.clamp(ST.MenuGridTransparency or tr, 0.2, 0.98)
-			for _, d in ipairs(lines) do
-				d.ln.BackgroundColor3 = c
-				d.ln.BackgroundTransparency = tr2
-				if d.axis == "v" then
-					d.ln.Position = UDim2.fromOffset(d.i * spacing - off, -20)
-				else
-					d.ln.Position = UDim2.fromOffset(-20, d.i * spacing - off)
+
+		local function mk(parent, x, y, w, h, c, a)
+			local f = Instance.new("Frame")
+			f.BorderSizePixel = 0
+			f.BackgroundColor3 = c
+			f.BackgroundTransparency = a
+			f.Size = UDim2.fromOffset(w, h)
+			f.Position = UDim2.fromOffset(x, y)
+			f.ZIndex = 0
+			f.Parent = parent
+			return f
+		end
+
+		if style == "chess" then
+			local holder = Instance.new("Frame")
+			holder.BackgroundTransparency = 1
+			holder.Size = UDim2.fromScale(1.7, 1.7)
+			holder.Position = UDim2.fromScale(0.5, 0.5)
+			holder.AnchorPoint = Vector2.new(0.5, 0.5)
+			holder.Rotation = rot
+			holder.ZIndex = 0
+			holder.Parent = folder
+			local cells = {}
+			for gy = 0, 24 do
+				for gx = 0, 28 do
+					local on = ((gx + gy) % 2 == 0)
+					local c = on and col or Color3.new(col.R * 0.32, col.G * 0.32, col.B * 0.32)
+					local a = on and (tr * 0.5 + 0.3) or (tr * 0.8 + 0.12)
+					cells[#cells + 1] = { f = mk(holder, gx * cell - 40, gy * cell - 40, cell, cell, c, a), on = on }
 				end
 			end
-		end)
+			menuGridConn = RunService.RenderStepped:Connect(function()
+				if ST.isUnloaded or not ST.MenuGridEnabled or not folder.Parent then
+					if menuGridConn then menuGridConn:Disconnect() end
+					return
+				end
+				local spd = math.clamp(ST.MenuGridSpeed or 1, 0.05, 8)
+				holder.Rotation = (ST.MenuGridRotation or 0) + ((os.clock() - t0) * spd * 5) % 360
+				local c2 = ST.MenuGridColor or Theme.Accent or col
+				local dark = Color3.new(c2.R * 0.32, c2.G * 0.32, c2.B * 0.32)
+				local tr2 = math.clamp(ST.MenuGridTransparency or tr, 0.15, 0.98)
+				for _, c in ipairs(cells) do
+					c.f.BackgroundColor3 = c.on and c2 or dark
+					c.f.BackgroundTransparency = c.on and (tr2 * 0.5 + 0.3) or (tr2 * 0.8 + 0.12)
+				end
+			end)
+		elseif style == "waves" then
+			local bars = {}
+			for i = 0, 40 do
+				bars[#bars + 1] = { f = mk(folder, i * 16 - 10, 0, 9, 900, col, tr), i = i }
+			end
+			menuGridConn = RunService.RenderStepped:Connect(function()
+				if ST.isUnloaded or not ST.MenuGridEnabled or not folder.Parent then
+					if menuGridConn then menuGridConn:Disconnect() end
+					return
+				end
+				local spd = math.clamp(ST.MenuGridSpeed or 1, 0.05, 8)
+				local t = (os.clock() - t0) * spd
+				local c2 = ST.MenuGridColor or Theme.Accent or col
+				local tr2 = math.clamp(ST.MenuGridTransparency or tr, 0.15, 0.98)
+				for _, b in ipairs(bars) do
+					local y = math.sin(t * 1.5 + b.i * 0.32) * 48 + math.sin(t * 0.6 + b.i * 0.12) * 18
+					b.f.Position = UDim2.fromOffset(b.i * 16 - 10, y - 30)
+					b.f.BackgroundColor3 = c2
+					b.f.BackgroundTransparency = tr2
+				end
+			end)
+		else
+			local spacing = 28
+			local holder = Instance.new("Frame")
+			holder.BackgroundTransparency = 1
+			holder.Size = UDim2.fromScale(1.5, 1.5)
+			holder.Position = UDim2.fromScale(0.5, 0.5)
+			holder.AnchorPoint = Vector2.new(0.5, 0.5)
+			holder.Rotation = rot
+			holder.Parent = folder
+			local lines = {}
+			for i = 0, 40 do
+				lines[#lines + 1] = { ln = mk(holder, i * spacing, -20, 1, 900, col, tr), axis = "v", i = i }
+			end
+			for i = 0, 30 do
+				lines[#lines + 1] = { ln = mk(holder, -20, i * spacing, 900, 1, col, tr), axis = "h", i = i }
+			end
+			menuGridConn = RunService.RenderStepped:Connect(function()
+				if ST.isUnloaded or not ST.MenuGridEnabled or not folder.Parent then
+					if menuGridConn then menuGridConn:Disconnect() end
+					return
+				end
+				local spd = math.clamp(ST.MenuGridSpeed or 1, 0.05, 8)
+				local off = ((os.clock() - t0) * spd * 12) % spacing
+				local c2 = ST.MenuGridColor or Theme.Accent or col
+				local tr2 = math.clamp(ST.MenuGridTransparency or tr, 0.15, 0.98)
+				holder.Rotation = ST.MenuGridRotation or 0
+				for _, L in ipairs(lines) do
+					L.ln.BackgroundColor3 = c2
+					L.ln.BackgroundTransparency = tr2
+					if L.axis == "v" then
+						L.ln.Position = UDim2.fromOffset(L.i * spacing - off, -20)
+					else
+						L.ln.Position = UDim2.fromOffset(-20, L.i * spacing - off)
+					end
+				end
+			end)
+		end
 	end)
 end
 
@@ -7096,44 +7204,61 @@ UIS.InputBegan:Connect(function(input, gp)
 	if gp or UIS:GetFocusedTextBox() then return end
 	local key = input.KeyCode
 	if key == (Keys.Menu or Enum.KeyCode.RightShift) then setOpen(not isOpen); return end
-	local function pressed(bind) return bind ~= nil and bind ~= Enum.KeyCode.Unknown and key == bind end
-		if pressed(Keys.SUK) then 
-        ST.isMultiSuk = not ST.isMultiSuk
-        if not ST.isMultiSuk then
-            clearSukReloadState()
-        end
-	elseif pressed(Keys.AntiCC) then 
-        ST.AntiCCEnabled = not ST.AntiCCEnabled
-        ST.AntiSlowEnabled = ST.AntiCCEnabled
-	elseif pressed(Keys.ESP) then 
-        ESP_Config.Enabled = not ESP_Config.Enabled
-	elseif pressed(Keys.Hitbox) then 
-        Hitbox_Config.Enabled = not Hitbox_Config.Enabled
-	elseif pressed(Keys.Fly) then 
-        ST.FlyEnabled = not ST.FlyEnabled
-        if not ST.FlyEnabled and flyVelocity then 
-            flyVelocity:Destroy()
-            flyVelocity = nil
-            if flyGyro then flyGyro:Destroy(); flyGyro = nil end 
-        end
-	elseif pressed(Keys.WalkSpeed) then 
-        ST.WalkSpeedEnabled = not ST.WalkSpeedEnabled
-	elseif pressed(Keys.JumpPower) then 
-        ST.JumpPowerEnabled = not ST.JumpPowerEnabled
-	elseif pressed(Keys.Heal) then 
-        ST.HealEnabled = not ST.HealEnabled
-        if ST.HealEnabled then StartHealLoop() else StopHealLoop() end
-	elseif pressed(Keys.SilentAim) then 
-        ST.SilentAimEnabled = not ST.SilentAimEnabled
-        updateFOVCircle()
-	elseif pressed(Keys.TeleportHeal) then 
-        TeleportToHeal()
+	local function pressed(bind)
+		if bind == nil or bind == Enum.KeyCode.Unknown then return false end
+		if typeof(bind) ~= "EnumItem" then return false end
+		if bind.EnumType == Enum.KeyCode then return key == bind end
+		if bind.EnumType == Enum.UserInputType then return input.UserInputType == bind end
+		return false
+	end
+	if pressed(Keys.SUK) then
+		ST.isMultiSuk = not ST.isMultiSuk
+		if not ST.isMultiSuk then clearSukReloadState() end
+	elseif pressed(Keys.AntiCC) then
+		ST.AntiCCEnabled = not ST.AntiCCEnabled
+		ST.AntiSlowEnabled = ST.AntiCCEnabled
+	elseif pressed(Keys.ESP) then
+		ESP_Config.Enabled = not ESP_Config.Enabled
+	elseif pressed(Keys.Hitbox) then
+		Hitbox_Config.Enabled = not Hitbox_Config.Enabled
+	elseif pressed(Keys.Fly) then
+		ST.FlyEnabled = not ST.FlyEnabled
+		if not ST.FlyEnabled then
+			if flyVelocity then flyVelocity:Destroy(); flyVelocity = nil end
+			if flyGyro then flyGyro:Destroy(); flyGyro = nil end
+		end
+	elseif pressed(Keys.WalkSpeed) then
+		ST.WalkSpeedEnabled = not ST.WalkSpeedEnabled
+		local _, h = getCharacterParts()
+		if h then h.WalkSpeed = ST.WalkSpeedEnabled and (ST.WalkSpeedValue or 16) or 16 end
+	elseif pressed(Keys.JumpPower) then
+		ST.JumpPowerEnabled = not ST.JumpPowerEnabled
+		local _, h = getCharacterParts()
+		if h then h.UseJumpPower = true; h.JumpPower = ST.JumpPowerEnabled and (ST.JumpPowerValue or 50) or 50 end
+	elseif pressed(Keys.Heal) then
+		ST.HealEnabled = not ST.HealEnabled
+		if ST.HealEnabled then StartHealLoop() else StopHealLoop() end
+	elseif pressed(Keys.SilentAim) then
+		ST.SilentAimEnabled = not ST.SilentAimEnabled
+		pcall(updateFOVCircle)
+	elseif pressed(Keys.Spin) then
+		ST.SpinEnabled = not ST.SpinEnabled
+	elseif pressed(Keys.NoRecoil) then
+		ST.NoRecoilEnabled = not ST.NoRecoilEnabled
+	elseif pressed(Keys.ChinaHat) then
+		ST.ChinaHatEnabled = not ST.ChinaHatEnabled
+	elseif pressed(Keys.Wings) then
+		ST.WingsEnabled = not ST.WingsEnabled
+	elseif pressed(Keys.AntiLag) then
+		ST.AntiLagEnabled = not ST.AntiLagEnabled
+	elseif pressed(Keys.TeleportHeal) then
+		pcall(TeleportToHeal)
 	elseif pressed(Keys.TeleportCursor) then
-		TeleportToCursor()
-    elseif pressed(Keys.ReloadSpas) then 
-        local t = GetSpas()
-        if t then InstantReload(t) end 
-    end
+		pcall(TeleportToCursor)
+	elseif pressed(Keys.ReloadSpas) then
+		local t = GetSpas()
+		if t then pcall(InstantReload, t) end
+	end
 end)
 
 
