@@ -1,6 +1,6 @@
 --[[
     ╔═══════════════════════════════════════════════════════════════╗
-    ║              CLL CHEAT - FULL INTEGRATION v11.88-bj (native Q/G grab mirror + VR restore)                ║
+    ║              CLL CHEAT - FULL INTEGRATION v11.89-bk (native Q/G grab mirror + VR restore)                ║
     ╠═══════════════════════════════════════════════════════════════╣
     ║  SUK head-hit, real crosshair, tracers, ESP outline nick,     ║
     ║  ChinaHat/Wings fix, VR hands, anti-flash/shake, antibypass   ║
@@ -378,7 +378,7 @@ local LANG = {
 		d_suk_rps = "Сколько выстрелов SUK делает в секунду.",
 		d_suk_delay = "Минимальная пауза между выстрелами SUK.",
 		d_suk_targets = "Сколько целей обрабатывать за один тик (сейчас фактически 1).",
-		d_heal = "Телепорт в зону хила только пока HP ниже максимума.",
+		d_heal = "Телепорт в зону хила при включении.",
 		d_heal_h = "Высота над зоной хила при автотелепорте.",
 		d_ignore_friends = "SUK не стреляет по игрокам из списка друзей.",
 		d_target_npcs = "SUK также берёт NPC из NPC list.",
@@ -482,7 +482,7 @@ local LANG = {
 		d_suk_rps = "How many SUK shots fire per second.",
 		d_suk_delay = "Minimum wait between SUK shots.",
 		d_suk_targets = "Targets handled per tick (effectively 1 now).",
-		d_heal = "Teleports to the heal zone only while HP is below max.",
+		d_heal = "Teleports to the heal zone while enabled.",
 		d_heal_h = "Height above the heal zone when auto-porting.",
 		d_ignore_friends = "SUK skips players on your friends list.",
 		d_target_npcs = "SUK also targets NPCs in NPC list.",
@@ -4068,71 +4068,40 @@ playKillHighlight = function(char)
 					gui.DisplayOrder = 120
 					gui.Parent = sg
 				end
-				local mp = UIS:GetMouseLocation()
+				local cam = workspace.CurrentCamera
+				local cx = cam and cam.ViewportSize.X * 0.5 or 0
+				local cy = cam and cam.ViewportSize.Y * 0.5 or 0
+				if aimDot and aimDot.Parent and aimDot.Visible then
+					local ap, asz = aimDot.AbsolutePosition, aimDot.AbsoluteSize
+					cx = ap.X + asz.X * 0.5
+					cy = ap.Y + asz.Y * 0.5
+				elseif aimRing and aimRing.Parent and aimRing.Visible then
+					local ap, asz = aimRing.AbsolutePosition, aimRing.AbsoluteSize
+					cx = ap.X + asz.X * 0.5
+					cy = ap.Y + asz.Y * 0.5
+				end
 				local f1 = Instance.new("Frame")
-				f1.Size = UDim2.fromOffset(16, 16)
+				f1.Size = UDim2.fromOffset(14, 14)
 				f1.AnchorPoint = Vector2.new(0.5, 0.5)
-				f1.Position = UDim2.fromOffset(mp.X, mp.Y + 20)
+				f1.Position = UDim2.fromOffset(cx, cy)
 				f1.BackgroundColor3 = col
 				f1.Rotation = 45
 				f1.BorderSizePixel = 0
 				f1.ZIndex = 50
 				f1.Parent = gui
 				Instance.new("UICorner", f1).CornerRadius = UDim.new(0, 2)
-				TweenService:Create(f1, TweenInfo.new(0.16, Enum.EasingStyle.Back, Enum.EasingDirection.Out), { Size = UDim2.fromOffset(22, 22) }):Play()
-				task.delay(0.4, function()
-					TweenService:Create(f1, TweenInfo.new(0.22), { BackgroundTransparency = 1, Size = UDim2.fromOffset(8, 8) }):Play()
-					task.delay(0.25, function() pcall(function() f1:Destroy() end) end)
+				TweenService:Create(f1, TweenInfo.new(0.14, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {
+					Size = UDim2.fromOffset(20, 20),
+				}):Play()
+				task.delay(0.35, function()
+					TweenService:Create(f1, TweenInfo.new(0.2), { BackgroundTransparency = 1, Size = UDim2.fromOffset(6, 6) }):Play()
+					task.delay(0.22, function() pcall(function() f1:Destroy() end) end)
 				end)
 			end)
 		end
-		pcall(function()
-			local selfChar = LocalPlayer.Character
-			local head = selfChar and selfChar:FindFirstChild("Head")
-			if not head then return end
-			local life = (ST.KillHighlightDuration or 0.55) + (ST.KillHighlightFade or 0.65)
-			if ST.KillCrownEnabled then
-				local crown = Instance.new("Part")
-				crown.Name = "CLL_KillCrown"
-				crown.Anchored = true
-				crown.CanCollide = false
-				crown.Material = Enum.Material.Neon
-				crown.Color = col
-				crown.Size = Vector3.new(1.2, 0.25, 1.2)
-				crown.Parent = workspace
-				task.spawn(function()
-					local t0 = os.clock()
-					while crown.Parent and head.Parent and os.clock() - t0 < life do
-						crown.CFrame = head.CFrame * CFrame.new(0, 1.05, 0) * CFrame.Angles(0, os.clock() * 2, 0)
-						crown.Transparency = math.clamp((os.clock() - t0) / life, 0, 1)
-						task.wait()
-					end
-					pcall(function() crown:Destroy() end)
-				end)
-			end
-			if ST.KillWreathEnabled then
-				local wreath = Instance.new("Part")
-				wreath.Name = "CLL_KillWreath"
-				wreath.Shape = Enum.PartType.Cylinder
-				wreath.Anchored = true
-				wreath.CanCollide = false
-				wreath.Material = Enum.Material.Neon
-				wreath.Color = Color3.fromRGB(40, 200, 90)
-				wreath.Size = Vector3.new(0.2, 1.4, 1.4)
-				wreath.Parent = workspace
-				task.spawn(function()
-					local t0 = os.clock()
-					while wreath.Parent and head.Parent and os.clock() - t0 < life do
-						wreath.CFrame = head.CFrame * CFrame.new(0, 0.85, 0) * CFrame.Angles(0, 0, math.rad(90))
-						wreath.Transparency = math.clamp((os.clock() - t0) / life, 0, 1)
-						task.wait()
-					end
-					pcall(function() wreath:Destroy() end)
-				end)
-			end
-		end)
 	end)
 end
+
 
 onVictimDied = function(char)
 	-- any death, not only ours. corpses already flagged never flash
@@ -4809,7 +4778,7 @@ fit(); workspace.CurrentCamera:GetPropertyChangedSignal("ViewportSize"):Connect(
 local header = new("Frame", { Size = UDim2.new(1, 0, 0, 62), BackgroundTransparency = 1, Parent = window })
 local logoLabel = label({ Text = "CLL", Font = Enum.Font.Michroma, TextSize = 26, TextTruncate = Enum.TextTruncate.AtEnd, Size = UDim2.fromOffset(100, 62), Position = UDim2.fromOffset(23, 0), Parent = header })
 logoLabel.TextColor3 = Color3.fromRGB(255, 255, 255) -- Always white
-local verLabel = label({ Text = "v11.88-bj", Font = Enum.Font.GothamBold, TextSize = 12, TextColor3 = Theme.Dim, Size = UDim2.fromOffset(50, 62), Position = UDim2.fromOffset(85, 2), Parent = header })
+local verLabel = label({ Text = "v11.89-bk", Font = Enum.Font.GothamBold, TextSize = 12, TextColor3 = Theme.Dim, Size = UDim2.fromOffset(50, 62), Position = UDim2.fromOffset(85, 2), Parent = header })
 local timeLabel = label({ Text = "Session: 00:00", Font = Enum.Font.GothamMedium, TextSize = 13, TextColor3 = Theme.Dim, Size = UDim2.fromOffset(150, 62), Position = UDim2.fromOffset(150, 0), Parent = header })
 task.spawn(function()
 	while not ST.isUnloaded do
@@ -5709,7 +5678,7 @@ function buildProfile()
 		return t, v
 	end
 	local tBuild, vBuild = row("profile_build", 225)
-	vBuild.Text = "v11.88-bj"
+	vBuild.Text = "v11.89-bk"
 	local tSess, vSess = row("profile_session", 250)
 	local tStat, vStat = row("profile_status", 275)
 	vStat.Text = L("profile_active")
@@ -6887,7 +6856,8 @@ buildFeaturePage(pages.Effects, "EFFECTS", {
 		detailColor(d, 1, "Color", function() return ST.FootTrailColor or Color3.fromRGB(80, 200, 255) end, function(c) ST.FootTrailColor = c end)
 		detailToggle(d, 2, "Style: Cross (off = Square)", ST.FootTrailStyle ~= "square", function(v) ST.FootTrailStyle = v and "cross" or "square" end)
 		detailSlider(d, 3, "Size", 0.4, 2, ST.FootTrailSize or 0.9, 0.05, function(v) ST.FootTrailSize = v end)
-		detailSlider(d, 4, "Lifetime", 0.3, 2, ST.FootTrailLifetime or 0.85, 0.05, function(v) ST.FootTrailLifetime = v end)
+		detailSlider(d, 4, "Thickness", 0.04, 0.4, ST.FootTrailThickness or 0.1, 0.01, function(v) ST.FootTrailThickness = v end)
+		detailSlider(d, 5, "Lifetime", 0.3, 2, ST.FootTrailLifetime or 0.85, 0.05, function(v) ST.FootTrailLifetime = v end)
 	end },
 	{ name = "Hand Trails", desc = "Trail effect on both hands.", initial = false, getState = function() return ST.HandTrailsEnabled end, onToggle = function(v)
 		ST.HandTrailsEnabled = v
@@ -6899,7 +6869,18 @@ buildFeaturePage(pages.Effects, "EFFECTS", {
 			end
 		end)
 	end, buildDetail = function(d)
-		detailColor(d, 1, "Color", function() return ST.HandTrailColor or Color3.fromRGB(255, 120, 200) end, function(c) ST.HandTrailColor = c end)
+		detailColor(d, 1, "Color", function() return ST.HandTrailColor or Color3.fromRGB(255, 120, 200) end, function(c)
+			ST.HandTrailColor = c
+			if ST.HandTrailsEnabled and LocalPlayer.Character then pcall(attachHandTrails, LocalPlayer.Character) end
+		end)
+		detailSlider(d, 2, "Width", 0.05, 1, ST.HandTrailWidth or 0.2, 0.05, function(v)
+			ST.HandTrailWidth = v
+			if ST.HandTrailsEnabled and LocalPlayer.Character then pcall(attachHandTrails, LocalPlayer.Character) end
+		end)
+		detailSlider(d, 3, "Lifetime", 0.05, 1.5, ST.HandTrailLifetime or 0.35, 0.05, function(v)
+			ST.HandTrailLifetime = v
+			if ST.HandTrailsEnabled and LocalPlayer.Character then pcall(attachHandTrails, LocalPlayer.Character) end
+		end)
 	end },
 	{ name = "Rock Trajectory", desc = "Ballistic arc from cursor for Rock tool.", initial = false, getState = function() return ST.RockTrajectoryEnabled end, onToggle = function(v) ST.RockTrajectoryEnabled = v end, buildDetail = function(d)
 		detailToggle(d, 1, "Dashed (off = solid line)", ST.RockArcStyle == "dashed", function(v) ST.RockArcStyle = v and "dashed" or "solid" end)
@@ -7074,8 +7055,8 @@ rebuildMenuGrid = function()
 			-- same scroll as grid + filled checker cubes
 			local cells = {}
 			local dark = Color3.new(col.R * 0.28, col.G * 0.28, col.B * 0.28)
-			for gy = 0, 40 do
-				for gx = 0, 48 do
+			for gy = 0, 55 do
+				for gx = 0, 64 do
 					local on = ((gx + gy) % 2 == 0)
 					cells[#cells + 1] = {
 						f = mk(folder, gx * spacing - spacing, gy * spacing - spacing, spacing, spacing, on and col or dark, on and (tr * 0.45 + 0.35) or (tr * 0.75 + 0.15)),
@@ -7107,18 +7088,19 @@ rebuildMenuGrid = function()
 			-- orthogonal grid: tilt via holder only (chess keeps its own cell rotation)
 			local holder = Instance.new("Frame")
 			holder.BackgroundTransparency = 1
-			holder.Size = UDim2.fromScale(2.4, 2.4)
+			holder.Size = UDim2.fromScale(5, 5)
 			holder.Position = UDim2.fromScale(0.5, 0.5)
 			holder.AnchorPoint = Vector2.new(0.5, 0.5)
 			holder.Rotation = tonumber(ST.MenuGridRotation) or 0
 			holder.ZIndex = 0
 			holder.Parent = folder
 			local lines = {}
-			for i = 0, 55 do
-				lines[#lines + 1] = { ln = mk(holder, i * spacing - spacing * 2, -spacing * 2, 1, 2500, col, tr), axis = "v", i = i }
+			local extent = 80
+			for i = 0, extent do
+				lines[#lines + 1] = { ln = mk(holder, i * spacing - spacing * 8, -spacing * 8, 1, spacing * (extent + 20), col, tr), axis = "v", i = i }
 			end
-			for i = 0, 45 do
-				lines[#lines + 1] = { ln = mk(holder, -spacing * 2, i * spacing - spacing * 2, 2500, 1, col, tr), axis = "h", i = i }
+			for i = 0, extent do
+				lines[#lines + 1] = { ln = mk(holder, -spacing * 8, i * spacing - spacing * 8, spacing * (extent + 20), 1, col, tr), axis = "h", i = i }
 			end
 			local scrollOff = 0
 			menuGridConn = RunService.RenderStepped:Connect(function(dt)
@@ -7137,11 +7119,11 @@ rebuildMenuGrid = function()
 					L.ln.BackgroundTransparency = tr2
 					L.ln.Rotation = 0
 					if L.axis == "v" then
-						L.ln.Position = UDim2.fromOffset(L.i * spacing - spacing * 2 - off, -spacing * 2)
-						L.ln.Size = UDim2.fromOffset(1, 2500)
+						L.ln.Position = UDim2.fromOffset(L.i * spacing - spacing * 8 - off, -spacing * 8)
+						L.ln.Size = UDim2.fromOffset(1, spacing * 100)
 					else
-						L.ln.Position = UDim2.fromOffset(-spacing * 2, L.i * spacing - spacing * 2 - off)
-						L.ln.Size = UDim2.fromOffset(2500, 1)
+						L.ln.Position = UDim2.fromOffset(-spacing * 8, L.i * spacing - spacing * 8 - off)
+						L.ln.Size = UDim2.fromOffset(spacing * 100, 1)
 					end
 				end
 			end)
@@ -7617,22 +7599,89 @@ function ensureTrailFolder()
 	FootTrailFolder.Parent = workspace
 	return FootTrailFolder
 end
-function spawnFootCross(pos, col)
+
+function refreshHeadCosmetics()
+	pcall(function()
+		local char = LocalPlayer.Character
+		if not char then return end
+		local head = char:FindFirstChild("Head")
+		local folder = char:FindFirstChild("CLL_HeadCos")
+		if folder then folder:Destroy() end
+		if not head then return end
+		if not (ST.KillCrownEnabled or ST.KillWreathEnabled) then return end
+		folder = Instance.new("Folder")
+		folder.Name = "CLL_HeadCos"
+		folder.Parent = char
+		local function weldToHead(part, offset)
+			part.Anchored = false
+			part.CanCollide = false
+			part.Massless = true
+			part.CanQuery = false
+			part.CastShadow = false
+			part.Parent = folder
+			local w = Instance.new("Weld")
+			w.Part0 = head
+			w.Part1 = part
+			w.C0 = offset
+			w.Parent = part
+		end
+		local col = ST.KillHighlightColor or Color3.fromRGB(255, 200, 60)
+		if ST.KillCrownEnabled then
+			local ring = Instance.new("Part")
+			ring.Name = "CrownRing"
+			ring.Shape = Enum.PartType.Cylinder
+			ring.Size = Vector3.new(0.22, 1.35, 1.35)
+			ring.Material = Enum.Material.Neon
+			ring.Color = col
+			weldToHead(ring, CFrame.new(0, head.Size.Y * 0.55, 0) * CFrame.Angles(0, 0, math.rad(90)))
+			for i = 0, 5 do
+				local sp = Instance.new("Part")
+				sp.Name = "CrownSpike"
+				sp.Size = Vector3.new(0.18, 0.55, 0.18)
+				sp.Material = Enum.Material.Neon
+				sp.Color = col
+				local ang = i / 6 * math.pi * 2
+				weldToHead(sp, CFrame.new(math.cos(ang) * 0.55, head.Size.Y * 0.55 + 0.35, math.sin(ang) * 0.55))
+			end
+		end
+		if ST.KillWreathEnabled then
+			local wreath = Instance.new("Part")
+			wreath.Name = "Wreath"
+			wreath.Shape = Enum.PartType.Cylinder
+			wreath.Size = Vector3.new(0.18, 1.5, 1.5)
+			wreath.Material = Enum.Material.Neon
+			wreath.Color = Color3.fromRGB(40, 200, 90)
+			weldToHead(wreath, CFrame.new(0, head.Size.Y * 0.45, 0) * CFrame.Angles(0, 0, math.rad(90)))
+		end
+	end)
+end
+pcall(function()
+	if Connections then
+		table.insert(Connections, LocalPlayer.CharacterAdded:Connect(function()
+			task.wait(0.5)
+			refreshHeadCosmetics()
+		end))
+	end
+end)
+
+function spawnFootCross(pos, lookCF, col)
 	local folder = ensureTrailFolder()
 	local life = math.clamp(ST.FootTrailLifetime or 0.85, 0.2, 3)
 	local sz = math.clamp(ST.FootTrailSize or 0.9, 0.3, 3)
+	local thick = math.clamp(ST.FootTrailThickness or 0.1, 0.04, 0.5)
 	local style = ST.FootTrailStyle or "cross"
 	local c = col or ST.FootTrailColor or Color3.fromRGB(80, 200, 255)
+	local baseCF = lookCF or CFrame.new(pos)
 	if style == "square" then
 		local p = Instance.new("Part")
 		p.Anchored = true; p.CanCollide = false; p.Material = Enum.Material.Neon
-		p.Color = c; p.Size = Vector3.new(sz, 0.08, sz); p.CFrame = CFrame.new(pos); p.Parent = folder
+		p.Color = c; p.Size = Vector3.new(sz, thick, sz); p.CFrame = baseCF; p.Parent = folder
 		task.spawn(function()
 			local t0 = os.clock()
 			while p.Parent and os.clock() - t0 < life do
 				local a = (os.clock() - t0) / life
 				p.Transparency = a
-				p.Size = Vector3.new(sz * (1 - a * 0.4), 0.08, sz * (1 - a * 0.4))
+				p.Size = Vector3.new(sz * (1 - a * 0.35), thick, sz * (1 - a * 0.35))
 				task.wait()
 			end
 			pcall(function() p:Destroy() end)
@@ -7640,15 +7689,18 @@ function spawnFootCross(pos, col)
 	else
 		local p = Instance.new("Part")
 		p.Anchored = true; p.CanCollide = false; p.Material = Enum.Material.Neon
-		p.Color = c; p.Size = Vector3.new(sz, 0.08, sz * 0.2)
-		p.CFrame = CFrame.new(pos) * CFrame.Angles(0, math.random() * math.pi, 0); p.Parent = folder
-		local p2 = p:Clone(); p2.CFrame = p.CFrame * CFrame.Angles(0, math.rad(90), 0); p2.Parent = folder
+		p.Color = c; p.Size = Vector3.new(sz, thick, thick * 1.6)
+		p.CFrame = baseCF; p.Parent = folder
+		local p2 = p:Clone()
+		p2.CFrame = baseCF * CFrame.Angles(0, math.rad(90), 0)
+		p2.Parent = folder
 		task.spawn(function()
 			local t0 = os.clock()
 			while p.Parent and os.clock() - t0 < life do
 				local a = (os.clock() - t0) / life
-				p.CFrame = p.CFrame * CFrame.Angles(0, (1 - a) * 0.2, 0)
-				p2.CFrame = p.CFrame * CFrame.Angles(0, math.rad(90), 0)
+				local spin = (1 - a) * 0.15
+				p.CFrame = baseCF * CFrame.Angles(0, spin, 0)
+				p2.CFrame = baseCF * CFrame.Angles(0, math.rad(90) + spin, 0)
 				p.Transparency = a; p2.Transparency = a
 				task.wait()
 			end
@@ -7662,16 +7714,22 @@ function attachHandTrails(char)
 	HandTrailParts = {}
 	if not ST.HandTrailsEnabled or not char then return end
 	local col = ST.HandTrailColor or Color3.fromRGB(255, 120, 200)
+	local life = math.clamp(ST.HandTrailLifetime or 0.35, 0.05, 2)
+	local width = math.clamp(ST.HandTrailWidth or 0.2, 0.05, 1)
 	for _, name in ipairs({ "LeftHand", "RightHand", "Left Arm", "Right Arm", "LeftLowerArm", "RightLowerArm" }) do
 		local part = char:FindFirstChild(name, true)
 		if part and part:IsA("BasePart") then
 			local a0 = Instance.new("Attachment"); a0.Parent = part
-			local a1 = Instance.new("Attachment"); a1.Position = Vector3.new(0, -0.5, 0); a1.Parent = part
+			local a1 = Instance.new("Attachment"); a1.Position = Vector3.new(0, -0.55, 0); a1.Parent = part
 			local tr = Instance.new("Trail")
 			tr.Attachment0 = a0; tr.Attachment1 = a1
 			tr.Color = ColorSequence.new(col)
-			tr.Transparency = NumberSequence.new({ NumberSequenceKeypoint.new(0, 0.15), NumberSequenceKeypoint.new(1, 1) })
-			tr.Lifetime = 0.25; tr.MinLength = 0.05; tr.FaceCamera = true
+			tr.Transparency = NumberSequence.new({ NumberSequenceKeypoint.new(0, 0.1), NumberSequenceKeypoint.new(1, 1) })
+			tr.Lifetime = life
+			tr.MinLength = 0.05
+			tr.FaceCamera = true
+			tr.WidthScale = NumberSequence.new(width)
+			tr.LightEmission = 0.7
 			tr.Parent = part
 			HandTrailParts[#HandTrailParts + 1] = tr
 			HandTrailParts[#HandTrailParts + 1] = a0
@@ -7692,8 +7750,13 @@ pcall(function()
 		_footAcc = _footAcc + dt * math.clamp(spd / 16, 0.5, 2)
 		if _footAcc < 0.28 then return end
 		_footAcc = 0
-		local pos = root.Position - Vector3.new(0, 2.6, 0) + root.CFrame.RightVector * ((math.random(0, 1) * 2 - 1) * 0.35)
-		spawnFootCross(pos, ST.FootTrailColor)
+		local side = (math.random(0, 1) * 2 - 1) * 0.35
+		local pos = root.Position - Vector3.new(0, 2.6, 0) + root.CFrame.RightVector * side
+		-- orient to movement / facing of character (feet direction)
+		local look = Vector3.new(root.CFrame.LookVector.X, 0, root.CFrame.LookVector.Z)
+		if look.Magnitude < 0.05 then look = Vector3.new(0, 0, -1) else look = look.Unit end
+		local baseCF = CFrame.lookAt(pos, pos + look)
+		spawnFootCross(pos, baseCF, ST.FootTrailColor)
 	end))
 	table.insert(Connections, LocalPlayer.CharacterAdded:Connect(function(c)
 		task.wait(0.4)
@@ -7713,16 +7776,27 @@ pcall(function()
 			if old then old:Destroy() end
 			return
 		end
+		-- origin = where rock actually leaves (Handle), not camera center
+		local handle = tool:FindFirstChild("Handle") or tool:FindFirstChildWhichIsA("BasePart")
+		if not handle then return end
+		local origin = handle.Position
 		local cam = workspace.CurrentCamera
-		if not cam then return end
 		local mp = UIS:GetMouseLocation()
-		local ray = cam:ViewportPointToRay(mp.X, mp.Y)
-		local origin = ray.Origin + ray.Direction * 2
-		local force = ST.RockArcForce or 90
-		local lift = ST.RockArcLift or 30
-		local dir = ray.Direction.Unit
-		local vel = dir * force + Vector3.new(0, lift, 0)
-		local g = Vector3.new(0, -workspace.Gravity, 0)
+		local aimPos = nil
+		if cam then
+			local ray = cam:ViewportPointToRay(mp.X, mp.Y)
+			local rp = RaycastParams.new()
+			rp.FilterDescendantsInstances = { char }
+			rp.FilterType = Enum.RaycastFilterType.Exclude
+			local hit = workspace:Raycast(ray.Origin, ray.Direction * 500, rp)
+			aimPos = hit and hit.Position or (ray.Origin + ray.Direction * 80)
+		end
+		local dir = aimPos and (aimPos - origin) or handle.CFrame.LookVector
+		if dir.Magnitude < 0.05 then dir = handle.CFrame.LookVector else dir = dir.Unit end
+		local force = math.clamp(ST.RockArcForce or 90, 20, 200)
+		local gravMul = math.clamp(ST.RockArcGravity or 1, 0.2, 3)
+		local g = Vector3.new(0, -workspace.Gravity * gravMul, 0)
+		local vel = dir * force
 		local folder = workspace:FindFirstChild("CLL_RockArc")
 		if not folder then
 			folder = Instance.new("Folder")
@@ -7731,13 +7805,12 @@ pcall(function()
 		end
 		for _, c in ipairs(folder:GetChildren()) do c:Destroy() end
 		local style = ST.RockArcStyle or "solid"
-		local pos, v, dt = origin, vel, 0.06
+		local pos, v, dt = origin, vel, 0.05
 		local lastPos = pos
 		local hitPos = nil
-		for i = 1, 50 do
+		for i = 1, 60 do
 			local nextPos = pos + v * dt + 0.5 * g * dt * dt
 			v = v + g * dt
-			-- ground / surface hit
 			local rp = RaycastParams.new()
 			rp.FilterDescendantsInstances = { char, folder }
 			rp.FilterType = Enum.RaycastFilterType.Exclude
@@ -7746,20 +7819,19 @@ pcall(function()
 				hitPos = hit.Position
 				nextPos = hit.Position
 			end
-			local draw = true
-			if style == "dashed" and (i % 2 == 0) then draw = false end
+			local draw = not (style == "dashed" and (i % 2 == 0))
 			if draw then
 				if style == "solid" then
 					local dist = (nextPos - lastPos).Magnitude
-					if dist > 0.05 then
+					if dist > 0.04 then
 						local seg = Instance.new("Part")
 						seg.Anchored = true
 						seg.CanCollide = false
 						seg.Material = Enum.Material.Neon
 						seg.Color = Theme.Accent
-						seg.Size = Vector3.new(0.12, 0.12, dist)
+						seg.Size = Vector3.new(0.1, 0.1, dist)
 						seg.CFrame = CFrame.lookAt(lastPos, nextPos) * CFrame.new(0, 0, -dist / 2)
-						seg.Transparency = 0.25
+						seg.Transparency = 0.2
 						seg.Parent = folder
 					end
 				else
@@ -7768,9 +7840,9 @@ pcall(function()
 					dot.CanCollide = false
 					dot.Material = Enum.Material.Neon
 					dot.Color = Theme.Accent
-					dot.Size = Vector3.new(0.28, 0.28, 0.28)
+					dot.Size = Vector3.new(0.22, 0.22, 0.22)
 					dot.Shape = Enum.PartType.Ball
-					dot.Transparency = 0.2
+					dot.Transparency = 0.15
 					dot.CFrame = CFrame.new(nextPos)
 					dot.Parent = folder
 				end
@@ -7778,20 +7850,18 @@ pcall(function()
 			lastPos = nextPos
 			pos = nextPos
 			if hit then break end
-			if pos.Y < origin.Y - 120 then break end
+			if (pos - origin).Magnitude > 250 then break end
 		end
 		if hitPos then
-			-- impact cross
 			local c1 = Instance.new("Part")
-			c1.Anchored = true
-			c1.CanCollide = false
+			c1.Anchored = true; c1.CanCollide = false
 			c1.Material = Enum.Material.Neon
-			c1.Color = Color3.fromRGB(255, 80, 80)
-			c1.Size = Vector3.new(1.2, 0.1, 0.15)
+			c1.Color = Color3.fromRGB(255, 90, 90)
+			c1.Size = Vector3.new(1.1, 0.08, 0.12)
 			c1.CFrame = CFrame.new(hitPos + Vector3.new(0, 0.05, 0))
 			c1.Parent = folder
 			local c2 = c1:Clone()
-			c2.Size = Vector3.new(0.15, 0.1, 1.2)
+			c2.Size = Vector3.new(0.12, 0.08, 1.1)
 			c2.Parent = folder
 		end
 	end))
