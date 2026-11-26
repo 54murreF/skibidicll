@@ -1,6 +1,6 @@
 --[[
     ╔═══════════════════════════════════════════════════════════════╗
-    ║              CLL CHEAT - FULL INTEGRATION v11.87-bi (native Q/G grab mirror + VR restore)                ║
+    ║              CLL CHEAT - FULL INTEGRATION v11.88-bj (native Q/G grab mirror + VR restore)                ║
     ╠═══════════════════════════════════════════════════════════════╣
     ║  SUK head-hit, real crosshair, tracers, ESP outline nick,     ║
     ║  ChinaHat/Wings fix, VR hands, anti-flash/shake, antibypass   ║
@@ -4055,6 +4055,82 @@ playKillHighlight = function(char)
 				end
 			end)
 		end)
+		if ST.KillTriangleEnabled ~= false then
+			pcall(function()
+				local sg = LocalPlayer:FindFirstChild("PlayerGui")
+				if not sg then return end
+				local gui = sg:FindFirstChild("CLL_KillTri")
+				if not gui then
+					gui = Instance.new("ScreenGui")
+					gui.Name = "CLL_KillTri"
+					gui.ResetOnSpawn = false
+					gui.IgnoreGuiInset = true
+					gui.DisplayOrder = 120
+					gui.Parent = sg
+				end
+				local mp = UIS:GetMouseLocation()
+				local f1 = Instance.new("Frame")
+				f1.Size = UDim2.fromOffset(16, 16)
+				f1.AnchorPoint = Vector2.new(0.5, 0.5)
+				f1.Position = UDim2.fromOffset(mp.X, mp.Y + 20)
+				f1.BackgroundColor3 = col
+				f1.Rotation = 45
+				f1.BorderSizePixel = 0
+				f1.ZIndex = 50
+				f1.Parent = gui
+				Instance.new("UICorner", f1).CornerRadius = UDim.new(0, 2)
+				TweenService:Create(f1, TweenInfo.new(0.16, Enum.EasingStyle.Back, Enum.EasingDirection.Out), { Size = UDim2.fromOffset(22, 22) }):Play()
+				task.delay(0.4, function()
+					TweenService:Create(f1, TweenInfo.new(0.22), { BackgroundTransparency = 1, Size = UDim2.fromOffset(8, 8) }):Play()
+					task.delay(0.25, function() pcall(function() f1:Destroy() end) end)
+				end)
+			end)
+		end
+		pcall(function()
+			local selfChar = LocalPlayer.Character
+			local head = selfChar and selfChar:FindFirstChild("Head")
+			if not head then return end
+			local life = (ST.KillHighlightDuration or 0.55) + (ST.KillHighlightFade or 0.65)
+			if ST.KillCrownEnabled then
+				local crown = Instance.new("Part")
+				crown.Name = "CLL_KillCrown"
+				crown.Anchored = true
+				crown.CanCollide = false
+				crown.Material = Enum.Material.Neon
+				crown.Color = col
+				crown.Size = Vector3.new(1.2, 0.25, 1.2)
+				crown.Parent = workspace
+				task.spawn(function()
+					local t0 = os.clock()
+					while crown.Parent and head.Parent and os.clock() - t0 < life do
+						crown.CFrame = head.CFrame * CFrame.new(0, 1.05, 0) * CFrame.Angles(0, os.clock() * 2, 0)
+						crown.Transparency = math.clamp((os.clock() - t0) / life, 0, 1)
+						task.wait()
+					end
+					pcall(function() crown:Destroy() end)
+				end)
+			end
+			if ST.KillWreathEnabled then
+				local wreath = Instance.new("Part")
+				wreath.Name = "CLL_KillWreath"
+				wreath.Shape = Enum.PartType.Cylinder
+				wreath.Anchored = true
+				wreath.CanCollide = false
+				wreath.Material = Enum.Material.Neon
+				wreath.Color = Color3.fromRGB(40, 200, 90)
+				wreath.Size = Vector3.new(0.2, 1.4, 1.4)
+				wreath.Parent = workspace
+				task.spawn(function()
+					local t0 = os.clock()
+					while wreath.Parent and head.Parent and os.clock() - t0 < life do
+						wreath.CFrame = head.CFrame * CFrame.new(0, 0.85, 0) * CFrame.Angles(0, 0, math.rad(90))
+						wreath.Transparency = math.clamp((os.clock() - t0) / life, 0, 1)
+						task.wait()
+					end
+					pcall(function() wreath:Destroy() end)
+				end)
+			end
+		end)
 	end)
 end
 
@@ -4733,7 +4809,7 @@ fit(); workspace.CurrentCamera:GetPropertyChangedSignal("ViewportSize"):Connect(
 local header = new("Frame", { Size = UDim2.new(1, 0, 0, 62), BackgroundTransparency = 1, Parent = window })
 local logoLabel = label({ Text = "CLL", Font = Enum.Font.Michroma, TextSize = 26, TextTruncate = Enum.TextTruncate.AtEnd, Size = UDim2.fromOffset(100, 62), Position = UDim2.fromOffset(23, 0), Parent = header })
 logoLabel.TextColor3 = Color3.fromRGB(255, 255, 255) -- Always white
-local verLabel = label({ Text = "v11.87-bi", Font = Enum.Font.GothamBold, TextSize = 12, TextColor3 = Theme.Dim, Size = UDim2.fromOffset(50, 62), Position = UDim2.fromOffset(85, 2), Parent = header })
+local verLabel = label({ Text = "v11.88-bj", Font = Enum.Font.GothamBold, TextSize = 12, TextColor3 = Theme.Dim, Size = UDim2.fromOffset(50, 62), Position = UDim2.fromOffset(85, 2), Parent = header })
 local timeLabel = label({ Text = "Session: 00:00", Font = Enum.Font.GothamMedium, TextSize = 13, TextColor3 = Theme.Dim, Size = UDim2.fromOffset(150, 62), Position = UDim2.fromOffset(150, 0), Parent = header })
 task.spawn(function()
 	while not ST.isUnloaded do
@@ -5191,7 +5267,7 @@ local FEAT_STATE = {
 }
 
 function buildFeaturePage(page, sectionTitle, features)
-	local panel = new("Frame", { Size = UDim2.new(1, -24, 1, -24), Position = UDim2.fromOffset(12, 12), BackgroundColor3 = Theme.Panel, Parent = page }, { corner(14), stroke() })
+	local panel = new("Frame", { Size = UDim2.new(1, -24, 1, -48), Position = UDim2.fromOffset(12, 12), BackgroundColor3 = Theme.Panel, Parent = page }, { corner(14), stroke() })
 	label({ Text = sectionTitle, Font = Enum.Font.GothamBold, TextSize = 11, TextColor3 = Theme.Dim, Size = UDim2.new(1, -24, 0, 18), Position = UDim2.fromOffset(16, 12), Parent = panel })
 	label({ Text = "RMB - settings", Font = Enum.Font.Gotham, TextSize = 11, TextColor3 = Theme.Dim, TextXAlignment = Enum.TextXAlignment.Right, Size = UDim2.fromOffset(120, 18), Position = UDim2.new(1, -132, 0, 12), Parent = panel })
 	local list = new("ScrollingFrame", { Size = UDim2.new(1, -12, 1, -42), Position = UDim2.fromOffset(6, 36), BackgroundTransparency = 1, BorderSizePixel = 0, ScrollBarThickness = 3, ScrollBarImageColor3 = Theme.Stroke, CanvasSize = UDim2.new(), AutomaticCanvasSize = Enum.AutomaticSize.Y, Parent = panel }, { new("UIListLayout", { Padding = UDim.new(0, 4), SortOrder = Enum.SortOrder.LayoutOrder }), new("UIPadding", { PaddingTop = UDim.new(0, 4), PaddingBottom = UDim.new(0, 8), PaddingLeft = UDim.new(0, 8), PaddingRight = UDim.new(0, 8) }) })
@@ -5215,7 +5291,7 @@ function buildFeaturePage(page, sectionTitle, features)
 			label({ Text = descText, Font = Enum.Font.Gotham, TextSize = 11, TextColor3 = Theme.Dim, TextTruncate = Enum.TextTruncate.AtEnd, Size = UDim2.new(1, -100, 0, 16), Position = UDim2.fromOffset(18, 28), Parent = row, LangKey = feat.descKey })
 		end
 		if feat.buildDetail then label({ Text = "⚙", Font = Enum.Font.GothamBold, TextSize = 14, TextColor3 = Theme.Dim, TextXAlignment = Enum.TextXAlignment.Center, Size = UDim2.fromOffset(28, rowH), Position = UDim2.new(1, -78, 0, 0), Parent = row }) end
-		local hit = new("TextButton", { Text = "", AutoButtonColor = false, BackgroundTransparency = 1, Size = UDim2.new(1, -52, 1, 0), Parent = row })
+		local hit = new("TextButton", { Text = "", AutoButtonColor = false, BackgroundTransparency = 1, Size = UDim2.new(1, -52, 1, 0), ZIndex = 3, Parent = row })
 		-- full row height so toggle sits centered (not stuck to top)
 		local swHolder = new("Frame", { BackgroundTransparency = 1, Size = UDim2.fromOffset(48, rowH), Position = UDim2.new(1, -48, 0, 0), ZIndex = 5, Parent = row })
 		local initOn = feat.getState and (feat.getState() == true) or (feat.initial == true)
@@ -5378,8 +5454,8 @@ function buildCombat()
 end
 
 function buildTarget()
-	local left = new("Frame", { Size = UDim2.new(0, 300, 1, -24), Position = UDim2.fromOffset(12, 12), BackgroundColor3 = Theme.Panel, ClipsDescendants = true, Parent = pages.Target }, { corner(14), stroke() })
-	local right = new("Frame", { Size = UDim2.new(1, -328, 1, -24), Position = UDim2.fromOffset(320, 12), BackgroundColor3 = Theme.Panel, Parent = pages.Target }, { corner(14), stroke() })
+	local left = new("Frame", { Size = UDim2.new(0, 300, 1, -48), Position = UDim2.fromOffset(12, 12), BackgroundColor3 = Theme.Panel, ClipsDescendants = true, Parent = pages.Target }, { corner(14), stroke() })
+	local right = new("Frame", { Size = UDim2.new(1, -328, 1, -48), Position = UDim2.fromOffset(320, 12), BackgroundColor3 = Theme.Panel, Parent = pages.Target }, { corner(14), stroke() })
 	label({ Text = "COMBAT TARGET", Font = Enum.Font.GothamBold, TextSize = 11, TextColor3 = Theme.Dim, Size = UDim2.fromOffset(200, 18), Position = UDim2.fromOffset(14, 12), Parent = left })
 	local scroll = new("ScrollingFrame", { Size = UDim2.new(1, 0, 1, -38), Position = UDim2.fromOffset(0, 34), BackgroundTransparency = 1, BorderSizePixel = 0, ScrollBarThickness = 3, ScrollBarImageColor3 = Theme.Stroke, CanvasSize = UDim2.fromOffset(0, 0), AutomaticCanvasSize = Enum.AutomaticSize.Y, Parent = left })
 	local y = 18
@@ -5633,7 +5709,7 @@ function buildProfile()
 		return t, v
 	end
 	local tBuild, vBuild = row("profile_build", 225)
-	vBuild.Text = "v11.87-bi"
+	vBuild.Text = "v11.88-bj"
 	local tSess, vSess = row("profile_session", 250)
 	local tStat, vStat = row("profile_status", 275)
 	vStat.Text = L("profile_active")
@@ -5727,8 +5803,8 @@ end
 
 local rebuildMenuGrid -- forward (defined later)
 function buildSettings()
-    local left = new("Frame", { Size = UDim2.new(0.45, -10, 1, -24), Position = UDim2.fromOffset(12, 12), BackgroundColor3 = Theme.Panel, Parent = pages.Settings }, { corner(14), stroke() })
-	local right = new("Frame", { Size = UDim2.new(0.55, -14, 1, -24), Position = UDim2.new(0.45, 10, 0, 12), BackgroundColor3 = Theme.Panel, Parent = pages.Settings }, { corner(14), stroke() })
+    local left = new("Frame", { Size = UDim2.new(0.45, -10, 1, -48), Position = UDim2.fromOffset(12, 12), BackgroundColor3 = Theme.Panel, Parent = pages.Settings }, { corner(14), stroke() })
+	local right = new("Frame", { Size = UDim2.new(0.55, -14, 1, -48), Position = UDim2.new(0.45, 10, 0, 12), BackgroundColor3 = Theme.Panel, Parent = pages.Settings }, { corner(14), stroke() })
 
     label({ Text = "INTERFACE", Font = Enum.Font.GothamBold, TextSize = 11, TextColor3 = Theme.Dim, Size = UDim2.fromOffset(200, 18), Position = UDim2.fromOffset(14, 12), Parent = left })
     local leftScroll = new("ScrollingFrame", { Size = UDim2.new(1, 0, 1, -38), Position = UDim2.fromOffset(0, 34), BackgroundTransparency = 1, BorderSizePixel = 0, ScrollBarThickness = 3, Parent = left })
@@ -6787,7 +6863,9 @@ buildFeaturePage(pages.Visual, "VISUAL", {
 
 -- Effects
 buildFeaturePage(pages.Effects, "EFFECTS", {
-	{ name = "Aim Visualizer", nameKey = "t_aimvis", descKey = "d_aimvis", initial = true, onToggle = function(v) ST.TrueCrosshairEnabled = v; if aimDot then aimDot.Visible = v end; if aimRing then aimRing.Visible = v end end, buildDetail = nil },
+	{ name = "Aim Visualizer", nameKey = "t_aimvis", descKey = "d_aimvis", initial = true, getState = function() return ST.TrueCrosshairEnabled end, onToggle = function(v) ST.TrueCrosshairEnabled = v; if aimDot then aimDot.Visible = v end; if aimRing then aimRing.Visible = v end end, buildDetail = function(d)
+		detailToggle(d, 1, "Kill triangle on cursor", ST.KillTriangleEnabled ~= false, function(v) ST.KillTriangleEnabled = v end, "Shows a bounce triangle at the cursor on kill.")
+	end },
 	{ name = "Bullet Tracers", nameKey = "t_tracers", descKey = "d_tracers", initial = false, onToggle = function(v) ST.TracersEnabled = v end, buildDetail = function(d)
 		detailSlider(d, 1, "Duration", 0.1, 2, ST.TracerDuration, 0.1, function(v) ST.TracerDuration = v end)
 		detailToggle(d, 3, "My tracers", ST.TracerSelfEnabled, function(v) ST.TracerSelfEnabled = v end)
@@ -6803,13 +6881,15 @@ buildFeaturePage(pages.Effects, "EFFECTS", {
 		detailColor(d, 3, "Color", function() return ST.KillHighlightColor end, function(c) ST.KillHighlightColor = c end)
 		detailToggle(d, 4, "Sky pillar", ST.KillBeamEnabled ~= false, function(v) ST.KillBeamEnabled = v end)
 	end },
-	{ name = "Kill Triangle", nameKey = "t_killtri", descKey = "d_killtri", initial = true, getState = function() return ST.KillTriangleEnabled end, onToggle = function(v) ST.KillTriangleEnabled = v end },
-	{ name = "Kill Crown", nameKey = "t_killcrown", descKey = "d_killcrown", initial = false, getState = function() return ST.KillCrownEnabled end, onToggle = function(v) ST.KillCrownEnabled = v end },
-	{ name = "Kill Wreath", nameKey = "t_killwreath", descKey = "d_killwreath", initial = false, getState = function() return ST.KillWreathEnabled end, onToggle = function(v) ST.KillWreathEnabled = v end },
-	{ name = "Foot Trails", nameKey = "t_foottrails", descKey = "d_foottrails", initial = false, getState = function() return ST.FootTrailsEnabled end, onToggle = function(v) ST.FootTrailsEnabled = v end, buildDetail = function(d)
-		detailColor(d, 1, "Color", function() return ST.FootTrailColor end, function(c) ST.FootTrailColor = c end)
+	{ name = "Kill Crown", desc = "Neon crown on you when you get a kill.", initial = false, getState = function() return ST.KillCrownEnabled end, onToggle = function(v) ST.KillCrownEnabled = v end },
+	{ name = "Kill Wreath", desc = "Neon wreath on you when you get a kill.", initial = false, getState = function() return ST.KillWreathEnabled end, onToggle = function(v) ST.KillWreathEnabled = v end },
+	{ name = "Foot Trails", desc = "Neon marks under feet while walking on ground.", initial = false, getState = function() return ST.FootTrailsEnabled end, onToggle = function(v) ST.FootTrailsEnabled = v end, buildDetail = function(d)
+		detailColor(d, 1, "Color", function() return ST.FootTrailColor or Color3.fromRGB(80, 200, 255) end, function(c) ST.FootTrailColor = c end)
+		detailToggle(d, 2, "Style: Cross (off = Square)", ST.FootTrailStyle ~= "square", function(v) ST.FootTrailStyle = v and "cross" or "square" end)
+		detailSlider(d, 3, "Size", 0.4, 2, ST.FootTrailSize or 0.9, 0.05, function(v) ST.FootTrailSize = v end)
+		detailSlider(d, 4, "Lifetime", 0.3, 2, ST.FootTrailLifetime or 0.85, 0.05, function(v) ST.FootTrailLifetime = v end)
 	end },
-	{ name = "Hand Trails", nameKey = "t_handtrails", descKey = "d_handtrails", initial = false, getState = function() return ST.HandTrailsEnabled end, onToggle = function(v)
+	{ name = "Hand Trails", desc = "Trail effect on both hands.", initial = false, getState = function() return ST.HandTrailsEnabled end, onToggle = function(v)
 		ST.HandTrailsEnabled = v
 		pcall(function()
 			if v and LocalPlayer.Character then attachHandTrails(LocalPlayer.Character)
@@ -6819,9 +6899,13 @@ buildFeaturePage(pages.Effects, "EFFECTS", {
 			end
 		end)
 	end, buildDetail = function(d)
-		detailColor(d, 1, "Color", function() return ST.HandTrailColor end, function(c) ST.HandTrailColor = c end)
+		detailColor(d, 1, "Color", function() return ST.HandTrailColor or Color3.fromRGB(255, 120, 200) end, function(c) ST.HandTrailColor = c end)
 	end },
-	{ name = "Rock Trajectory", nameKey = "t_rockarc", descKey = "d_rockarc", initial = false, getState = function() return ST.RockTrajectoryEnabled end, onToggle = function(v) ST.RockTrajectoryEnabled = v end },
+	{ name = "Rock Trajectory", desc = "Ballistic arc from cursor for Rock tool.", initial = false, getState = function() return ST.RockTrajectoryEnabled end, onToggle = function(v) ST.RockTrajectoryEnabled = v end, buildDetail = function(d)
+		detailToggle(d, 1, "Dashed (off = solid line)", ST.RockArcStyle == "dashed", function(v) ST.RockArcStyle = v and "dashed" or "solid" end)
+		detailSlider(d, 2, "Force", 40, 160, ST.RockArcForce or 90, 5, function(v) ST.RockArcForce = v end)
+		detailSlider(d, 3, "Lift", 0, 60, ST.RockArcLift or 30, 1, function(v) ST.RockArcLift = v end)
+	end },
 	{ name = "Anti Flash", nameKey = "t_antiflash", descKey = "d_antiflash", initial = true, onToggle = function(v) ST.AntiFlashEnabled = v end, buildDetail = function(d)
 		detailToggle(d, 1, "Block kill highlight", ST.AntiFlashBlockKill, function(v) ST.AntiFlashBlockKill = v end)
 		detailToggle(d, 2, "Block flashbang", ST.AntiFlashBlockBang, function(v) ST.AntiFlashBlockBang = v end)
@@ -6999,13 +7083,15 @@ rebuildMenuGrid = function()
 					}
 				end
 			end
-			menuGridConn = RunService.RenderStepped:Connect(function()
+			local scrollOff = 0
+			menuGridConn = RunService.RenderStepped:Connect(function(dt)
 				if ST.isUnloaded or not ST.MenuGridEnabled or not folder.Parent then
 					if menuGridConn then menuGridConn:Disconnect() end
 					return
 				end
 				local spd = math.clamp(ST.MenuGridSpeed or 1, 0.05, 8)
-				local off = ((os.clock() - t0) * spd * 12) % spacing
+				scrollOff = (scrollOff + (dt or 0.016) * spd * 12) % spacing
+				local off = scrollOff
 				local c2 = ST.MenuGridColor or Theme.Accent or col
 				local dark2 = Color3.new(c2.R * 0.28, c2.G * 0.28, c2.B * 0.28)
 				local tr2 = math.clamp(ST.MenuGridTransparency or tr, 0.2, 0.98)
@@ -7034,13 +7120,15 @@ rebuildMenuGrid = function()
 			for i = 0, 45 do
 				lines[#lines + 1] = { ln = mk(holder, -spacing * 2, i * spacing - spacing * 2, 2500, 1, col, tr), axis = "h", i = i }
 			end
-			menuGridConn = RunService.RenderStepped:Connect(function()
+			local scrollOff = 0
+			menuGridConn = RunService.RenderStepped:Connect(function(dt)
 				if ST.isUnloaded or not ST.MenuGridEnabled or not folder.Parent then
 					if menuGridConn then menuGridConn:Disconnect() end
 					return
 				end
 				local spd = math.clamp(ST.MenuGridSpeed or 1, 0.05, 8)
-				local off = ((os.clock() - t0) * spd * 12) % spacing
+				scrollOff = (scrollOff + (dt or 0.016) * spd * 12) % spacing
+				local off = scrollOff
 				local c2 = ST.MenuGridColor or Theme.Accent or col
 				local tr2 = math.clamp(ST.MenuGridTransparency or tr, 0.2, 0.98)
 				holder.Rotation = tonumber(ST.MenuGridRotation) or 0
@@ -7531,31 +7619,44 @@ function ensureTrailFolder()
 end
 function spawnFootCross(pos, col)
 	local folder = ensureTrailFolder()
-	local p = Instance.new("Part")
-	p.Anchored = true
-	p.CanCollide = false
-	p.Material = Enum.Material.Neon
-	p.Color = col or ST.FootTrailColor or Color3.fromRGB(80, 200, 255)
-	p.Size = Vector3.new(0.9, 0.08, 0.18)
-	p.CFrame = CFrame.new(pos) * CFrame.Angles(0, math.random() * math.pi, 0)
-	p.Parent = folder
-	local p2 = p:Clone()
-	p2.CFrame = p.CFrame * CFrame.Angles(0, math.rad(90), 0)
-	p2.Parent = folder
-	task.spawn(function()
-		local t0 = os.clock()
-		while p.Parent and os.clock() - t0 < 0.85 do
-			local a = (os.clock() - t0) / 0.85
-			p.CFrame = p.CFrame * CFrame.Angles(0, (1 - a) * 0.25, 0)
-			p2.CFrame = p.CFrame * CFrame.Angles(0, math.rad(90), 0)
-			p.Transparency = a
-			p2.Transparency = a
-			task.wait()
-		end
-		pcall(function() p:Destroy() end)
-		pcall(function() p2:Destroy() end)
-	end)
+	local life = math.clamp(ST.FootTrailLifetime or 0.85, 0.2, 3)
+	local sz = math.clamp(ST.FootTrailSize or 0.9, 0.3, 3)
+	local style = ST.FootTrailStyle or "cross"
+	local c = col or ST.FootTrailColor or Color3.fromRGB(80, 200, 255)
+	if style == "square" then
+		local p = Instance.new("Part")
+		p.Anchored = true; p.CanCollide = false; p.Material = Enum.Material.Neon
+		p.Color = c; p.Size = Vector3.new(sz, 0.08, sz); p.CFrame = CFrame.new(pos); p.Parent = folder
+		task.spawn(function()
+			local t0 = os.clock()
+			while p.Parent and os.clock() - t0 < life do
+				local a = (os.clock() - t0) / life
+				p.Transparency = a
+				p.Size = Vector3.new(sz * (1 - a * 0.4), 0.08, sz * (1 - a * 0.4))
+				task.wait()
+			end
+			pcall(function() p:Destroy() end)
+		end)
+	else
+		local p = Instance.new("Part")
+		p.Anchored = true; p.CanCollide = false; p.Material = Enum.Material.Neon
+		p.Color = c; p.Size = Vector3.new(sz, 0.08, sz * 0.2)
+		p.CFrame = CFrame.new(pos) * CFrame.Angles(0, math.random() * math.pi, 0); p.Parent = folder
+		local p2 = p:Clone(); p2.CFrame = p.CFrame * CFrame.Angles(0, math.rad(90), 0); p2.Parent = folder
+		task.spawn(function()
+			local t0 = os.clock()
+			while p.Parent and os.clock() - t0 < life do
+				local a = (os.clock() - t0) / life
+				p.CFrame = p.CFrame * CFrame.Angles(0, (1 - a) * 0.2, 0)
+				p2.CFrame = p.CFrame * CFrame.Angles(0, math.rad(90), 0)
+				p.Transparency = a; p2.Transparency = a
+				task.wait()
+			end
+			pcall(function() p:Destroy() end); pcall(function() p2:Destroy() end)
+		end)
+	end
 end
+
 function attachHandTrails(char)
 	for _, t in pairs(HandTrailParts or {}) do pcall(function() t:Destroy() end) end
 	HandTrailParts = {}
@@ -7612,12 +7713,15 @@ pcall(function()
 			if old then old:Destroy() end
 			return
 		end
-		local head = char:FindFirstChild("Head") or char:FindFirstChild("HumanoidRootPart")
 		local cam = workspace.CurrentCamera
-		if not head then return end
-		local dir = cam and cam.CFrame.LookVector or head.CFrame.LookVector
-		local origin = head.Position + dir * 1.5
-		local vel = dir * 90 + Vector3.new(0, 30, 0)
+		if not cam then return end
+		local mp = UIS:GetMouseLocation()
+		local ray = cam:ViewportPointToRay(mp.X, mp.Y)
+		local origin = ray.Origin + ray.Direction * 2
+		local force = ST.RockArcForce or 90
+		local lift = ST.RockArcLift or 30
+		local dir = ray.Direction.Unit
+		local vel = dir * force + Vector3.new(0, lift, 0)
 		local g = Vector3.new(0, -workspace.Gravity, 0)
 		local folder = workspace:FindFirstChild("CLL_RockArc")
 		if not folder then
@@ -7626,21 +7730,69 @@ pcall(function()
 			folder.Parent = workspace
 		end
 		for _, c in ipairs(folder:GetChildren()) do c:Destroy() end
-		local pos, v, dt = origin, vel, 0.05
-		for i = 1, 40 do
+		local style = ST.RockArcStyle or "solid"
+		local pos, v, dt = origin, vel, 0.06
+		local lastPos = pos
+		local hitPos = nil
+		for i = 1, 50 do
 			local nextPos = pos + v * dt + 0.5 * g * dt * dt
 			v = v + g * dt
-			local dot = Instance.new("Part")
-			dot.Anchored = true; dot.CanCollide = false
-			dot.Material = Enum.Material.Neon
-			dot.Color = Theme.Accent
-			dot.Size = Vector3.new(0.25, 0.25, 0.25)
-			dot.Shape = Enum.PartType.Ball
-			dot.Transparency = 0.25 + i * 0.015
-			dot.CFrame = CFrame.new(nextPos)
-			dot.Parent = folder
+			-- ground / surface hit
+			local rp = RaycastParams.new()
+			rp.FilterDescendantsInstances = { char, folder }
+			rp.FilterType = Enum.RaycastFilterType.Exclude
+			local hit = workspace:Raycast(pos, nextPos - pos, rp)
+			if hit then
+				hitPos = hit.Position
+				nextPos = hit.Position
+			end
+			local draw = true
+			if style == "dashed" and (i % 2 == 0) then draw = false end
+			if draw then
+				if style == "solid" then
+					local dist = (nextPos - lastPos).Magnitude
+					if dist > 0.05 then
+						local seg = Instance.new("Part")
+						seg.Anchored = true
+						seg.CanCollide = false
+						seg.Material = Enum.Material.Neon
+						seg.Color = Theme.Accent
+						seg.Size = Vector3.new(0.12, 0.12, dist)
+						seg.CFrame = CFrame.lookAt(lastPos, nextPos) * CFrame.new(0, 0, -dist / 2)
+						seg.Transparency = 0.25
+						seg.Parent = folder
+					end
+				else
+					local dot = Instance.new("Part")
+					dot.Anchored = true
+					dot.CanCollide = false
+					dot.Material = Enum.Material.Neon
+					dot.Color = Theme.Accent
+					dot.Size = Vector3.new(0.28, 0.28, 0.28)
+					dot.Shape = Enum.PartType.Ball
+					dot.Transparency = 0.2
+					dot.CFrame = CFrame.new(nextPos)
+					dot.Parent = folder
+				end
+			end
+			lastPos = nextPos
 			pos = nextPos
-			if pos.Y < origin.Y - 80 then break end
+			if hit then break end
+			if pos.Y < origin.Y - 120 then break end
+		end
+		if hitPos then
+			-- impact cross
+			local c1 = Instance.new("Part")
+			c1.Anchored = true
+			c1.CanCollide = false
+			c1.Material = Enum.Material.Neon
+			c1.Color = Color3.fromRGB(255, 80, 80)
+			c1.Size = Vector3.new(1.2, 0.1, 0.15)
+			c1.CFrame = CFrame.new(hitPos + Vector3.new(0, 0.05, 0))
+			c1.Parent = folder
+			local c2 = c1:Clone()
+			c2.Size = Vector3.new(0.15, 0.1, 1.2)
+			c2.Parent = folder
 		end
 	end))
 end)
