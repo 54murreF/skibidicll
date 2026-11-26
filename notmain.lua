@@ -1,6 +1,6 @@
 --[[
     ╔═══════════════════════════════════════════════════════════════╗
-    ║              CLL CHEAT - FULL INTEGRATION v11.89-bk (native Q/G grab mirror + VR restore)                ║
+    ║              CLL CHEAT - FULL INTEGRATION v11.91-bm (native Q/G grab mirror + VR restore)                ║
     ╠═══════════════════════════════════════════════════════════════╣
     ║  SUK head-hit, real crosshair, tracers, ESP outline nick,     ║
     ║  ChinaHat/Wings fix, VR hands, anti-flash/shake, antibypass   ║
@@ -544,9 +544,7 @@ local LANG = {
 
 function L(key)
 	if type(key) ~= "string" or key == "" then return tostring(key or "") end
-	local lang = ST.Language
-	if lang ~= "en" and lang ~= "ru" then lang = "en" end
-	local pack = LANG[lang] or LANG.en or LANG.ru
+	local pack = LANG.en or LANG.ru
 	local s = pack and pack[key]
 	if type(s) == "string" then return s end
 	local alt = (lang == "en") and LANG.ru or LANG.en
@@ -1516,14 +1514,15 @@ function InstantReload(tool)
 				if need < 1 then need = max end
 				ReloadRemote:InvokeServer(tool, "Start Reload")
 				boostReloadAnims()
-				local step = math.clamp(tonumber(ST.ReloadSpeed) or 0.08, 0.06, 0.2)
+				local stepFast = math.clamp(tonumber(ST.ReloadSpeed) or 0.08, 0.05, 0.2)
 				local loaded = current
 				for i = 1, need do
 					if ST.isUnloaded or not tool or not tool.Parent then break end
 					if not ST._reloadRunning then break end
+					local step = (i == 1) and math.max(0.28, stepFast * 3.5) or stepFast
+					if i ~= 1 then boostReloadAnims() end
 					ReloadRemote:InvokeServer(tool, "New Shell")
 					ReloadRemote:InvokeServer(tool, "Insert Shell")
-					boostReloadAnims()
 					task.wait(step)
 					loaded = math.min(max, current + i)
 					pcall(function()
@@ -1661,9 +1660,17 @@ function MultiFireAt()
 	end
 	if not bulletModel then return end
 
+	if ST.isBlockActive and SwingRemote then
+		pcall(function() SwingRemote:FireServer("UnBlock") end)
+		ST.isBlockActive = false
+	end
+
 	local targets = GetTargets() or {}
 	local numTargets = #targets
 	if numTargets == 0 then
+		if cur < maxA and not ST._reloadRunning then
+			task.spawn(function() pcall(InstantReload, tool) end)
+		end
 		return
 	end
 
@@ -1789,19 +1796,23 @@ function MultiFireAt()
 
 	if head and head.Parent then
 		-- one Hit per shell (ap) — position on the head
+		-- force Head only (hand-block still registers head damage)
+		local headPos = head.Position
 		local hitTbl = {
 			hit = head,
 			normal = -tpDir,
-			position = pred,
+			position = headPos,
 			velocity = vel,
-			bullet_cframe = bcf,
+			bullet_cframe = CFrame.lookAt(headPos - tpDir * 0.15, headPos),
 		}
-		if CLL_FireServer then
-			pcall(CLL_FireServer, FireRemote, tool, "Hit", hitTbl)
-		else
-			pcall(function() FireRemote:FireServer(tool, "Hit", hitTbl) end)
+		for _ = 1, 2 do
+			if CLL_FireServer then
+				pcall(CLL_FireServer, FireRemote, tool, "Hit", hitTbl)
+			else
+				pcall(function() FireRemote:FireServer(tool, "Hit", hitTbl) end)
+			end
 		end
-		HelperFire("Gun Base", "Hit", head, pred, -tpDir, vel, bulletModel)
+		HelperFire("Gun Base", "Hit", head, headPos, -tpDir, vel, bulletModel)
 		HelperFire("Fx", "Hitmarker", head)
 		markKillCandidate(head.Parent)
 		task.defer(function()
@@ -3283,6 +3294,14 @@ function setVREnabled(on, fromUser)
 	
 	if VRToggleSetUI then pcall(VRToggleSetUI, on) end
 	if on then
+		pcall(function()
+			for _, t in pairs(HandTrailParts or {}) do pcall(function() t:Destroy() end) end
+			HandTrailParts = {}
+		end)
+		if ST.isBlockActive and SwingRemote then
+			pcall(function() SwingRemote:FireServer("UnBlock") end)
+			ST.isBlockActive = false
+		end
 		_G.CLL_VR_SPAWN_GRACE = os.clock() + 2.0
 		local char = LocalPlayer.Character
 		if char then
@@ -3464,6 +3483,11 @@ RunService:BindToRenderStep("CLL_VR", Enum.RenderPriority.Last.Value, function(d
 
 	if not vrDidInit or not char:GetAttribute("DID_VR") then
 		vrInitCharacter(char)
+	end
+	-- Block from autoheal kills VR punch registration
+	if ST.isBlockActive and SwingRemote then
+		pcall(function() SwingRemote:FireServer("UnBlock") end)
+		ST.isBlockActive = false
 	end
 
 	local looking = UIS:IsMouseButtonPressed(Enum.UserInputType.MouseButton2)
@@ -4778,7 +4802,7 @@ fit(); workspace.CurrentCamera:GetPropertyChangedSignal("ViewportSize"):Connect(
 local header = new("Frame", { Size = UDim2.new(1, 0, 0, 62), BackgroundTransparency = 1, Parent = window })
 local logoLabel = label({ Text = "CLL", Font = Enum.Font.Michroma, TextSize = 26, TextTruncate = Enum.TextTruncate.AtEnd, Size = UDim2.fromOffset(100, 62), Position = UDim2.fromOffset(23, 0), Parent = header })
 logoLabel.TextColor3 = Color3.fromRGB(255, 255, 255) -- Always white
-local verLabel = label({ Text = "v11.89-bk", Font = Enum.Font.GothamBold, TextSize = 12, TextColor3 = Theme.Dim, Size = UDim2.fromOffset(50, 62), Position = UDim2.fromOffset(85, 2), Parent = header })
+local verLabel = label({ Text = "v11.91-bm", Font = Enum.Font.GothamBold, TextSize = 12, TextColor3 = Theme.Dim, Size = UDim2.fromOffset(50, 62), Position = UDim2.fromOffset(85, 2), Parent = header })
 local timeLabel = label({ Text = "Session: 00:00", Font = Enum.Font.GothamMedium, TextSize = 13, TextColor3 = Theme.Dim, Size = UDim2.fromOffset(150, 62), Position = UDim2.fromOffset(150, 0), Parent = header })
 task.spawn(function()
 	while not ST.isUnloaded do
@@ -5458,8 +5482,18 @@ function buildTarget()
 	local search = new("TextBox", { PlaceholderText = "Search...", PlaceholderColor3 = Theme.Dim, Text = "", ClearTextOnFocus = false, Font = Enum.Font.Gotham, TextSize = 13, TextColor3 = Theme.Text, BackgroundTransparency = 1, Size = UDim2.new(1, -16, 1, 0), Position = UDim2.fromOffset(10, 0), Parent = searchBox })
 	-- bulk actions
 	local actBar = new("Frame", { Size = UDim2.new(1, -24, 0, 30), Position = UDim2.fromOffset(12, 76), BackgroundTransparency = 1, Parent = right })
+	local actLay = Instance.new("UIListLayout")
+	actLay.FillDirection = Enum.FillDirection.Horizontal
+	actLay.Padding = UDim.new(0, 6)
+	actLay.SortOrder = Enum.SortOrder.LayoutOrder
+	actLay.Parent = actBar
 	local function smallBtn(text, x, w, cb)
-		local b = new("TextButton", { Text = text, Font = Enum.Font.GothamMedium, TextSize = 11, TextColor3 = Theme.Text, AutoButtonColor = false, Size = UDim2.fromOffset(w, 28), Position = UDim2.fromOffset(x, 0), BackgroundColor3 = Theme.Row, Parent = actBar }, { corner(8), stroke() })
+		local b = new("TextButton", {
+			Text = text, Font = Enum.Font.GothamMedium, TextSize = 11, TextColor3 = Theme.Text,
+			AutoButtonColor = false,
+			Size = UDim2.new(0.32, -4, 1, 0),
+			BackgroundColor3 = Theme.Row, Parent = actBar
+		}, { corner(8), stroke() })
 		b.MouseButton1Click:Connect(cb)
 		return b
 	end
@@ -5514,7 +5548,7 @@ function buildTarget()
 end
 
 function buildKeybinds()
-	local panel = new("Frame", { Size = UDim2.new(1, -24, 1, -24), Position = UDim2.fromOffset(12, 12), BackgroundColor3 = Theme.Panel, Parent = pages.Keybinds }, { corner(12), stroke() })
+	local panel = new("Frame", { Size = UDim2.new(1, -24, 1, -48), Position = UDim2.fromOffset(12, 12), BackgroundColor3 = Theme.Panel, Parent = pages.Keybinds }, { corner(12), stroke() })
 	label({ Text = "KEYBINDS", Font = Enum.Font.GothamMedium, TextSize = 12, TextColor3 = Theme.Dim, Size = UDim2.fromOffset(200, 20), Position = UDim2.fromOffset(14, 12), Parent = panel })
 	local list = new("ScrollingFrame", { Size = UDim2.new(1, -16, 1, -44), Position = UDim2.fromOffset(8, 36), BackgroundTransparency = 1, BorderSizePixel = 0, ScrollBarThickness = 2, CanvasSize = UDim2.new(), AutomaticCanvasSize = Enum.AutomaticSize.Y, Parent = panel }, { new("UIListLayout", { Padding = UDim.new(0, 4), SortOrder = Enum.SortOrder.LayoutOrder }), new("UIPadding", { PaddingTop = UDim.new(0, 4), PaddingBottom = UDim.new(0, 8), PaddingLeft = UDim.new(0, 6), PaddingRight = UDim.new(0, 6) }) })
 	local bindRows = {
@@ -5548,7 +5582,7 @@ function refreshAllBindLabels()
 end
 
 function buildVR()
-	local scroll = new("ScrollingFrame", { Size = UDim2.new(1, -24, 1, -24), Position = UDim2.fromOffset(12, 12), BackgroundColor3 = Theme.Panel, BorderSizePixel = 0, ScrollBarThickness = 3, CanvasSize = UDim2.new(0, 0, 0, 1100), Parent = pages.VR }, { corner(12), stroke() })
+	local scroll = new("ScrollingFrame", { Size = UDim2.new(1, -24, 1, -48), Position = UDim2.fromOffset(12, 12), BackgroundColor3 = Theme.Panel, BorderSizePixel = 0, ScrollBarThickness = 3, CanvasSize = UDim2.new(0, 0, 0, 1100), Parent = pages.VR }, { corner(12), stroke() })
 	
 	label({ Text = "VR CONTROL (PC ONLY)", Font = Enum.Font.GothamMedium, TextSize = 14, TextColor3 = Theme.Dim, Size = UDim2.fromOffset(300, 24), Position = UDim2.fromOffset(PAD, 20), Parent = scroll })
 	divider(scroll, 55)
@@ -5678,7 +5712,7 @@ function buildProfile()
 		return t, v
 	end
 	local tBuild, vBuild = row("profile_build", 225)
-	vBuild.Text = "v11.89-bk"
+	vBuild.Text = "v11.91-bm"
 	local tSess, vSess = row("profile_session", 250)
 	local tStat, vStat = row("profile_status", 275)
 	vStat.Text = L("profile_active")
@@ -5779,26 +5813,6 @@ function buildSettings()
     local leftScroll = new("ScrollingFrame", { Size = UDim2.new(1, 0, 1, -38), Position = UDim2.fromOffset(0, 34), BackgroundTransparency = 1, BorderSizePixel = 0, ScrollBarThickness = 3, Parent = left })
     
     local y = 18
-	-- Language
-	local langLbl = label({ Text = L("lang"), TextSize = 13, TextColor3 = Theme.Dim, Size = UDim2.fromOffset(120, 18), Position = UDim2.fromOffset(PAD, y), Parent = leftScroll })
-	local langBtn = new("TextButton", {
-		Text = (ST.Language == "ru") and "Русский" or "English",
-		Font = Enum.Font.GothamMedium, TextSize = 12, TextColor3 = Theme.Text,
-		AutoButtonColor = false, Size = UDim2.new(1, -PAD * 2 - 100, 0, 28),
-		Position = UDim2.fromOffset(PAD + 100, y - 4),
-		BackgroundColor3 = Theme.Row, Parent = leftScroll,
-	}, { corner(8), stroke() })
-	langBtn.MouseButton1Click:Connect(function()
-		ST.Language = (ST.Language == "ru") and "en" or "ru"
-		langBtn.Text = (ST.Language == "en") and "English" or "Русский"
-		langLbl.Text = L("lang")
-		refreshLanguage()
-	end)
-	table.insert(UI_LangHooks, function()
-		if langLbl and langLbl.Parent then langLbl.Text = L("lang") end
-		if langBtn and langBtn.Parent then langBtn.Text = (ST.Language == "en") and "English" or "Русский" end
-	end)
-	y += 44
 	-- Menu grid (spaced so nothing overlaps)
 	toggle(leftScroll, y, L("t_grid"), function(v)
 		ST.MenuGridEnabled = v
@@ -5960,8 +5974,41 @@ function buildSettings()
 		VRWantEnabled = false
 		ST.TracersEnabled = false
 		ST.LocalInvisEnabled = false
+		ST.FootTrailsEnabled = false
+		ST.HandTrailsEnabled = false
+		ST.RockTrajectoryEnabled = false
+		ST.KillHighlightEnabled = false
+		ST.KillBeamEnabled = false
+		ST.KillTriangleEnabled = false
+		ST.KillCrownEnabled = false
+		ST.KillWreathEnabled = false
+		ST.TrueCrosshairEnabled = false
+		ST.MenuGridEnabled = false
 		ESP_Config.Enabled = false
 		Hitbox_Config.Enabled = false
+		-- wipe visual folders / trails
+		pcall(function()
+			local f = workspace:FindFirstChild("CLL_Trails")
+			if f then f:Destroy() end
+			f = workspace:FindFirstChild("CLL_RockArc")
+			if f then f:Destroy() end
+			for _, pl in ipairs(Players:GetPlayers()) do
+				local ch = pl.Character
+				if ch then
+					local hc = ch:FindFirstChild("CLL_HeadCos")
+					if hc then hc:Destroy() end
+					local kh = ch:FindFirstChild("CLL_KillHL")
+					if kh then kh:Destroy() end
+				end
+			end
+			local pg = LocalPlayer:FindFirstChild("PlayerGui")
+			if pg then
+				local g = pg:FindFirstChild("CLL_KillTri")
+				if g then g:Destroy() end
+			end
+			for _, t in pairs(HandTrailParts or {}) do pcall(function() t:Destroy() end) end
+			HandTrailParts = {}
+		end)
 		-- FULL session kill so spec-loader can boot again
 		pcall(function()
 			local function wipe(g)
@@ -6882,11 +6929,6 @@ buildFeaturePage(pages.Effects, "EFFECTS", {
 			if ST.HandTrailsEnabled and LocalPlayer.Character then pcall(attachHandTrails, LocalPlayer.Character) end
 		end)
 	end },
-	{ name = "Rock Trajectory", desc = "Ballistic arc from cursor for Rock tool.", initial = false, getState = function() return ST.RockTrajectoryEnabled end, onToggle = function(v) ST.RockTrajectoryEnabled = v end, buildDetail = function(d)
-		detailToggle(d, 1, "Dashed (off = solid line)", ST.RockArcStyle == "dashed", function(v) ST.RockArcStyle = v and "dashed" or "solid" end)
-		detailSlider(d, 2, "Force", 40, 160, ST.RockArcForce or 90, 5, function(v) ST.RockArcForce = v end)
-		detailSlider(d, 3, "Lift", 0, 60, ST.RockArcLift or 30, 1, function(v) ST.RockArcLift = v end)
-	end },
 	{ name = "Anti Flash", nameKey = "t_antiflash", descKey = "d_antiflash", initial = true, onToggle = function(v) ST.AntiFlashEnabled = v end, buildDetail = function(d)
 		detailToggle(d, 1, "Block kill highlight", ST.AntiFlashBlockKill, function(v) ST.AntiFlashBlockKill = v end)
 		detailToggle(d, 2, "Block flashbang", ST.AntiFlashBlockBang, function(v) ST.AntiFlashBlockBang = v end)
@@ -6922,7 +6964,6 @@ buildFeaturePage(pages.Effects, "EFFECTS", {
 				elseif v:IsA("BlurEffect") then
 					v.Size = 0
 					v.Enabled = false
-					pcall(function() v:Destroy() end)
 				elseif v:IsA("BloomEffect") or v:IsA("DepthOfFieldEffect") or v:IsA("SunRaysEffect") or v:IsA("ColorCorrectionEffect") then
 					v.Enabled = false
 				end
@@ -6940,6 +6981,18 @@ buildFeaturePage(pages.Effects, "EFFECTS", {
 			for _, v in ipairs(workspace:GetDescendants()) do kill(v) end
 			for _, v in ipairs(game:GetService("SoundService"):GetDescendants()) do kill(v) end
 		end)
+		pcall(function()
+			local L = game:GetService("Lighting")
+			local blur = L:FindFirstChild("Blur")
+			if not blur then
+				blur = Instance.new("BlurEffect")
+				blur.Name = "Blur"
+				blur.Parent = L
+			end
+			blur.Size = 0
+			blur.Enabled = false
+		end)
+		pcall(function() if stopWeather then stopWeather() end end)
 		if CLL_Notify then CLL_Notify("Weather", "Rain/clouds cleared once") end
 	end, buildDetail = nil },
 	{ name = "Remove Fog", nameKey = "t_fog", descKey = "d_fog", initial = false, onToggle = function(s) ST.RemoveFogEnabled = s; if not s then game:GetService("Lighting").FogEnd = 1000 end end, buildDetail = nil },
@@ -7055,8 +7108,8 @@ rebuildMenuGrid = function()
 			-- same scroll as grid + filled checker cubes
 			local cells = {}
 			local dark = Color3.new(col.R * 0.28, col.G * 0.28, col.B * 0.28)
-			for gy = 0, 55 do
-				for gx = 0, 64 do
+			for gy = 0, 70 do
+				for gx = 0, 90 do
 					local on = ((gx + gy) % 2 == 0)
 					cells[#cells + 1] = {
 						f = mk(folder, gx * spacing - spacing, gy * spacing - spacing, spacing, spacing, on and col or dark, on and (tr * 0.45 + 0.35) or (tr * 0.75 + 0.15)),
@@ -7088,19 +7141,19 @@ rebuildMenuGrid = function()
 			-- orthogonal grid: tilt via holder only (chess keeps its own cell rotation)
 			local holder = Instance.new("Frame")
 			holder.BackgroundTransparency = 1
-			holder.Size = UDim2.fromScale(5, 5)
+			holder.Size = UDim2.fromScale(8, 8)
 			holder.Position = UDim2.fromScale(0.5, 0.5)
 			holder.AnchorPoint = Vector2.new(0.5, 0.5)
 			holder.Rotation = tonumber(ST.MenuGridRotation) or 0
 			holder.ZIndex = 0
 			holder.Parent = folder
 			local lines = {}
-			local extent = 80
+			local extent = 120
 			for i = 0, extent do
-				lines[#lines + 1] = { ln = mk(holder, i * spacing - spacing * 8, -spacing * 8, 1, spacing * (extent + 20), col, tr), axis = "v", i = i }
+				lines[#lines + 1] = { ln = mk(holder, i * spacing - spacing * 12, -spacing * 12, 1, spacing * (extent + 30), col, tr), axis = "v", i = i }
 			end
 			for i = 0, extent do
-				lines[#lines + 1] = { ln = mk(holder, -spacing * 8, i * spacing - spacing * 8, spacing * (extent + 20), 1, col, tr), axis = "h", i = i }
+				lines[#lines + 1] = { ln = mk(holder, -spacing * 12, i * spacing - spacing * 12, spacing * (extent + 30), 1, col, tr), axis = "h", i = i }
 			end
 			local scrollOff = 0
 			menuGridConn = RunService.RenderStepped:Connect(function(dt)
@@ -7119,11 +7172,11 @@ rebuildMenuGrid = function()
 					L.ln.BackgroundTransparency = tr2
 					L.ln.Rotation = 0
 					if L.axis == "v" then
-						L.ln.Position = UDim2.fromOffset(L.i * spacing - spacing * 8 - off, -spacing * 8)
-						L.ln.Size = UDim2.fromOffset(1, spacing * 100)
+						L.ln.Position = UDim2.fromOffset(L.i * spacing - spacing * 12 - off, -spacing * 12)
+						L.ln.Size = UDim2.fromOffset(1, spacing * 140)
 					else
-						L.ln.Position = UDim2.fromOffset(-spacing * 8, L.i * spacing - spacing * 8 - off)
-						L.ln.Size = UDim2.fromOffset(spacing * 100, 1)
+						L.ln.Position = UDim2.fromOffset(-spacing * 12, L.i * spacing - spacing * 12 - off)
+						L.ln.Size = UDim2.fromOffset(spacing * 140, 1)
 					end
 				end
 			end)
@@ -7713,6 +7766,7 @@ function attachHandTrails(char)
 	for _, t in pairs(HandTrailParts or {}) do pcall(function() t:Destroy() end) end
 	HandTrailParts = {}
 	if not ST.HandTrailsEnabled or not char then return end
+	if ST.VREnabled then return end -- trails on hands break VR punches
 	local col = ST.HandTrailColor or Color3.fromRGB(255, 120, 200)
 	local life = math.clamp(ST.HandTrailLifetime or 0.35, 0.05, 2)
 	local width = math.clamp(ST.HandTrailWidth or 0.2, 0.05, 1)
@@ -7745,126 +7799,36 @@ pcall(function()
 		local hum = char and char:FindFirstChildOfClass("Humanoid")
 		local root = char and char:FindFirstChild("HumanoidRootPart")
 		if not hum or not root or hum.Health <= 0 then return end
+		local st = hum:GetState()
+		if st == Enum.HumanoidStateType.Freefall or st == Enum.HumanoidStateType.Jumping
+			or st == Enum.HumanoidStateType.Flying or st == Enum.HumanoidStateType.Swimming then
+			return
+		end
+		if hum.FloorMaterial == Enum.Material.Air then return end
+		if math.abs(root.AssemblyLinearVelocity.Y) > 6 then return end
+		local rp = RaycastParams.new()
+		rp.FilterDescendantsInstances = { char }
+		rp.FilterType = Enum.RaycastFilterType.Exclude
+		local ground = workspace:Raycast(root.Position, Vector3.new(0, -4.2, 0), rp)
+		if not ground then return end
 		local spd = Vector3.new(root.AssemblyLinearVelocity.X, 0, root.AssemblyLinearVelocity.Z).Magnitude
 		if spd < 4 then return end
 		_footAcc = _footAcc + dt * math.clamp(spd / 16, 0.5, 2)
 		if _footAcc < 0.28 then return end
 		_footAcc = 0
 		local side = (math.random(0, 1) * 2 - 1) * 0.35
-		local pos = root.Position - Vector3.new(0, 2.6, 0) + root.CFrame.RightVector * side
-		-- orient to movement / facing of character (feet direction)
+		local pos = ground.Position + Vector3.new(0, 0.06, 0) + root.CFrame.RightVector * side
 		local look = Vector3.new(root.CFrame.LookVector.X, 0, root.CFrame.LookVector.Z)
 		if look.Magnitude < 0.05 then look = Vector3.new(0, 0, -1) else look = look.Unit end
 		local baseCF = CFrame.lookAt(pos, pos + look)
 		spawnFootCross(pos, baseCF, ST.FootTrailColor)
 	end))
+
 	table.insert(Connections, LocalPlayer.CharacterAdded:Connect(function(c)
 		task.wait(0.4)
 		if ST.HandTrailsEnabled then attachHandTrails(c) end
 	end))
-	table.insert(Connections, RunService.RenderStepped:Connect(function()
-		if ST.isUnloaded or not ST.RockTrajectoryEnabled then
-			local old = workspace:FindFirstChild("CLL_RockArc")
-			if old then old:Destroy() end
-			return
-		end
-		local char = LocalPlayer.Character
-		if not char then return end
-		local tool = char:FindFirstChildOfClass("Tool")
-		if not tool or not string.lower(tool.Name):find("rock") then
-			local old = workspace:FindFirstChild("CLL_RockArc")
-			if old then old:Destroy() end
-			return
-		end
-		-- origin = where rock actually leaves (Handle), not camera center
-		local handle = tool:FindFirstChild("Handle") or tool:FindFirstChildWhichIsA("BasePart")
-		if not handle then return end
-		local origin = handle.Position
-		local cam = workspace.CurrentCamera
-		local mp = UIS:GetMouseLocation()
-		local aimPos = nil
-		if cam then
-			local ray = cam:ViewportPointToRay(mp.X, mp.Y)
-			local rp = RaycastParams.new()
-			rp.FilterDescendantsInstances = { char }
-			rp.FilterType = Enum.RaycastFilterType.Exclude
-			local hit = workspace:Raycast(ray.Origin, ray.Direction * 500, rp)
-			aimPos = hit and hit.Position or (ray.Origin + ray.Direction * 80)
-		end
-		local dir = aimPos and (aimPos - origin) or handle.CFrame.LookVector
-		if dir.Magnitude < 0.05 then dir = handle.CFrame.LookVector else dir = dir.Unit end
-		local force = math.clamp(ST.RockArcForce or 90, 20, 200)
-		local gravMul = math.clamp(ST.RockArcGravity or 1, 0.2, 3)
-		local g = Vector3.new(0, -workspace.Gravity * gravMul, 0)
-		local vel = dir * force
-		local folder = workspace:FindFirstChild("CLL_RockArc")
-		if not folder then
-			folder = Instance.new("Folder")
-			folder.Name = "CLL_RockArc"
-			folder.Parent = workspace
-		end
-		for _, c in ipairs(folder:GetChildren()) do c:Destroy() end
-		local style = ST.RockArcStyle or "solid"
-		local pos, v, dt = origin, vel, 0.05
-		local lastPos = pos
-		local hitPos = nil
-		for i = 1, 60 do
-			local nextPos = pos + v * dt + 0.5 * g * dt * dt
-			v = v + g * dt
-			local rp = RaycastParams.new()
-			rp.FilterDescendantsInstances = { char, folder }
-			rp.FilterType = Enum.RaycastFilterType.Exclude
-			local hit = workspace:Raycast(pos, nextPos - pos, rp)
-			if hit then
-				hitPos = hit.Position
-				nextPos = hit.Position
-			end
-			local draw = not (style == "dashed" and (i % 2 == 0))
-			if draw then
-				if style == "solid" then
-					local dist = (nextPos - lastPos).Magnitude
-					if dist > 0.04 then
-						local seg = Instance.new("Part")
-						seg.Anchored = true
-						seg.CanCollide = false
-						seg.Material = Enum.Material.Neon
-						seg.Color = Theme.Accent
-						seg.Size = Vector3.new(0.1, 0.1, dist)
-						seg.CFrame = CFrame.lookAt(lastPos, nextPos) * CFrame.new(0, 0, -dist / 2)
-						seg.Transparency = 0.2
-						seg.Parent = folder
-					end
-				else
-					local dot = Instance.new("Part")
-					dot.Anchored = true
-					dot.CanCollide = false
-					dot.Material = Enum.Material.Neon
-					dot.Color = Theme.Accent
-					dot.Size = Vector3.new(0.22, 0.22, 0.22)
-					dot.Shape = Enum.PartType.Ball
-					dot.Transparency = 0.15
-					dot.CFrame = CFrame.new(nextPos)
-					dot.Parent = folder
-				end
-			end
-			lastPos = nextPos
-			pos = nextPos
-			if hit then break end
-			if (pos - origin).Magnitude > 250 then break end
-		end
-		if hitPos then
-			local c1 = Instance.new("Part")
-			c1.Anchored = true; c1.CanCollide = false
-			c1.Material = Enum.Material.Neon
-			c1.Color = Color3.fromRGB(255, 90, 90)
-			c1.Size = Vector3.new(1.1, 0.08, 0.12)
-			c1.CFrame = CFrame.new(hitPos + Vector3.new(0, 0.05, 0))
-			c1.Parent = folder
-			local c2 = c1:Clone()
-			c2.Size = Vector3.new(0.12, 0.08, 1.1)
-			c2.Parent = folder
-		end
-	end))
+	
 end)
 
 -- residual cam cleanup: ONLY when ST.AntiCamShakeEnabled (tied to FOV lock)
