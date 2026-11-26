@@ -1,6 +1,6 @@
 --[[
     ╔═══════════════════════════════════════════════════════════════╗
-    ║              CLL CHEAT - FULL INTEGRATION v11.91-bm (native Q/G grab mirror + VR restore)                ║
+    ║              CLL CHEAT - FULL INTEGRATION v11.92-bn (native Q/G grab mirror + VR restore)                ║
     ╠═══════════════════════════════════════════════════════════════╣
     ║  SUK head-hit, real crosshair, tracers, ESP outline nick,     ║
     ║  ChinaHat/Wings fix, VR hands, anti-flash/shake, antibypass   ║
@@ -155,10 +155,11 @@ local ST = {
 	MaxZoomValue = 128,
 	RemoveFogEnabled = false,
 	FullbrightEnabled = false,
+	FullbrightBrightness = 2,
 	UIOpacity = 0.1,
 	MenuGridEnabled = false,
 	MenuGridSpeed = 1,
-	MenuGridTransparency = 0.85,
+	MenuGridTransparency = 0.42,
 	MenuGridColor = Color3.fromRGB(80, 140, 255),
 	MenuBgStyle = "grid",
 	MenuGridRotation = 0,
@@ -2301,7 +2302,9 @@ RunService.Heartbeat:Connect(function()
 	
 	if ST.FullbrightEnabled then
 		local l = game:GetService("Lighting")
-		l.Ambient = Color3.fromRGB(255, 255, 255); l.OutdoorAmbient = Color3.fromRGB(255, 255, 255); l.Brightness = 2; l.FogEnd = 100000
+		local br = math.clamp(ST.FullbrightBrightness or 2, 0.5, 10)
+		l.Ambient = Color3.fromRGB(255, 255, 255); l.OutdoorAmbient = Color3.fromRGB(255, 255, 255)
+		l.Brightness = br; l.FogEnd = 100000
 		for _, v in pairs(l:GetChildren()) do if v:IsA("Atmosphere") then v.Density = 0 end end
 	elseif not ST.FullbrightEnabled and not ST.SkyColorEnabled then
 		local l = game:GetService("Lighting")
@@ -3294,14 +3297,6 @@ function setVREnabled(on, fromUser)
 	
 	if VRToggleSetUI then pcall(VRToggleSetUI, on) end
 	if on then
-		pcall(function()
-			for _, t in pairs(HandTrailParts or {}) do pcall(function() t:Destroy() end) end
-			HandTrailParts = {}
-		end)
-		if ST.isBlockActive and SwingRemote then
-			pcall(function() SwingRemote:FireServer("UnBlock") end)
-			ST.isBlockActive = false
-		end
 		_G.CLL_VR_SPAWN_GRACE = os.clock() + 2.0
 		local char = LocalPlayer.Character
 		if char then
@@ -3484,12 +3479,6 @@ RunService:BindToRenderStep("CLL_VR", Enum.RenderPriority.Last.Value, function(d
 	if not vrDidInit or not char:GetAttribute("DID_VR") then
 		vrInitCharacter(char)
 	end
-	-- Block from autoheal kills VR punch registration
-	if ST.isBlockActive and SwingRemote then
-		pcall(function() SwingRemote:FireServer("UnBlock") end)
-		ST.isBlockActive = false
-	end
-
 	local looking = UIS:IsMouseButtonPressed(Enum.UserInputType.MouseButton2)
 	-- LockCurrentPosition keeps the cursor where it is and makes GetMouseDelta non-zero.
 	-- LockCenter is what yanked the cursor to the middle — do not use it.
@@ -4079,53 +4068,8 @@ playKillHighlight = function(char)
 				end
 			end)
 		end)
-		if ST.KillTriangleEnabled ~= false then
-			pcall(function()
-				local sg = LocalPlayer:FindFirstChild("PlayerGui")
-				if not sg then return end
-				local gui = sg:FindFirstChild("CLL_KillTri")
-				if not gui then
-					gui = Instance.new("ScreenGui")
-					gui.Name = "CLL_KillTri"
-					gui.ResetOnSpawn = false
-					gui.IgnoreGuiInset = true
-					gui.DisplayOrder = 120
-					gui.Parent = sg
-				end
-				local cam = workspace.CurrentCamera
-				local cx = cam and cam.ViewportSize.X * 0.5 or 0
-				local cy = cam and cam.ViewportSize.Y * 0.5 or 0
-				if aimDot and aimDot.Parent and aimDot.Visible then
-					local ap, asz = aimDot.AbsolutePosition, aimDot.AbsoluteSize
-					cx = ap.X + asz.X * 0.5
-					cy = ap.Y + asz.Y * 0.5
-				elseif aimRing and aimRing.Parent and aimRing.Visible then
-					local ap, asz = aimRing.AbsolutePosition, aimRing.AbsoluteSize
-					cx = ap.X + asz.X * 0.5
-					cy = ap.Y + asz.Y * 0.5
-				end
-				local f1 = Instance.new("Frame")
-				f1.Size = UDim2.fromOffset(14, 14)
-				f1.AnchorPoint = Vector2.new(0.5, 0.5)
-				f1.Position = UDim2.fromOffset(cx, cy)
-				f1.BackgroundColor3 = col
-				f1.Rotation = 45
-				f1.BorderSizePixel = 0
-				f1.ZIndex = 50
-				f1.Parent = gui
-				Instance.new("UICorner", f1).CornerRadius = UDim.new(0, 2)
-				TweenService:Create(f1, TweenInfo.new(0.14, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {
-					Size = UDim2.fromOffset(20, 20),
-				}):Play()
-				task.delay(0.35, function()
-					TweenService:Create(f1, TweenInfo.new(0.2), { BackgroundTransparency = 1, Size = UDim2.fromOffset(6, 6) }):Play()
-					task.delay(0.22, function() pcall(function() f1:Destroy() end) end)
-				end)
-			end)
-		end
 	end)
 end
-
 
 onVictimDied = function(char)
 	-- any death, not only ours. corpses already flagged never flash
@@ -4802,7 +4746,7 @@ fit(); workspace.CurrentCamera:GetPropertyChangedSignal("ViewportSize"):Connect(
 local header = new("Frame", { Size = UDim2.new(1, 0, 0, 62), BackgroundTransparency = 1, Parent = window })
 local logoLabel = label({ Text = "CLL", Font = Enum.Font.Michroma, TextSize = 26, TextTruncate = Enum.TextTruncate.AtEnd, Size = UDim2.fromOffset(100, 62), Position = UDim2.fromOffset(23, 0), Parent = header })
 logoLabel.TextColor3 = Color3.fromRGB(255, 255, 255) -- Always white
-local verLabel = label({ Text = "v11.91-bm", Font = Enum.Font.GothamBold, TextSize = 12, TextColor3 = Theme.Dim, Size = UDim2.fromOffset(50, 62), Position = UDim2.fromOffset(85, 2), Parent = header })
+local verLabel = label({ Text = "v11.92-bn", Font = Enum.Font.GothamBold, TextSize = 12, TextColor3 = Theme.Dim, Size = UDim2.fromOffset(50, 62), Position = UDim2.fromOffset(85, 2), Parent = header })
 local timeLabel = label({ Text = "Session: 00:00", Font = Enum.Font.GothamMedium, TextSize = 13, TextColor3 = Theme.Dim, Size = UDim2.fromOffset(150, 62), Position = UDim2.fromOffset(150, 0), Parent = header })
 task.spawn(function()
 	while not ST.isUnloaded do
@@ -5712,7 +5656,7 @@ function buildProfile()
 		return t, v
 	end
 	local tBuild, vBuild = row("profile_build", 225)
-	vBuild.Text = "v11.91-bm"
+	vBuild.Text = "v11.92-bn"
 	local tSess, vSess = row("profile_session", 250)
 	local tStat, vStat = row("profile_status", 275)
 	vStat.Text = L("profile_active")
@@ -5837,7 +5781,7 @@ function buildSettings()
 	y += 44
 	slider(leftScroll, y, "Grid Speed", 0.1, 5, ST.MenuGridSpeed or 1, 0.1, function(v) ST.MenuGridSpeed = v end, function() return ST.MenuGridSpeed or 1 end)
 	y += 58
-	slider(leftScroll, y, "Grid Transparency", 0.3, 0.98, ST.MenuGridTransparency or 0.85, 0.02, function(v) ST.MenuGridTransparency = v end, function() return ST.MenuGridTransparency or 0.85 end)
+	slider(leftScroll, y, "Grid Transparency", 0.05, 0.85, ST.MenuGridTransparency or 0.42, 0.02, function(v) ST.MenuGridTransparency = v end, function() return ST.MenuGridTransparency or 0.42 end)
 	y += 58
 	slider(leftScroll, y, "Grid Rotation", 0, 45, ST.MenuGridRotation or 0, 1, function(v)
 		ST.MenuGridRotation = v
@@ -6879,26 +6823,13 @@ buildFeaturePage(pages.Visual, "VISUAL", {
 
 -- Effects
 buildFeaturePage(pages.Effects, "EFFECTS", {
-	{ name = "Aim Visualizer", nameKey = "t_aimvis", descKey = "d_aimvis", initial = true, getState = function() return ST.TrueCrosshairEnabled end, onToggle = function(v) ST.TrueCrosshairEnabled = v; if aimDot then aimDot.Visible = v end; if aimRing then aimRing.Visible = v end end, buildDetail = function(d)
-		detailToggle(d, 1, "Kill triangle on cursor", ST.KillTriangleEnabled ~= false, function(v) ST.KillTriangleEnabled = v end, "Shows a bounce triangle at the cursor on kill.")
-	end },
-	{ name = "Bullet Tracers", nameKey = "t_tracers", descKey = "d_tracers", initial = false, onToggle = function(v) ST.TracersEnabled = v end, buildDetail = function(d)
-		detailSlider(d, 1, "Duration", 0.1, 2, ST.TracerDuration, 0.1, function(v) ST.TracerDuration = v end)
-		detailToggle(d, 3, "My tracers", ST.TracerSelfEnabled, function(v) ST.TracerSelfEnabled = v end)
-		detailColor(d, 3, "My color (red)", function() return ST.ColorSelf end, function(c) ST.ColorSelf = c end)
-		detailToggle(d, 4, "Players' tracers", ST.TracerOthersEnabled, function(v) ST.TracerOthersEnabled = v; ST.TracersOthers = v end)
-		detailColor(d, 5, "Players color (yellow)", function() return ST.ColorOthers end, function(c) ST.ColorOthers = c end)
-		detailToggle(d, 6, "Friends' tracers", ST.TracerFriendsEnabled, function(v) ST.TracerFriendsEnabled = v end)
-		detailColor(d, 7, "Friends color (green)", function() return ST.ColorFriends end, function(c) ST.ColorFriends = c end)
-	end },
+	{ name = "Aim Visualizer", nameKey = "t_aimvis", descKey = "d_aimvis", initial = true, getState = function() return ST.TrueCrosshairEnabled end, onToggle = function(v) ST.TrueCrosshairEnabled = v; if aimDot then aimDot.Visible = v end; if aimRing then aimRing.Visible = v end end, buildDetail = nil },
 	{ name = "Kill Highlight", nameKey = "t_killhl", descKey = "d_killhl", initial = true, getState = function() return ST.KillHighlightEnabled end, onToggle = function(v) ST.KillHighlightEnabled = v end, buildDetail = function(d)
 		detailSlider(d, 1, "Hold (sec)", 0.1, 2, ST.KillHighlightDuration or 0.5, 0.05, function(v) ST.KillHighlightDuration = v end)
 		detailSlider(d, 2, "Fade out (sec)", 0.05, 2, ST.KillHighlightFade or 0.4, 0.05, function(v) ST.KillHighlightFade = v end)
 		detailColor(d, 3, "Color", function() return ST.KillHighlightColor end, function(c) ST.KillHighlightColor = c end)
 		detailToggle(d, 4, "Sky pillar", ST.KillBeamEnabled ~= false, function(v) ST.KillBeamEnabled = v end)
 	end },
-	{ name = "Kill Crown", desc = "Neon crown on you when you get a kill.", initial = false, getState = function() return ST.KillCrownEnabled end, onToggle = function(v) ST.KillCrownEnabled = v end },
-	{ name = "Kill Wreath", desc = "Neon wreath on you when you get a kill.", initial = false, getState = function() return ST.KillWreathEnabled end, onToggle = function(v) ST.KillWreathEnabled = v end },
 	{ name = "Foot Trails", desc = "Neon marks under feet while walking on ground.", initial = false, getState = function() return ST.FootTrailsEnabled end, onToggle = function(v) ST.FootTrailsEnabled = v end, buildDetail = function(d)
 		detailColor(d, 1, "Color", function() return ST.FootTrailColor or Color3.fromRGB(80, 200, 255) end, function(c) ST.FootTrailColor = c end)
 		detailToggle(d, 2, "Style: Cross (off = Square)", ST.FootTrailStyle ~= "square", function(v) ST.FootTrailStyle = v and "cross" or "square" end)
@@ -6996,7 +6927,9 @@ buildFeaturePage(pages.Effects, "EFFECTS", {
 		if CLL_Notify then CLL_Notify("Weather", "Rain/clouds cleared once") end
 	end, buildDetail = nil },
 	{ name = "Remove Fog", nameKey = "t_fog", descKey = "d_fog", initial = false, onToggle = function(s) ST.RemoveFogEnabled = s; if not s then game:GetService("Lighting").FogEnd = 1000 end end, buildDetail = nil },
-	{ name = "Fullbright", nameKey = "t_fb", descKey = "d_fb", initial = false, onToggle = function(s) ST.FullbrightEnabled = s end, buildDetail = nil },
+	{ name = "Fullbright", nameKey = "t_fb", descKey = "d_fb", initial = false, getState = function() return ST.FullbrightEnabled end, onToggle = function(s) ST.FullbrightEnabled = s end, buildDetail = function(d)
+		detailSlider(d, 1, "Brightness", 0.5, 8, ST.FullbrightBrightness or 2, 0.1, function(v) ST.FullbrightBrightness = v end)
+	end },
 	{ name = "Weather Rain", nameKey = "t_wrain", descKey = "d_wrain", initial = false, onToggle = function(v) if v then startWeatherRain() else stopWeather() end end, buildDetail = nil },
 	{ name = "Time Override", nameKey = "t_time", descKey = "d_time", initial = false, onToggle = function(s) ST.TimeOverrideEnabled = s; if not s then game:GetService("Lighting").ClockTime = 14 end end, buildDetail = function(d) detailSlider(d, 1, "Time", 0, 24, ST.TimeOverrideValue, 0.1, function(v) ST.TimeOverrideValue = v end) end },
 	{ name = "Camera FOV Lock", nameKey = "t_fovlock", descKey = "d_fovlock", initial = false, onToggle = function(s)
@@ -7062,7 +6995,7 @@ rebuildMenuGrid = function()
 
 		local style = ST.MenuBgStyle or "grid"
 		local col = ST.MenuGridColor or Theme.Accent or Color3.fromRGB(80, 140, 255)
-		local tr = math.clamp(ST.MenuGridTransparency or 0.85, 0.2, 0.98)
+		local tr = math.clamp(ST.MenuGridTransparency or 0.42, 0.05, 0.85)
 		local spacing = 28
 		local t0 = os.clock()
 
@@ -7141,19 +7074,19 @@ rebuildMenuGrid = function()
 			-- orthogonal grid: tilt via holder only (chess keeps its own cell rotation)
 			local holder = Instance.new("Frame")
 			holder.BackgroundTransparency = 1
-			holder.Size = UDim2.fromScale(8, 8)
+			holder.Size = UDim2.fromScale(3.2, 3.2)
 			holder.Position = UDim2.fromScale(0.5, 0.5)
 			holder.AnchorPoint = Vector2.new(0.5, 0.5)
 			holder.Rotation = tonumber(ST.MenuGridRotation) or 0
 			holder.ZIndex = 0
 			holder.Parent = folder
 			local lines = {}
-			local extent = 120
+			local extent = 100
 			for i = 0, extent do
-				lines[#lines + 1] = { ln = mk(holder, i * spacing - spacing * 12, -spacing * 12, 1, spacing * (extent + 30), col, tr), axis = "v", i = i }
+				lines[#lines + 1] = { ln = mk(holder, i * spacing - spacing * 10, -spacing * 10, 2, spacing * (extent + 24), col, tr), axis = "v", i = i }
 			end
 			for i = 0, extent do
-				lines[#lines + 1] = { ln = mk(holder, -spacing * 12, i * spacing - spacing * 12, spacing * (extent + 30), 1, col, tr), axis = "h", i = i }
+				lines[#lines + 1] = { ln = mk(holder, -spacing * 10, i * spacing - spacing * 10, spacing * (extent + 24), 2, col, tr), axis = "h", i = i }
 			end
 			local scrollOff = 0
 			menuGridConn = RunService.RenderStepped:Connect(function(dt)
@@ -7172,11 +7105,11 @@ rebuildMenuGrid = function()
 					L.ln.BackgroundTransparency = tr2
 					L.ln.Rotation = 0
 					if L.axis == "v" then
-						L.ln.Position = UDim2.fromOffset(L.i * spacing - spacing * 12 - off, -spacing * 12)
-						L.ln.Size = UDim2.fromOffset(1, spacing * 140)
+						L.ln.Position = UDim2.fromOffset(L.i * spacing - spacing * 10 - off, -spacing * 10)
+						L.ln.Size = UDim2.fromOffset(2, spacing * 120)
 					else
-						L.ln.Position = UDim2.fromOffset(-spacing * 12, L.i * spacing - spacing * 12 - off)
-						L.ln.Size = UDim2.fromOffset(spacing * 140, 1)
+						L.ln.Position = UDim2.fromOffset(-spacing * 10, L.i * spacing - spacing * 10 - off)
+						L.ln.Size = UDim2.fromOffset(spacing * 120, 2)
 					end
 				end
 			end)
@@ -7653,70 +7586,6 @@ function ensureTrailFolder()
 	return FootTrailFolder
 end
 
-function refreshHeadCosmetics()
-	pcall(function()
-		local char = LocalPlayer.Character
-		if not char then return end
-		local head = char:FindFirstChild("Head")
-		local folder = char:FindFirstChild("CLL_HeadCos")
-		if folder then folder:Destroy() end
-		if not head then return end
-		if not (ST.KillCrownEnabled or ST.KillWreathEnabled) then return end
-		folder = Instance.new("Folder")
-		folder.Name = "CLL_HeadCos"
-		folder.Parent = char
-		local function weldToHead(part, offset)
-			part.Anchored = false
-			part.CanCollide = false
-			part.Massless = true
-			part.CanQuery = false
-			part.CastShadow = false
-			part.Parent = folder
-			local w = Instance.new("Weld")
-			w.Part0 = head
-			w.Part1 = part
-			w.C0 = offset
-			w.Parent = part
-		end
-		local col = ST.KillHighlightColor or Color3.fromRGB(255, 200, 60)
-		if ST.KillCrownEnabled then
-			local ring = Instance.new("Part")
-			ring.Name = "CrownRing"
-			ring.Shape = Enum.PartType.Cylinder
-			ring.Size = Vector3.new(0.22, 1.35, 1.35)
-			ring.Material = Enum.Material.Neon
-			ring.Color = col
-			weldToHead(ring, CFrame.new(0, head.Size.Y * 0.55, 0) * CFrame.Angles(0, 0, math.rad(90)))
-			for i = 0, 5 do
-				local sp = Instance.new("Part")
-				sp.Name = "CrownSpike"
-				sp.Size = Vector3.new(0.18, 0.55, 0.18)
-				sp.Material = Enum.Material.Neon
-				sp.Color = col
-				local ang = i / 6 * math.pi * 2
-				weldToHead(sp, CFrame.new(math.cos(ang) * 0.55, head.Size.Y * 0.55 + 0.35, math.sin(ang) * 0.55))
-			end
-		end
-		if ST.KillWreathEnabled then
-			local wreath = Instance.new("Part")
-			wreath.Name = "Wreath"
-			wreath.Shape = Enum.PartType.Cylinder
-			wreath.Size = Vector3.new(0.18, 1.5, 1.5)
-			wreath.Material = Enum.Material.Neon
-			wreath.Color = Color3.fromRGB(40, 200, 90)
-			weldToHead(wreath, CFrame.new(0, head.Size.Y * 0.45, 0) * CFrame.Angles(0, 0, math.rad(90)))
-		end
-	end)
-end
-pcall(function()
-	if Connections then
-		table.insert(Connections, LocalPlayer.CharacterAdded:Connect(function()
-			task.wait(0.5)
-			refreshHeadCosmetics()
-		end))
-	end
-end)
-
 function spawnFootCross(pos, lookCF, col)
 	local folder = ensureTrailFolder()
 	local life = math.clamp(ST.FootTrailLifetime or 0.85, 0.2, 3)
@@ -7766,7 +7635,6 @@ function attachHandTrails(char)
 	for _, t in pairs(HandTrailParts or {}) do pcall(function() t:Destroy() end) end
 	HandTrailParts = {}
 	if not ST.HandTrailsEnabled or not char then return end
-	if ST.VREnabled then return end -- trails on hands break VR punches
 	local col = ST.HandTrailColor or Color3.fromRGB(255, 120, 200)
 	local life = math.clamp(ST.HandTrailLifetime or 0.35, 0.05, 2)
 	local width = math.clamp(ST.HandTrailWidth or 0.2, 0.05, 1)
