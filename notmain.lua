@@ -1,6 +1,6 @@
 --[[
     ╔═══════════════════════════════════════════════════════════════╗
-    ║              CLL CHEAT - FULL INTEGRATION v11.78-ax (native Q/G grab mirror + VR restore)                ║
+    ║              CLL CHEAT - FULL INTEGRATION v11.79-ay (native Q/G grab mirror + VR restore)                ║
     ╠═══════════════════════════════════════════════════════════════╣
     ║  SUK head-hit, real crosshair, tracers, ESP outline nick,     ║
     ║  ChinaHat/Wings fix, VR hands, anti-flash/shake, antibypass   ║
@@ -402,6 +402,7 @@ local LANG = {
 		d_wm_world = "Доп. инфо о мире на экране.",
 		t_wm_ammo = "Watermark патроны",
 		d_wm_ammo = "Показ патронов у курсора.",
+		t_theme = "Белая тема", d_theme = "Светлый фон; текст становится тёмным.",
 		t_walk = "Скорость ходьбы", d_walk = "Меняет скорость ходьбы.",
 		t_jump = "Сила прыжка", d_jump = "Меняет высоту прыжка.",
 		t_fly = "Полёт", d_fly = "Позволяет летать в воздухе.",
@@ -487,6 +488,7 @@ local LANG = {
 		d_wm_world = "Extra world info overlay.",
 		t_wm_ammo = "Watermark Ammo",
 		d_wm_ammo = "Ammo counter near the cursor.",
+		t_theme = "White Theme", d_theme = "Light background; text becomes dark.",
 		t_walk = "Walk Speed", d_walk = "Changes how fast you walk.",
 		t_jump = "Jump Power", d_jump = "Changes how high you jump.",
 		t_fly = "Fly", d_fly = "Lets you fly in the air.",
@@ -1673,7 +1675,7 @@ function MultiFireAt()
 		if cv and (cv:IsA("NumberValue") or cv:IsA("IntValue")) then cv.Value = cur end
 	end)
 
-	-- Head-TP: origin INSIDE the head so Hit registers (not beside the skull)
+	-- AP-style (v11.70-ap): Fire muzzle + nearHead, 1× Hit at head, dir = muzzle→head
 	local pred = hitPos
 	pcall(function()
 		if head and head.AssemblyLinearVelocity then
@@ -1684,16 +1686,17 @@ function MultiFireAt()
 	end)
 	local toHead = pred - muzzle
 	local tpDir = (typeof(toHead) == "Vector3" and toHead.Magnitude > 0.05) and toHead.Unit or Vector3.new(0, 0, -1)
-	local tpOrigin = pred -- inside head
+	-- tracer / soft origin just in front of skull; server Fire also from real muzzle
+	local nearHead = pred - tpDir * 0.8
 	local vel = tpDir * 2000
-	local bcf = CFrame.lookAt(pred - tpDir * 0.15, pred)
+	local bcf = CFrame.lookAt(pred - tpDir * 0.4, pred)
 
-	local function sendFire(org, d)
+	local function firePayload(org)
 		local payload = {
 			velocity = 2000,
 			bullet = bulletModel,
 			origin = org,
-			direction = d,
+			direction = tpDir,
 		}
 		if CLL_FireServer then
 			pcall(CLL_FireServer, FireRemote, tool, "Fire", payload)
@@ -1702,34 +1705,32 @@ function MultiFireAt()
 		end
 	end
 
-	-- head-TP Fire (range-independent) — what other SUKs do without moving their body
-	sendFire(tpOrigin, tpDir)
-	markLocalShot(tpOrigin)
+	firePayload(muzzle)
+	firePayload(nearHead)
+	markLocalShot(nearHead)
 
 	if head and head.Parent then
-		-- 8 pellets on skull (v53 lethality, not blink)
-		for _ = 1, 8 do
-			local hitTbl = {
-				hit = head,
-				normal = -tpDir,
-				position = pred,
-				velocity = vel,
-				bullet_cframe = bcf,
-			}
-			if CLL_FireServer then
-				pcall(CLL_FireServer, FireRemote, tool, "Hit", hitTbl)
-			else
-				pcall(function() FireRemote:FireServer(tool, "Hit", hitTbl) end)
-			end
+		-- one Hit per shell (ap) — position on the head
+		local hitTbl = {
+			hit = head,
+			normal = -tpDir,
+			position = pred,
+			velocity = vel,
+			bullet_cframe = bcf,
+		}
+		if CLL_FireServer then
+			pcall(CLL_FireServer, FireRemote, tool, "Hit", hitTbl)
+		else
+			pcall(function() FireRemote:FireServer(tool, "Hit", hitTbl) end)
 		end
 		HelperFire("Gun Base", "Hit", head, pred, -tpDir, vel, bulletModel)
 		HelperFire("Fx", "Hitmarker", head)
 		markKillCandidate(head.Parent)
 		task.defer(function()
-			local m = head.Parent
-			local h = m and m:FindFirstChildOfClass("Humanoid")
-			if h and h.Health <= 0 then
-				onVictimDied(m)
+			local m2 = head.Parent
+			local h2 = m2 and m2:FindFirstChildOfClass("Humanoid")
+			if h2 and h2.Health <= 0 then
+				onVictimDied(m2)
 				if ST.isMultiSuk and not ST._reloadRunning then
 					local t = GetSpas()
 					if t then pcall(InstantReload, t) end
@@ -1742,12 +1743,12 @@ function MultiFireAt()
 		HelperFire("Fx", "Fire Bullet", tool, {
 			velocity = 2000,
 			bullet = bulletModel,
-			origin = tpOrigin,
+			origin = nearHead,
 			direction = tpDir,
 		})
 	end
 	if ST.TracersEnabled and ST.TracerSelfEnabled then
-		CreateTracer(tpOrigin, pred, ST.ColorSelf)
+		CreateTracer(nearHead, pred, ST.ColorSelf)
 	end
 
 	local ca = ST._sukChamber or 0
@@ -4227,12 +4228,23 @@ end)
 local oldIndex = nil
 
 --// ==================== UI FRAMEWORK ====================
-local Theme = {
+local 
+local ThemeDark = {
 	Bg = Color3.fromRGB(10, 10, 12), Panel = Color3.fromRGB(16, 16, 20), Row = Color3.fromRGB(24, 24, 30),
 	Stroke = Color3.fromRGB(38, 40, 50), Text = Color3.fromRGB(240, 242, 248), Dim = Color3.fromRGB(110, 114, 130),
 	Off = Color3.fromRGB(32, 32, 40), OnTrack = Color3.fromRGB(55, 120, 255), Knob = Color3.fromRGB(255, 255, 255),
 	TabOn = Color3.fromRGB(28, 32, 44), Accent = Color3.fromRGB(55, 120, 255),
 }
+local ThemeLight = {
+	Bg = Color3.fromRGB(245, 246, 250), Panel = Color3.fromRGB(255, 255, 255), Row = Color3.fromRGB(236, 238, 244),
+	Stroke = Color3.fromRGB(210, 214, 224), Text = Color3.fromRGB(22, 24, 32), Dim = Color3.fromRGB(100, 106, 120),
+	Off = Color3.fromRGB(220, 224, 232), OnTrack = Color3.fromRGB(55, 120, 255), Knob = Color3.fromRGB(255, 255, 255),
+	TabOn = Color3.fromRGB(228, 232, 242), Accent = Color3.fromRGB(55, 120, 255),
+}
+Theme = {}
+for k, v in pairs(ThemeDark) do Theme[k] = v end
+ST.ThemeLight = ST.ThemeLight or false
+
 local CosmeticColorCustom = Color3.fromRGB(55, 120, 255)
 local CosmeticUseCustom = true
 local watermarkMain, watermarkBinds, watermarkWorld = nil, nil, nil
@@ -4245,6 +4257,56 @@ function fireTheme()
 	Theme.OnTrack = Theme.Accent
 	for i = 1, #ThemeSubscribers do pcall(ThemeSubscribers[i]) end
 end
+
+function applyThemeMode(light, animate)
+	ST.ThemeLight = light and true or false
+	local srcT = light and ThemeLight or ThemeDark
+	-- keep accent from current
+	local accent = Theme.Accent
+	if animate then
+		local from = {}
+		for k, v in pairs(Theme) do
+			if typeof(v) == "Color3" then from[k] = v end
+		end
+		local t0 = os.clock()
+		local dur = 0.35
+		local conn
+		conn = RunService.RenderStepped:Connect(function()
+			local a = math.clamp((os.clock() - t0) / dur, 0, 1)
+			a = a * a * (3 - 2 * a) -- smoothstep
+			for k, goal in pairs(srcT) do
+				if typeof(goal) == "Color3" and from[k] then
+					Theme[k] = from[k]:Lerp(goal, a)
+				elseif typeof(goal) == "Color3" then
+					Theme[k] = goal
+				end
+			end
+			Theme.Accent = accent
+			Theme.OnTrack = accent
+			fireTheme()
+			-- repaint common roots
+			pcall(function()
+				if UIRefs.window then UIRefs.window.BackgroundColor3 = Theme.Bg end
+			end)
+			if a >= 1 then
+				conn:Disconnect()
+				for k, goal in pairs(srcT) do Theme[k] = goal end
+				Theme.Accent = accent
+				Theme.OnTrack = accent
+				fireTheme()
+			end
+		end)
+	else
+		for k, goal in pairs(srcT) do Theme[k] = goal end
+		Theme.Accent = accent
+		Theme.OnTrack = accent
+		fireTheme()
+		pcall(function()
+			if UIRefs.window then UIRefs.window.BackgroundColor3 = Theme.Bg end
+		end)
+	end
+end
+
 local DESIGN_W, DESIGN_H = 920, 560
 new = function(c, p, ch) local o = Instance.new(c); for k, v in pairs(p or {}) do o[k] = v end; for _, x in ipairs(ch or {}) do x.Parent = o end; return o end
 corner = function(r) return new("UICorner", { CornerRadius = UDim.new(0, r) }) end
@@ -4286,9 +4348,9 @@ function cosmeticColor() return CosmeticUseCustom and CosmeticColorCustom or The
 task.spawn(function()
 	local bindName = "CLL_NoShake"
 	pcall(function() RunService:UnbindFromRenderStep(bindName) end)
-	RunService:BindToRenderStep(bindName, Enum.RenderPriority.Camera.Value + 3, function()
+	RunService:BindToRenderStep(bindName, Enum.RenderPriority.Last.Value, function()
 		if ST.isUnloaded then return end
-		-- always kill camera punch (uber/flash/recoil)
+		-- kill REAL camera displacement after uber/flash (offset + attributes)
 		local cam = workspace.CurrentCamera
 		local char = LocalPlayer.Character
 		if char then
@@ -4296,12 +4358,20 @@ task.spawn(function()
 				char:SetAttribute("CameraShake", Vector3.zero)
 				char:SetAttribute("VR_CAMERA_RECOIL", Vector3.zero)
 				char:SetAttribute("VR_RIGHT_ARM_RECOIL", CFrame.new())
+				char:SetAttribute("CameraPunch", Vector3.zero)
+				char:SetAttribute("Recoil", Vector3.zero)
 			end)
 			local hum = char:FindFirstChildOfClass("Humanoid")
 			if hum then
 				pcall(function()
 					hum.CameraOffset = Vector3.zero
 				end)
+			end
+		end
+		-- zero spring-style shake values if present on camera modules
+		pcall(function()
+			if cam then
+				cam:SetAttribute("Shake", nil)
 			end
 		end
 		if ST.AntiFlashEnabled then
@@ -4373,7 +4443,7 @@ fit(); workspace.CurrentCamera:GetPropertyChangedSignal("ViewportSize"):Connect(
 local header = new("Frame", { Size = UDim2.new(1, 0, 0, 62), BackgroundTransparency = 1, Parent = window })
 local logoLabel = label({ Text = "CLL", Font = Enum.Font.Michroma, TextSize = 26, TextTruncate = Enum.TextTruncate.AtEnd, Size = UDim2.fromOffset(100, 62), Position = UDim2.fromOffset(23, 0), Parent = header })
 logoLabel.TextColor3 = Color3.fromRGB(255, 255, 255) -- Always white
-local verLabel = label({ Text = "v11.78-ax", Font = Enum.Font.GothamBold, TextSize = 12, TextColor3 = Theme.Dim, Size = UDim2.fromOffset(50, 62), Position = UDim2.fromOffset(85, 2), Parent = header })
+local verLabel = label({ Text = "v11.79-ay", Font = Enum.Font.GothamBold, TextSize = 12, TextColor3 = Theme.Dim, Size = UDim2.fromOffset(50, 62), Position = UDim2.fromOffset(85, 2), Parent = header })
 local timeLabel = label({ Text = "Session: 00:00", Font = Enum.Font.GothamMedium, TextSize = 13, TextColor3 = Theme.Dim, Size = UDim2.fromOffset(150, 62), Position = UDim2.fromOffset(150, 0), Parent = header })
 task.spawn(function()
 	while not ST.isUnloaded do
@@ -5255,7 +5325,7 @@ function buildProfile()
 		return t, v
 	end
 	local tBuild, vBuild = row("profile_build", 225)
-	vBuild.Text = "v11.78-ax"
+	vBuild.Text = "v11.79-ay"
 	local tSess, vSess = row("profile_session", 250)
 	local tStat, vStat = row("profile_status", 275)
 	vStat.Text = L("profile_active")
@@ -5376,6 +5446,10 @@ function buildSettings()
 		if langBtn and langBtn.Parent then langBtn.Text = (ST.Language == "en") and "English" or "Русский" end
 	end)
 	y += 44
+	toggle(leftScroll, y, L("t_theme"), function(v)
+		applyThemeMode(v, true)
+	end, ST.ThemeLight == true, function() return ST.ThemeLight == true end, L("d_theme"))
+	y += 54
 	-- Menu grid (spaced so nothing overlaps)
 	toggle(leftScroll, y, L("t_grid"), function(v)
 		ST.MenuGridEnabled = v
