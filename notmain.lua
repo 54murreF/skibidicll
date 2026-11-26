@@ -1,6 +1,6 @@
 --[[
     ╔═══════════════════════════════════════════════════════════════╗
-    ║              CLL CHEAT - FULL INTEGRATION v11.74-at (native Q/G grab mirror + VR restore)                ║
+    ║              CLL CHEAT - FULL INTEGRATION v11.76-av (native Q/G grab mirror + VR restore)                ║
     ╠═══════════════════════════════════════════════════════════════╣
     ║  SUK head-hit, real crosshair, tracers, ESP outline nick,     ║
     ║  ChinaHat/Wings fix, VR hands, anti-flash/shake, antibypass   ║
@@ -64,6 +64,7 @@ local LocalPlayer = Players.LocalPlayer
 
 local flyVelocity, flyGyro, spinAngular, InfiniteJumpConnection
 local ST = {
+	Language = "en",
 	isMultiSuk = false,
 	SUK_FIRERATE_RPS = 10,
 	SUK_FireDelay = 0.1,
@@ -328,6 +329,138 @@ local markKillCandidate, playKillHighlight, onVictimDied -- forward decl
 local UI_BindLabels = {} -- keyName -> TextButton to refresh bind text
 local UI_SliderHooks = {} -- functions to push slider visuals from ST
 local SessionStartTime = os.clock()
+
+--// ==================== i18n ====================
+ST.Language = ST.Language or "en"
+local LANG = {
+	ru = {
+		suk_warn = "⚠ Для стабильного рега: RPS 6–8 · Delay 0.12–0.15 · Targets/tick = 1.\nСлишком высокий firerate → FX есть, урона нет.",
+		lang = "Язык UI",
+		lang_val = "Русский",
+		profile_title = "П Р О Ф И Л Ь",
+		profile_session = "Сессия",
+		profile_build = "Сборка",
+		profile_status = "Статус",
+		profile_active = "Активен",
+		profile_ops = "Оператор CLL",
+		profile_stats = "С Е С С И Я",
+		profile_ping = "Пинг",
+		profile_fps = "FPS",
+		profile_feat = "Модули",
+		profile_tip = "Совет",
+		profile_tip_body = "SUK: не гони firerate. Invis + дальняк требуют head-TP пуль.\nКонфиг сохраняется локально.",
+		profile_uid = "UserId",
+		profile_server = "Сервер",
+		-- feature titles
+		t_suk = "Включить SUK",
+		t_suk_rps = "Firerate RPS",
+		t_suk_delay = "Fire Delay (Safe)",
+		t_suk_targets = "Targets / tick",
+		t_heal = "Автохил",
+		t_heal_h = "Высота хила",
+		t_ignore_friends = "Игнор друзей",
+		t_target_npcs = "Цель: NPC",
+		t_equip = "Нужен Spas в руках",
+		t_silent = "Silent Aim",
+		t_invis = "Local Invis",
+		t_tracers = "Трассеры",
+		t_esp = "ESP",
+		t_vr = "VR Mode",
+		t_antiflash = "Anti Flash",
+		t_anticc = "Anti CC",
+		t_grid = "Сетка меню",
+		t_wm = "Watermark",
+		-- descriptions: what it is + what it does
+		d_suk = "Автострельба по выбранным целям в голову.",
+		d_suk_rps = "Сколько выстрелов SUK делает в секунду.",
+		d_suk_delay = "Минимальная пауза между выстрелами SUK.",
+		d_suk_targets = "Сколько целей обрабатывать за один тик (сейчас фактически 1).",
+		d_heal = "Телепорт в зону лечения при низком HP.",
+		d_heal_h = "Высота над зоной хила при автотелепорте.",
+		d_ignore_friends = "SUK не стреляет по игрокам из списка друзей.",
+		d_target_npcs = "SUK также берёт NPC из workspace.Humans.",
+		d_equip = "Стрельба только если Spas-12 экипирован.",
+		d_silent = "Подводит направление выстрела к цели в FOV.",
+		d_invis = "Уносит персонажа далеко на сервере и локально.",
+		d_tracers = "Рисует линии пуль своих/чужих выстрелов.",
+		d_esp = "Показывает игроков сквозь стены (боксы/имена).",
+		d_vr = "Включает VR-руки и VR-камеру в игре.",
+		d_antiflash = "Убирает эффект ослепления от флешек.",
+		d_anticc = "Снимает замедления и control-эффекты.",
+		d_grid = "Анимированная сетка на фоне меню.",
+		d_wm = "Оверлей FPS/пинга на экране.",
+		d_killbeam = "Вертикальный столб на месте убитого.",
+	},
+	en = {
+		suk_warn = "⚠ For stable hitreg: RPS 6–8 · Delay 0.12–0.15 · Targets/tick = 1.\nToo high firerate → FX only, no damage.",
+		lang = "UI Language",
+		lang_val = "English",
+		profile_title = "P R O F I L E",
+		profile_session = "Session",
+		profile_build = "Build",
+		profile_status = "Status",
+		profile_active = "Active",
+		profile_ops = "CLL Operator",
+		profile_stats = "S E S S I O N",
+		profile_ping = "Ping",
+		profile_fps = "FPS",
+		profile_feat = "Modules",
+		profile_tip = "Tip",
+		profile_tip_body = "SUK: don't max firerate. Invis + range need head-TP bullets.\nConfig is saved locally.",
+		profile_uid = "UserId",
+		profile_server = "Server",
+		t_suk = "Enable SUK",
+		t_suk_rps = "Firerate RPS",
+		t_suk_delay = "Fire Delay (Safe)",
+		t_suk_targets = "Targets / tick",
+		t_heal = "Auto Healing",
+		t_heal_h = "Heal Height",
+		t_ignore_friends = "Ignore Friends",
+		t_target_npcs = "Target NPCs",
+		t_equip = "Equip required",
+		t_silent = "Silent Aim",
+		t_invis = "Local Invis",
+		t_tracers = "Tracers",
+		t_esp = "ESP",
+		t_vr = "VR Mode",
+		t_antiflash = "Anti Flash",
+		t_anticc = "Anti CC",
+		t_grid = "Menu Grid BG",
+		t_wm = "Watermark Main",
+		d_suk = "Auto-fires at selected targets' heads.",
+		d_suk_rps = "How many SUK shots fire per second.",
+		d_suk_delay = "Minimum wait between SUK shots.",
+		d_suk_targets = "Targets handled per tick (effectively 1 now).",
+		d_heal = "Teleports you to a heal zone when HP is low.",
+		d_heal_h = "Height above the heal zone when auto-porting.",
+		d_ignore_friends = "SUK skips players on your friends list.",
+		d_target_npcs = "SUK also targets NPCs in workspace.Humans.",
+		d_equip = "Only shoots while Spas-12 is equipped.",
+		d_silent = "Bends your shot direction toward a FOV target.",
+		d_invis = "Moves your character far away on client and server.",
+		d_tracers = "Draws bullet lines for your and others' shots.",
+		d_esp = "Shows players through walls (boxes/names).",
+		d_vr = "Enables VR arms and VR camera in-game.",
+		d_antiflash = "Removes flashbang blindness effects.",
+		d_anticc = "Clears slow and control-style effects.",
+		d_grid = "Animated grid behind the menu panel.",
+		d_wm = "On-screen FPS/ping overlay.",
+		d_killbeam = "Vertical pillar at the killed player's body.",
+	},
+}
+
+function L(key)
+	local pack = LANG[ST.Language or "ru"] or LANG.ru
+	return pack[key] or (LANG.en and LANG.en[key]) or key
+end
+local UI_LangHooks = {} -- functions() to refresh labels on language change
+local function refreshLanguage()
+	for _, fn in ipairs(UI_LangHooks) do
+		pcall(fn)
+	end
+end
+
+
 
 -- Remotes
 local FireRemote, ReloadRemote, BulletModel, SwingRemote, FxRemote
@@ -4102,7 +4235,7 @@ fit(); workspace.CurrentCamera:GetPropertyChangedSignal("ViewportSize"):Connect(
 local header = new("Frame", { Size = UDim2.new(1, 0, 0, 62), BackgroundTransparency = 1, Parent = window })
 local logoLabel = label({ Text = "CLL", Font = Enum.Font.Michroma, TextSize = 26, TextTruncate = Enum.TextTruncate.AtEnd, Size = UDim2.fromOffset(100, 62), Position = UDim2.fromOffset(23, 0), Parent = header })
 logoLabel.TextColor3 = Color3.fromRGB(255, 255, 255) -- Always white
-local verLabel = label({ Text = "v11.74-at", Font = Enum.Font.GothamBold, TextSize = 12, TextColor3 = Theme.Dim, Size = UDim2.fromOffset(50, 62), Position = UDim2.fromOffset(85, 2), Parent = header })
+local verLabel = label({ Text = "v11.76-av", Font = Enum.Font.GothamBold, TextSize = 12, TextColor3 = Theme.Dim, Size = UDim2.fromOffset(50, 62), Position = UDim2.fromOffset(85, 2), Parent = header })
 local timeLabel = label({ Text = "Session: 00:00", Font = Enum.Font.GothamMedium, TextSize = 13, TextColor3 = Theme.Dim, Size = UDim2.fromOffset(150, 62), Position = UDim2.fromOffset(150, 0), Parent = header })
 task.spawn(function()
 	while not ST.isUnloaded do
@@ -4198,12 +4331,28 @@ end
 local PAD = 20
 function divider(parent, y) return new("Frame", { Size = UDim2.new(1, -PAD * 2, 0, 1), Position = UDim2.fromOffset(PAD, y), BackgroundColor3 = Theme.Stroke, BorderSizePixel = 0, Parent = parent }) end
 
-function toggle(parent, cy, text, cb, initial, getState)
-	if text ~= "" then label({ Text = text, Size = UDim2.new(1, -90, 0, 24), Position = UDim2.fromOffset(PAD, cy - 12), Parent = parent }) end
+function toggle(parent, cy, text, cb, initial, getState, desc)
+	-- optional desc: dim line under the title (what it is / what it does)
+	if text ~= "" then label({ Text = text, Size = UDim2.new(1, -90, 0, 22), Position = UDim2.fromOffset(PAD, cy - 14), Parent = parent }) end
+	local descLbl = nil
+	if type(desc) == "string" and desc ~= "" then
+		descLbl = label({
+			Text = desc,
+			Font = Enum.Font.Gotham,
+			TextSize = 11,
+			TextColor3 = Theme.Dim,
+			TextXAlignment = Enum.TextXAlignment.Left,
+			TextYAlignment = Enum.TextYAlignment.Top,
+			TextWrapped = true,
+			Size = UDim2.new(1, -PAD * 2 - 50, 0, 28),
+			Position = UDim2.fromOffset(PAD, cy + 10),
+			Parent = parent,
+		})
+	end
 	local state = (getState and getState() or initial) and true or false
 	local sw = new("TextButton", {
 		Text = "", AutoButtonColor = false, Size = UDim2.fromOffset(42, 24),
-		Position = UDim2.new(1, -PAD - 42, 0, cy - 12), BackgroundColor3 = Theme.Off, Parent = parent
+		Position = UDim2.new(1, -PAD - 42, 0, cy - 14), BackgroundColor3 = Theme.Off, Parent = parent
 	}, { corner(12), stroke() })
 	local knob = new("Frame", {
 		Size = UDim2.fromOffset(18, 18), Position = UDim2.fromOffset(3, 3),
@@ -4255,10 +4404,25 @@ function toggle(parent, cy, text, cb, initial, getState)
 	return set
 end
 
-function slider(parent, cy, text, min, max, default, step, cb, getValue)
-	label({ Text = text, Size = UDim2.new(1, -90, 0, 18), Position = UDim2.fromOffset(PAD, cy - 20), Parent = parent })
-	local valueLbl = label({ Text = tostring(default), TextXAlignment = Enum.TextXAlignment.Right, Size = UDim2.fromOffset(50, 18), Position = UDim2.new(1, -PAD - 50, 0, cy - 20), Parent = parent })
-	local track = new("Frame", { Size = UDim2.new(1, -PAD * 2, 0, 5), Position = UDim2.fromOffset(PAD, cy + 5), BackgroundColor3 = Theme.Off, BorderSizePixel = 0, Parent = parent }, { corner(3) })
+function slider(parent, cy, text, min, max, default, step, cb, getValue, desc)
+	label({ Text = text, Size = UDim2.new(1, -90, 0, 18), Position = UDim2.fromOffset(PAD, cy - 22), Parent = parent })
+	local valueLbl = label({ Text = tostring(default), TextXAlignment = Enum.TextXAlignment.Right, Size = UDim2.fromOffset(50, 18), Position = UDim2.new(1, -PAD - 50, 0, cy - 22), Parent = parent })
+	local trackY = cy + 5
+	if type(desc) == "string" and desc ~= "" then
+		label({
+			Text = desc,
+			Font = Enum.Font.Gotham,
+			TextSize = 11,
+			TextColor3 = Theme.Dim,
+			TextXAlignment = Enum.TextXAlignment.Left,
+			TextWrapped = true,
+			Size = UDim2.new(1, -PAD * 2, 0, 16),
+			Position = UDim2.fromOffset(PAD, cy - 4),
+			Parent = parent,
+		})
+		trackY = cy + 16
+	end
+	local track = new("Frame", { Size = UDim2.new(1, -PAD * 2, 0, 5), Position = UDim2.fromOffset(PAD, trackY), BackgroundColor3 = Theme.Off, BorderSizePixel = 0, Parent = parent }, { corner(3) })
 	local fill = new("Frame", { Size = UDim2.fromScale(0, 1), BackgroundColor3 = Theme.Accent, BorderSizePixel = 0, Parent = track }, { corner(3) })
 	local knob = new("Frame", { Size = UDim2.fromOffset(14, 14), AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.fromScale(0, 0.5), BackgroundColor3 = Theme.Knob, Parent = track }, { corner(7) })
 	local hit = new("TextButton", { Text = "", BackgroundTransparency = 1, Size = UDim2.new(1, 0, 0, 22), Position = UDim2.fromScale(0, 0.5), AnchorPoint = Vector2.new(0, 0.5), Parent = track })
@@ -4697,17 +4861,32 @@ function buildTarget()
 	local left = new("Frame", { Size = UDim2.fromOffset(300, DESIGN_H - 102), Position = UDim2.fromOffset(12, 12), BackgroundColor3 = Theme.Panel, ClipsDescendants = true, Parent = pages.Target }, { corner(14), stroke() })
 	local right = new("Frame", { Size = UDim2.new(1, -328, 1, -24), Position = UDim2.fromOffset(320, 12), BackgroundColor3 = Theme.Panel, Parent = pages.Target }, { corner(14), stroke() })
 	label({ Text = "COMBAT TARGET", Font = Enum.Font.GothamBold, TextSize = 11, TextColor3 = Theme.Dim, Size = UDim2.fromOffset(200, 18), Position = UDim2.fromOffset(14, 12), Parent = left })
-	local scroll = new("ScrollingFrame", { Size = UDim2.new(1, 0, 1, -38), Position = UDim2.fromOffset(0, 34), BackgroundTransparency = 1, BorderSizePixel = 0, ScrollBarThickness = 3, ScrollBarImageColor3 = Theme.Stroke, CanvasSize = UDim2.fromOffset(0, 640), Parent = left })
+	local scroll = new("ScrollingFrame", { Size = UDim2.new(1, 0, 1, -38), Position = UDim2.fromOffset(0, 34), BackgroundTransparency = 1, BorderSizePixel = 0, ScrollBarThickness = 3, ScrollBarImageColor3 = Theme.Stroke, CanvasSize = UDim2.fromOffset(0, 980), Parent = left })
 	local y = 18
-	toggle(scroll, y, "Enable SUK", function(v) ST.isMultiSuk = v; if not v then clearSukReloadState() end end, false, function() return ST.isMultiSuk end); y += 48
-	slider(scroll, y, "Firerate RPS", 1, 30, ST.SUK_FIRERATE_RPS, 1, function(v) ST.SUK_FIRERATE_RPS = v end, function() return ST.SUK_FIRERATE_RPS end); y += 64
-	slider(scroll, y, "Fire Delay (Safe)", 0.01, 0.5, ST.SUK_FireDelay, 0.01, function(v) ST.SUK_FireDelay = v end, function() return ST.SUK_FireDelay end); y += 64
-	slider(scroll, y, "Targets / tick", 1, 16, ST.SUK_MaxPerTick, 1, function(v) ST.SUK_MaxPerTick = v end, function() return ST.SUK_MaxPerTick end); y += 64
-	toggle(scroll, y, "Auto Healing", function(v) ST.HealEnabled = v; if v then StartHealLoop() else StopHealLoop() end end, false, function() return ST.HealEnabled end); y += 46
-	slider(scroll, y, "Heal Height", -5, 10, ST.HealFlyHeight or 3.5, 0.5, function(v) ST.HealFlyHeight = v end, function() return ST.HealFlyHeight end); y += 64
-	toggle(scroll, y, "Ignore Friends", function(v) ST.SUK_IgnoreFriends = v end, true, function() return ST.SUK_IgnoreFriends end); y += 46
-	toggle(scroll, y, "Target NPCs", function(v) ST.SUK_TargetNPCs = v end, false, function() return ST.SUK_TargetNPCs end); y += 46
-	toggle(scroll, y, "Equip required", function(v) ST.SUK_EquipRequired = v end, ST.SUK_EquipRequired, function() return ST.SUK_EquipRequired end)
+	toggle(scroll, y, L("t_suk"), function(v) ST.isMultiSuk = v; if not v then clearSukReloadState() end end, false, function() return ST.isMultiSuk end, L("d_suk")); y += 62
+	local sukWarn = label({
+		Text = L("suk_warn"),
+		Font = Enum.Font.Gotham,
+		TextSize = 11,
+		TextColor3 = Color3.fromRGB(255, 175, 70),
+		TextXAlignment = Enum.TextXAlignment.Left,
+		TextYAlignment = Enum.TextYAlignment.Top,
+		TextWrapped = true,
+		BackgroundTransparency = 1,
+		Size = UDim2.new(1, -36, 0, 44),
+		Position = UDim2.fromOffset(PAD, y),
+		Parent = scroll,
+	})
+	table.insert(UI_LangHooks, function() if sukWarn and sukWarn.Parent then sukWarn.Text = L("suk_warn") end end)
+	y += 50
+	slider(scroll, y, L("t_suk_rps"), 1, 30, ST.SUK_FIRERATE_RPS, 1, function(v) ST.SUK_FIRERATE_RPS = v end, function() return ST.SUK_FIRERATE_RPS end, L("d_suk_rps")); y += 72
+	slider(scroll, y, L("t_suk_delay"), 0.01, 0.5, ST.SUK_FireDelay, 0.01, function(v) ST.SUK_FireDelay = v end, function() return ST.SUK_FireDelay end, L("d_suk_delay")); y += 72
+	slider(scroll, y, L("t_suk_targets"), 1, 16, ST.SUK_MaxPerTick, 1, function(v) ST.SUK_MaxPerTick = v end, function() return ST.SUK_MaxPerTick end, L("d_suk_targets")); y += 72
+	toggle(scroll, y, L("t_heal"), function(v) ST.HealEnabled = v; if v then StartHealLoop() else StopHealLoop() end end, false, function() return ST.HealEnabled end, L("d_heal")); y += 62
+	slider(scroll, y, L("t_heal_h"), -5, 10, ST.HealFlyHeight or 3.5, 0.5, function(v) ST.HealFlyHeight = v end, function() return ST.HealFlyHeight end, L("d_heal_h")); y += 72
+	toggle(scroll, y, L("t_ignore_friends"), function(v) ST.SUK_IgnoreFriends = v end, true, function() return ST.SUK_IgnoreFriends end, L("d_ignore_friends")); y += 62
+	toggle(scroll, y, L("t_target_npcs"), function(v) ST.SUK_TargetNPCs = v end, false, function() return ST.SUK_TargetNPCs end, L("d_target_npcs")); y += 62
+	toggle(scroll, y, L("t_equip"), function(v) ST.SUK_EquipRequired = v end, ST.SUK_EquipRequired, function() return ST.SUK_EquipRequired end, L("d_equip"))
 
 	label({ Text = "PLAYERS", Font = Enum.Font.GothamBold, TextSize = 11, TextColor3 = Theme.Dim, Size = UDim2.fromOffset(120, 18), Position = UDim2.fromOffset(14, 12), Parent = right })
 	local searchBox = new("Frame", { Size = UDim2.new(1, -24, 0, 34), Position = UDim2.fromOffset(12, 36), BackgroundColor3 = Theme.Row, Parent = right }, { corner(10), stroke() })
@@ -4917,44 +5096,99 @@ end
 
 function buildProfile()
 	local panel = new("Frame", { Size = UDim2.fromOffset(350, DESIGN_H - 102), Position = UDim2.fromOffset(20, 20), BackgroundColor3 = Theme.Panel, Parent = pages.Profile }, { corner(16), stroke() })
-	label({ Text = "P R O F I L E", Font = Enum.Font.GothamMedium, TextSize = 20, Size = UDim2.fromOffset(250, 30), Position = UDim2.fromOffset(PAD, 20), Parent = panel }); divider(panel, 61)
+	local title = label({ Text = L("profile_title"), Font = Enum.Font.GothamMedium, TextSize = 20, Size = UDim2.fromOffset(250, 30), Position = UDim2.fromOffset(PAD, 20), Parent = panel })
+	divider(panel, 61)
 	local avatar = new("ImageLabel", { Size = UDim2.fromOffset(80, 80), Position = UDim2.fromOffset(PAD, 80), BackgroundColor3 = Theme.Row, Parent = panel }, { round(), stroke() })
 	task.spawn(function() local ok, img = pcall(Players.GetUserThumbnailAsync, Players, LocalPlayer.UserId, Enum.ThumbnailType.HeadShot, Enum.ThumbnailSize.Size420x420); if ok then avatar.Image = img end end)
 	label({ Text = LocalPlayer.DisplayName, Font = Enum.Font.GothamBold, TextSize = 22, Size = UDim2.fromOffset(200, 30), Position = UDim2.fromOffset(PAD + 100, 85), Parent = panel })
 	label({ Text = "@" .. LocalPlayer.Name, TextSize = 15, TextColor3 = Theme.Dim, Size = UDim2.fromOffset(200, 20), Position = UDim2.fromOffset(PAD + 100, 115), Parent = panel })
+	local roleLbl = label({ Text = L("profile_ops"), Font = Enum.Font.GothamMedium, TextSize = 12, TextColor3 = Theme.Accent, Size = UDim2.fromOffset(200, 18), Position = UDim2.fromOffset(PAD + 100, 138), Parent = panel })
 	divider(panel, 180)
-	label({ Text = "A U T H  D A T A", Font = Enum.Font.GothamMedium, TextSize = 16, TextColor3 = Theme.Dim, Size = UDim2.fromOffset(200, 30), Position = UDim2.fromOffset(PAD, 200), Parent = panel })
-	local function keyRow(name, val, y)
-		label({ Text = name, TextSize = 14, TextColor3 = Theme.Dim, Size = UDim2.fromOffset(110, 20), Position = UDim2.fromOffset(PAD, y), Parent = panel })
-		label({ Text = tostring(val), Font = Enum.Font.Code, TextSize = 13, Size = UDim2.fromOffset(210, 20), Position = UDim2.fromOffset(PAD + 115, y), Parent = panel })
+
+	local statsTitle = label({ Text = L("profile_stats"), Font = Enum.Font.GothamMedium, TextSize = 14, TextColor3 = Theme.Dim, Size = UDim2.fromOffset(220, 22), Position = UDim2.fromOffset(PAD, 195), Parent = panel })
+
+	local function row(titleKey, y)
+		local t = label({ Text = L(titleKey), TextSize = 13, TextColor3 = Theme.Dim, Size = UDim2.fromOffset(110, 18), Position = UDim2.fromOffset(PAD, y), Parent = panel })
+		local v = label({ Text = "—", Font = Enum.Font.GothamMedium, TextSize = 13, Size = UDim2.fromOffset(200, 18), Position = UDim2.fromOffset(PAD + 120, y), Parent = panel })
+		return t, v
 	end
-	local auth = _G.CLL_Auth or {}
-	local sess = _G.CLL_SESSION or {}
-	local keyStr = "—"
-	pcall(function()
-		if isfile and isfile("CLL_Key.txt") and readfile then
-			keyStr = (readfile("CLL_Key.txt") or ""):gsub("%s+", "")
-			if #keyStr > 4 then keyStr = keyStr:sub(1, 4) .. "••••" .. keyStr:sub(-4) end
+	local tBuild, vBuild = row("profile_build", 225)
+	vBuild.Text = "v11.76-av"
+	local tSess, vSess = row("profile_session", 250)
+	local tStat, vStat = row("profile_status", 275)
+	vStat.Text = L("profile_active")
+	vStat.TextColor3 = Color3.fromRGB(90, 220, 140)
+	local tPing, vPing = row("profile_ping", 300)
+	local tFps, vFps = row("profile_fps", 325)
+	local tFeat, vFeat = row("profile_feat", 350)
+	local tUid, vUid = row("profile_uid", 375)
+	vUid.Text = tostring(LocalPlayer.UserId)
+	local tSrv, vSrv = row("profile_server", 400)
+	pcall(function() vSrv.Text = tostring(game.JobId):sub(1, 12) .. "…" end)
+
+	divider(panel, 430)
+	local tipTitle = label({ Text = L("profile_tip"), Font = Enum.Font.GothamMedium, TextSize = 13, TextColor3 = Theme.Dim, Size = UDim2.fromOffset(120, 18), Position = UDim2.fromOffset(PAD, 445), Parent = panel })
+	local tipBody = label({
+		Text = L("profile_tip_body"),
+		Font = Enum.Font.Gotham,
+		TextSize = 12,
+		TextColor3 = Theme.Text,
+		TextWrapped = true,
+		TextXAlignment = Enum.TextXAlignment.Left,
+		TextYAlignment = Enum.TextYAlignment.Top,
+		Size = UDim2.new(1, -PAD * 2, 0, 70),
+		Position = UDim2.fromOffset(PAD, 468),
+		Parent = panel,
+	})
+
+	table.insert(UI_LangHooks, function()
+		if title and title.Parent then title.Text = L("profile_title") end
+		if roleLbl and roleLbl.Parent then roleLbl.Text = L("profile_ops") end
+		if statsTitle and statsTitle.Parent then statsTitle.Text = L("profile_stats") end
+		if tBuild then tBuild.Text = L("profile_build") end
+		if tSess then tSess.Text = L("profile_session") end
+		if tStat then tStat.Text = L("profile_status") end
+		if vStat then vStat.Text = L("profile_active") end
+		if tPing then tPing.Text = L("profile_ping") end
+		if tFps then tFps.Text = L("profile_fps") end
+		if tFeat then tFeat.Text = L("profile_feat") end
+		if tUid then tUid.Text = L("profile_uid") end
+		if tSrv then tSrv.Text = L("profile_server") end
+		if tipTitle then tipTitle.Text = L("profile_tip") end
+		if tipBody then tipBody.Text = L("profile_tip_body") end
+	end)
+
+	task.spawn(function()
+		while panel.Parent and not ST.isUnloaded do
+			local e = os.clock() - (SessionStartTime or os.clock())
+			vSess.Text = string.format("%02d:%02d:%02d", math.floor(e / 3600), math.floor(e / 60) % 60, math.floor(e) % 60)
+			local ping = 0
+			pcall(function()
+				ping = math.floor(LocalPlayer:GetNetworkPing() * 1000)
+			end)
+			vPing.Text = tostring(ping) .. " ms"
+			local fps = 0
+			pcall(function()
+				fps = math.floor(1 / math.max(RunService.RenderStepped:Wait(), 0.001))
+			end)
+			-- crude fps from last wait is noisy; use Stats if present
+			pcall(function()
+				local s = game:GetService("Stats")
+				local item = s and s:FindFirstChild("PerformanceStats")
+				-- fallback keep previous style
+			end)
+			vFps.Text = tostring(math.clamp(fps, 1, 240))
+			local n = 0
+			if ST.isMultiSuk then n += 1 end
+			if ST.VREnabled then n += 1 end
+			if ST.LocalInvisEnabled then n += 1 end
+			if ESP_Config and ESP_Config.Enabled then n += 1 end
+			if ST.TracersEnabled then n += 1 end
+			if ST.HealEnabled then n += 1 end
+			vFeat.Text = tostring(n) .. " on"
+			task.wait(1)
 		end
 	end)
-	local exp = auth.expires_at
-	if not exp or exp == "" or exp == "None" then exp = "Lifetime" else
-		exp = tostring(exp):sub(1, 19)
-	end
-	local role = auth.role or "user"
-	local status = auth.status or (sess.ok and "valid" or "unknown")
-	local hwid = "—"
-	pcall(function()
-		hwid = string.sub(game:GetService("RbxAnalyticsService"):GetClientId(), 1, 18) .. "…"
-	end)
-	keyRow("License Key:", keyStr, 240)
-	keyRow("Role:", string.upper(tostring(role)), 270)
-	keyRow("Type:", tostring(auth.type or role), 300)
-	keyRow("Expires:", exp, 330)
-	keyRow("Status:", string.upper(tostring(status)), 360)
-	keyRow("HWID:", hwid, 390)
-	keyRow("Whitelist:", tostring(_G.CLL_Whitelist and _G.CLL_Whitelist[LocalPlayer.UserId] == true or false), 420)
-	keyRow("UserId:", tostring(LocalPlayer.UserId), 450)
 end
 
 function makeColorSlider(parent, y, labelText, value01, onChange)
@@ -4980,6 +5214,26 @@ function buildSettings()
     local leftScroll = new("ScrollingFrame", { Size = UDim2.new(1, 0, 1, -38), Position = UDim2.fromOffset(0, 34), BackgroundTransparency = 1, BorderSizePixel = 0, ScrollBarThickness = 3, Parent = left })
     
     local y = 18
+	-- Language
+	local langLbl = label({ Text = L("lang"), TextSize = 13, TextColor3 = Theme.Dim, Size = UDim2.fromOffset(120, 18), Position = UDim2.fromOffset(PAD, y), Parent = leftScroll })
+	local langBtn = new("TextButton", {
+		Text = (ST.Language == "ru") and "Русский" or "English",
+		Font = Enum.Font.GothamMedium, TextSize = 12, TextColor3 = Theme.Text,
+		AutoButtonColor = false, Size = UDim2.new(1, -PAD * 2 - 100, 0, 28),
+		Position = UDim2.fromOffset(PAD + 100, y - 4),
+		BackgroundColor3 = Theme.Row, Parent = leftScroll,
+	}, { corner(8), stroke() })
+	langBtn.MouseButton1Click:Connect(function()
+		ST.Language = (ST.Language == "ru") and "en" or "ru"
+		langBtn.Text = (ST.Language == "en") and "English" or "Русский"
+		langLbl.Text = L("lang")
+		refreshLanguage()
+	end)
+	table.insert(UI_LangHooks, function()
+		if langLbl and langLbl.Parent then langLbl.Text = L("lang") end
+		if langBtn and langBtn.Parent then langBtn.Text = (ST.Language == "en") and "English" or "Русский" end
+	end)
+	y += 44
 	-- Menu grid (spaced so nothing overlaps)
 	toggle(leftScroll, y, "Menu Grid BG", function(v)
 		ST.MenuGridEnabled = v
@@ -5407,6 +5661,7 @@ pcall(function() if watermarkMain then watermarkMain:Destroy() end end)
 			end)(),
 			-- legacy flat fields for older loaders
 			suk = ST.isMultiSuk,
+			language = ST.Language or "ru",
 			fireDelay = ST.SUK_FireDelay,
 			silent = ST.SilentAimEnabled,
 			fov = ST.SilentAimFOV,
@@ -5441,6 +5696,7 @@ function applyConfig(data)
 		if data.silent ~= nil then ST.SilentAimEnabled = data.silent end
 		if data.fov then ST.SilentAimFOV = data.fov end
 		if data.suk ~= nil then ST.isMultiSuk = data.suk end
+		if data.language == "en" or data.language == "ru" then ST.Language = data.language end
 		if data.heal ~= nil then
 			ST.HealEnabled = data.heal
 			if ST.HealEnabled then pcall(StartHealLoop) else pcall(StopHealLoop) end
