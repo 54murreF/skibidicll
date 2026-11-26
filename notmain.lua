@@ -1,6 +1,6 @@
 --[[
     ╔═══════════════════════════════════════════════════════════════╗
-    ║              CLL CHEAT - FULL INTEGRATION v11.85-bg (native Q/G grab mirror + VR restore)                ║
+    ║              CLL CHEAT - FULL INTEGRATION v11.86-bh (native Q/G grab mirror + VR restore)                ║
     ╠═══════════════════════════════════════════════════════════════╣
     ║  SUK head-hit, real crosshair, tracers, ESP outline nick,     ║
     ║  ChinaHat/Wings fix, VR hands, anti-flash/shake, antibypass   ║
@@ -1233,10 +1233,14 @@ function GetTargets()
             if folder then
                 for _, inst in ipairs(folder:GetChildren()) do
                     if inst:IsA("Model") and not Players:GetPlayerFromCharacter(inst) then
+                        local n = string.lower(inst.Name or "")
+                        local skip = n:find("door") or n:find("handle") or n:find("prop") or n == "handle"
                         local hum = inst:FindFirstChildOfClass("Humanoid")
                         local head = inst:FindFirstChild("Head")
                         local hrp = inst:FindFirstChild("HumanoidRootPart")
-                        if hum and head and hrp and hum.Health > 0 then
+                        if (not skip) and hum and head and head:IsA("BasePart") and hrp and hrp:IsA("BasePart")
+                            and hum.Health > 0 and (hum.MaxHealth or 0) >= 10
+                            and head.Size.Magnitude > 0.35 then
                             NPC_List[#NPC_List + 1] = inst
                         end
                     end
@@ -2147,7 +2151,18 @@ function StopHealLoop()
 	if antiVelocityConnection then antiVelocityConnection:Disconnect(); antiVelocityConnection = nil end
 	if SwingRemote and ST.isBlockActive then SwingRemote:FireServer('UnBlock'); ST.isBlockActive = false end
 	if savedHealPosition then local _, _, root = getCharacterParts(); if root then root.CFrame = savedHealPosition end; savedHealPosition = nil end
-	local _, humanoid = getCharacterParts(); if humanoid and not (isCharRagdoll and isCharRagdoll(LocalPlayer.Character, humanoid)) then humanoid.PlatformStand = false end
+	local char, humanoid, root = getCharacterParts()
+	if humanoid and not (isCharRagdoll and isCharRagdoll(char, humanoid)) then
+		humanoid.PlatformStand = false
+	end
+	pcall(function()
+		if root then root.Anchored = false end
+		if char then
+			for _, part in ipairs(char:GetDescendants()) do
+				if part:IsA("BasePart") then part.Anchored = false end
+			end
+		end
+	end)
 	for p, original in pairs(savedCollision) do if p and p.Parent then p.CanCollide = original end end
 	table.clear(savedCollision)
 end
@@ -4593,18 +4608,21 @@ pcall(function()
 	local DEFAULT_W, DEFAULT_H = DESIGN_W, DESIGN_H
 	local function applyLayoutSize(nw, nh)
 		window.Size = UDim2.fromOffset(nw, nh)
-		if sidebar then
-			sidebar.Size = UDim2.fromOffset(150, nh - 62)
+		local sb = (UIRefs and UIRefs.sidebar) or (window:FindFirstChild("Sidebar")) or sidebar
+		if sb then
+			sb.Size = UDim2.fromOffset(150, nh - 62)
 		end
-		if contentFrame then
-			contentFrame.Size = UDim2.new(1, -150, 1, -62)
+		local cf = (UIRefs and UIRefs.contentFrame) or contentFrame
+		if cf then
+			cf.Size = UDim2.new(1, -150, 1, -62)
 		end
 		local drawer = window:FindFirstChild("FeatureDrawer")
 		if drawer then
 			drawer.Size = UDim2.fromOffset(300, math.max(200, nh - 80))
 		end
-		if pages and pages.Profile then
-			local panel = pages.Profile:FindFirstChildWhichIsA("Frame")
+		local profilePage = (pages and pages.Profile) or (UIRefs and UIRefs.profilePage)
+		if profilePage then
+			local panel = profilePage:FindFirstChildWhichIsA("Frame")
 			if panel then
 				panel.Size = UDim2.new(1, -40, 1, -40)
 				panel.Position = UDim2.fromOffset(20, 20)
@@ -4636,13 +4654,13 @@ pcall(function()
 
 	local resetBtn = Instance.new("TextButton")
 	resetBtn.Name = "CLL_ResizeReset"
-	resetBtn.Text = "↺"
+	resetBtn.Text = "RST"
 	resetBtn.Font = Enum.Font.GothamBold
-	resetBtn.TextSize = 12
+	resetBtn.TextSize = 10
 	resetBtn.TextColor3 = Color3.fromRGB(240, 242, 248)
 	resetBtn.AutoButtonColor = false
-	resetBtn.Size = UDim2.fromOffset(22, 18)
-	resetBtn.Position = UDim2.new(1, -42, 1, -18)
+	resetBtn.Size = UDim2.fromOffset(28, 18)
+	resetBtn.Position = UDim2.new(1, -48, 1, -18)
 	resetBtn.BackgroundColor3 = Theme.Row
 	resetBtn.BackgroundTransparency = 0.15
 	resetBtn.ZIndex = 50
@@ -4689,7 +4707,7 @@ fit(); workspace.CurrentCamera:GetPropertyChangedSignal("ViewportSize"):Connect(
 local header = new("Frame", { Size = UDim2.new(1, 0, 0, 62), BackgroundTransparency = 1, Parent = window })
 local logoLabel = label({ Text = "CLL", Font = Enum.Font.Michroma, TextSize = 26, TextTruncate = Enum.TextTruncate.AtEnd, Size = UDim2.fromOffset(100, 62), Position = UDim2.fromOffset(23, 0), Parent = header })
 logoLabel.TextColor3 = Color3.fromRGB(255, 255, 255) -- Always white
-local verLabel = label({ Text = "v11.85-bg", Font = Enum.Font.GothamBold, TextSize = 12, TextColor3 = Theme.Dim, Size = UDim2.fromOffset(50, 62), Position = UDim2.fromOffset(85, 2), Parent = header })
+local verLabel = label({ Text = "v11.86-bh", Font = Enum.Font.GothamBold, TextSize = 12, TextColor3 = Theme.Dim, Size = UDim2.fromOffset(50, 62), Position = UDim2.fromOffset(85, 2), Parent = header })
 local timeLabel = label({ Text = "Session: 00:00", Font = Enum.Font.GothamMedium, TextSize = 13, TextColor3 = Theme.Dim, Size = UDim2.fromOffset(150, 62), Position = UDim2.fromOffset(150, 0), Parent = header })
 task.spawn(function()
 	while not ST.isUnloaded do
@@ -4724,10 +4742,12 @@ local IconBuilders = {
 }
 
 local TAB_ORDER = { "Combat", "Movement", "Visual", "Effects", "Target", "Keybinds", "VR", "Settings" }
-local sidebar = new("Frame", { Size = UDim2.fromOffset(150, DESIGN_H - 62), Position = UDim2.fromOffset(0, 62), BackgroundColor3 = Theme.Panel, Parent = window }, { corner(16), stroke() })
+local sidebar = new("Frame", { Name = "Sidebar", Size = UDim2.fromOffset(150, DESIGN_H - 62), Position = UDim2.fromOffset(0, 62), BackgroundColor3 = Theme.Panel, Parent = window }, { corner(16), stroke() })
+UIRefs.sidebar = sidebar
 local pages, tabs = {}, {}
 local currentTab
-local contentFrame = new("Frame", { Size = UDim2.new(1, -150, 1, -62), Position = UDim2.fromOffset(150, 62), BackgroundTransparency = 1, ZIndex = 3, Parent = window })
+local contentFrame = new("Frame", { Name = "Content", Size = UDim2.new(1, -150, 1, -62), Position = UDim2.fromOffset(150, 62), BackgroundTransparency = 1, ZIndex = 3, Parent = window })
+UIRefs.contentFrame = contentFrame
 
 function selectTab(name)
 	pcall(function() if closeDrawer then closeDrawer() end end)
@@ -5335,7 +5355,7 @@ function buildTarget()
 	local left = new("Frame", { Size = UDim2.fromOffset(300, DESIGN_H - 102), Position = UDim2.fromOffset(12, 12), BackgroundColor3 = Theme.Panel, ClipsDescendants = true, Parent = pages.Target }, { corner(14), stroke() })
 	local right = new("Frame", { Size = UDim2.new(1, -328, 1, -24), Position = UDim2.fromOffset(320, 12), BackgroundColor3 = Theme.Panel, Parent = pages.Target }, { corner(14), stroke() })
 	label({ Text = "COMBAT TARGET", Font = Enum.Font.GothamBold, TextSize = 11, TextColor3 = Theme.Dim, Size = UDim2.fromOffset(200, 18), Position = UDim2.fromOffset(14, 12), Parent = left })
-	local scroll = new("ScrollingFrame", { Size = UDim2.new(1, 0, 1, -38), Position = UDim2.fromOffset(0, 34), BackgroundTransparency = 1, BorderSizePixel = 0, ScrollBarThickness = 3, ScrollBarImageColor3 = Theme.Stroke, CanvasSize = UDim2.fromOffset(0, 980), Parent = left })
+	local scroll = new("ScrollingFrame", { Size = UDim2.new(1, 0, 1, -38), Position = UDim2.fromOffset(0, 34), BackgroundTransparency = 1, BorderSizePixel = 0, ScrollBarThickness = 3, ScrollBarImageColor3 = Theme.Stroke, CanvasSize = UDim2.fromOffset(0, 0), AutomaticCanvasSize = Enum.AutomaticSize.Y, Parent = left })
 	local y = 18
 	toggle(scroll, y, L("t_suk"), function(v) ST.isMultiSuk = v; if not v then clearSukReloadState() end end, false, function() return ST.isMultiSuk end, L("d_suk")); y += 54
 	local sukWarn = label({
@@ -5587,7 +5607,7 @@ function buildProfile()
 		return t, v
 	end
 	local tBuild, vBuild = row("profile_build", 225)
-	vBuild.Text = "v11.85-bg"
+	vBuild.Text = "v11.86-bh"
 	local tSess, vSess = row("profile_session", 250)
 	local tStat, vStat = row("profile_status", 275)
 	vStat.Text = L("profile_active")
@@ -5739,12 +5759,15 @@ function buildSettings()
 		if rebuildMenuGrid and ST.MenuGridEnabled then pcall(rebuildMenuGrid) end
 	end, function() return ST.MenuGridRotation or 0 end)
 	y += 58
-	label({ Text = "Accent HSV", Font = Enum.Font.GothamBold, TextSize = 12, TextColor3 = Theme.Dim, Size = UDim2.fromOffset(200, 18), Position = UDim2.fromOffset(PAD, y), Parent = leftScroll })
-	y += 22
+	label({ Text = "Accent HSV", Font = Enum.Font.GothamBold, TextSize = 12, TextColor3 = Theme.Dim, Size = UDim2.fromOffset(140, 18), Position = UDim2.fromOffset(PAD, y), Parent = leftScroll })
 	local accentPrev = new("Frame", {
-		Size = UDim2.fromOffset(28, 28), Position = UDim2.new(1, -PAD - 28, 0, y - 2),
+		Size = UDim2.fromOffset(36, 18), Position = UDim2.new(1, -PAD - 36, 0, y),
 		BackgroundColor3 = Theme.Accent, Parent = leftScroll
-	}, { corner(6), stroke() })
+	}, { corner(5), stroke() })
+	subscribeTheme(function()
+		if accentPrev and accentPrev.Parent then accentPrev.BackgroundColor3 = Theme.Accent end
+	end)
+	y += 26
 	slider(leftScroll, y, "H", 0, 360, ST.AccentH or 220, 1, function(v)
 		ST.AccentH = v; accentPrev.BackgroundColor3 = accentFromHSV()
 	end, function() return ST.AccentH or 220 end)
@@ -6950,13 +6973,21 @@ rebuildMenuGrid = function()
 				end
 			end)
 		else
-			-- orthogonal grid lines + scroll (tilt optional)
+			-- orthogonal grid: tilt via holder only (chess keeps its own cell rotation)
+			local holder = Instance.new("Frame")
+			holder.BackgroundTransparency = 1
+			holder.Size = UDim2.fromScale(2.4, 2.4)
+			holder.Position = UDim2.fromScale(0.5, 0.5)
+			holder.AnchorPoint = Vector2.new(0.5, 0.5)
+			holder.Rotation = tonumber(ST.MenuGridRotation) or 0
+			holder.ZIndex = 0
+			holder.Parent = folder
 			local lines = {}
-			for i = 0, 50 do
-				lines[#lines + 1] = { ln = mk(folder, i * spacing - spacing, -40, 1, 2000, col, tr), axis = "v", i = i }
+			for i = 0, 55 do
+				lines[#lines + 1] = { ln = mk(holder, i * spacing - spacing * 2, -spacing * 2, 1, 2500, col, tr), axis = "v", i = i }
 			end
-			for i = 0, 40 do
-				lines[#lines + 1] = { ln = mk(folder, -40, i * spacing - spacing, 2000, 1, col, tr), axis = "h", i = i }
+			for i = 0, 45 do
+				lines[#lines + 1] = { ln = mk(holder, -spacing * 2, i * spacing - spacing * 2, 2500, 1, col, tr), axis = "h", i = i }
 			end
 			menuGridConn = RunService.RenderStepped:Connect(function()
 				if ST.isUnloaded or not ST.MenuGridEnabled or not folder.Parent then
@@ -6967,17 +6998,17 @@ rebuildMenuGrid = function()
 				local off = ((os.clock() - t0) * spd * 12) % spacing
 				local c2 = ST.MenuGridColor or Theme.Accent or col
 				local tr2 = math.clamp(ST.MenuGridTransparency or tr, 0.2, 0.98)
-				local tilt = tonumber(ST.MenuGridRotation) or 0
+				holder.Rotation = tonumber(ST.MenuGridRotation) or 0
 				for _, L in ipairs(lines) do
 					L.ln.BackgroundColor3 = c2
 					L.ln.BackgroundTransparency = tr2
-					L.ln.Rotation = tilt
+					L.ln.Rotation = 0
 					if L.axis == "v" then
-						L.ln.Position = UDim2.fromOffset(L.i * spacing - spacing - off, -40)
-						L.ln.Size = UDim2.fromOffset(1, 2000)
+						L.ln.Position = UDim2.fromOffset(L.i * spacing - spacing * 2 - off, -spacing * 2)
+						L.ln.Size = UDim2.fromOffset(1, 2500)
 					else
-						L.ln.Position = UDim2.fromOffset(-40, L.i * spacing - spacing - off)
-						L.ln.Size = UDim2.fromOffset(2000, 1)
+						L.ln.Position = UDim2.fromOffset(-spacing * 2, L.i * spacing - spacing * 2 - off)
+						L.ln.Size = UDim2.fromOffset(2500, 1)
 					end
 				end
 			end)
@@ -7381,9 +7412,22 @@ UIS.InputBegan:Connect(function(input, gp)
 		Hitbox_Config.Enabled = not Hitbox_Config.Enabled
 	elseif pressed(Keys.Fly) then
 		ST.FlyEnabled = not ST.FlyEnabled
-		if not ST.FlyEnabled then
-			if flyVelocity then flyVelocity:Destroy(); flyVelocity = nil end
-			if flyGyro then flyGyro:Destroy(); flyGyro = nil end
+		if flyVelocity then pcall(function() flyVelocity:Destroy() end); flyVelocity = nil end
+		if flyGyro then pcall(function() flyGyro:Destroy() end); flyGyro = nil end
+		if ST.FlyEnabled then
+			local _, _, r = getCharacterParts()
+			if r then
+				flyVelocity = Instance.new("BodyVelocity")
+				flyVelocity.Name = "CLL_FlyVel"
+				flyVelocity.MaxForce = Vector3.new(math.huge, math.huge, math.huge)
+				flyVelocity.Velocity = Vector3.zero
+				flyVelocity.Parent = r
+				flyGyro = Instance.new("BodyGyro")
+				flyGyro.Name = "CLL_FlyGyro"
+				flyGyro.MaxTorque = Vector3.new(math.huge, math.huge, math.huge)
+				flyGyro.P = 9000
+				flyGyro.Parent = r
+			end
 		end
 	elseif pressed(Keys.WalkSpeed) then
 		ST.WalkSpeedEnabled = not ST.WalkSpeedEnabled
@@ -7401,6 +7445,16 @@ UIS.InputBegan:Connect(function(input, gp)
 		pcall(updateFOVCircle)
 	elseif pressed(Keys.Spin) then
 		ST.SpinEnabled = not ST.SpinEnabled
+		local _, _, r = getCharacterParts()
+		if spinAngular then pcall(function() spinAngular:Destroy() end); spinAngular = nil end
+		if ST.SpinEnabled and r then
+			spinAngular = Instance.new("BodyAngularVelocity")
+			spinAngular.Name = "CLL_Spin"
+			spinAngular.AngularVelocity = Vector3.new(0, ST.SpinSpeed or 5, 0)
+			spinAngular.MaxTorque = Vector3.new(0, math.huge, 0)
+			spinAngular.P = 1000
+			spinAngular.Parent = r
+		end
 	elseif pressed(Keys.NoRecoil) then
 		ST.NoRecoilEnabled = not ST.NoRecoilEnabled
 	elseif pressed(Keys.ChinaHat) then
