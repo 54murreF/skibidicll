@@ -1,6 +1,6 @@
 --[[
     ╔═══════════════════════════════════════════════════════════════╗
-    ║              CLL CHEAT - FULL INTEGRATION v11.79-ba (native Q/G grab mirror + VR restore)                ║
+    ║              CLL CHEAT - FULL INTEGRATION v11.80-bb (native Q/G grab mirror + VR restore)                ║
     ╠═══════════════════════════════════════════════════════════════╣
     ║  SUK head-hit, real crosshair, tracers, ESP outline nick,     ║
     ║  ChinaHat/Wings fix, VR hands, anti-flash/shake, antibypass   ║
@@ -518,6 +518,21 @@ local function refreshLanguage()
 	for _, fn in ipairs(UI_LangHooks) do
 		pcall(fn)
 	end
+	local function walk(root)
+		if not root then return end
+		for _, d in ipairs(root:GetDescendants()) do
+			if d:IsA("TextLabel") or d:IsA("TextButton") then
+				local k = d:GetAttribute("CLL_LangKey")
+				if type(k) == "string" and k ~= "" then
+					d.Text = L(k)
+				end
+			end
+		end
+	end
+	pcall(function()
+		if UIRefs and UIRefs.window then walk(UIRefs.window) end
+		if gui then walk(gui) end
+	end)
 end
 
 
@@ -1444,7 +1459,7 @@ function InstantReload(tool)
 			if isShotgun then
 				ReloadRemote:InvokeServer(tool, "Start Reload")
 				boostReloadAnims()
-				local step = math.clamp(tonumber(ST.ReloadSpeed) or 0.055, 0.04, 0.15)
+				local step = math.clamp(tonumber(ST.ReloadSpeed) or 0.08, 0.06, 0.2)
 				for i = 1, need do
 					if ST.isUnloaded or not tool or not tool.Parent then break end
 					-- abort mid-reload if SUK was turned off and caller cleared flags
@@ -1492,23 +1507,14 @@ function InstantReload(tool)
 			maxA = tonumber(m) or maxA
 		end)
 		if okReload then
-			-- after real shells only
-			local ca = select(1, ReadAmmo(tool))
-			ca = tonumber(ca)
-			if ca and ca > 0 then
-				ST._sukChamber = ca
-			else
-				ST._sukChamber = maxA
-				pcall(function()
-					tool:SetAttribute("ClientAmmo", maxA)
-					tool:SetAttribute("CurrentAmmo", maxA)
-				end)
-			end
+			local ca = tonumber(select(1, ReadAmmo(tool)))
+			ST._sukChamber = (ca and ca > 0) and math.min(ca, maxA) or maxA
 		else
 			ST._sukChamber = 0
 		end
 		ST.reloadInProgress = false
 		ST._reloadRunning = false
+		ST._reloadStartedAt = nil
 	end)
 end
 
@@ -1581,11 +1587,7 @@ function MultiFireAt()
 
 	local targets = GetTargets() or {}
 	local numTargets = #targets
-	-- no living targets → top up shells (not only when chamber is 0)
 	if numTargets == 0 then
-		if not ST._reloadRunning and (ST._sukChamber or maxA) < maxA then
-			pcall(InstantReload, tool)
-		end
 		return
 	end
 
@@ -1731,11 +1733,7 @@ function MultiFireAt()
 			local h2 = m2 and m2:FindFirstChildOfClass("Humanoid")
 			if h2 and h2.Health <= 0 then
 				onVictimDied(m2)
-				if ST.isMultiSuk and not ST._reloadRunning then
-					local t = GetSpas()
-					if t then pcall(InstantReload, t) end
 				end
-			end
 		end)
 	end
 
@@ -4257,6 +4255,50 @@ function fireTheme()
 	for i = 1, #ThemeSubscribers do pcall(ThemeSubscribers[i]) end
 end
 
+
+local function repaintThemeTree(root)
+	if not root then return end
+	pcall(function()
+		local function walk(o)
+			if not o then return end
+			if o:IsA("TextLabel") or o:IsA("TextButton") or o:IsA("TextBox") then
+				local tc = o.TextColor3
+				local lum = tc.R * 0.3 + tc.G * 0.59 + tc.B * 0.11
+				if ST.ThemeLight then
+					if lum > 0.72 then
+						o.TextColor3 = Theme.Text
+					elseif lum > 0.45 then
+						o.TextColor3 = Theme.Dim
+					end
+				else
+					if lum < 0.3 then
+						o.TextColor3 = Theme.Text
+					end
+				end
+			end
+			if o:IsA("UIStroke") then
+				pcall(function() o.Color = Theme.Stroke end)
+			end
+			if o:IsA("Frame") or o:IsA("CanvasGroup") or o:IsA("TextButton") then
+				if o.BackgroundTransparency < 0.9 then
+					local bg = o.BackgroundColor3
+					local lum = bg.R * 0.3 + bg.G * 0.59 + bg.B * 0.11
+					local nm = o.Name or ""
+					if o == UIRefs.window or nm == "Window" then
+						o.BackgroundColor3 = Theme.Bg
+					elseif ST.ThemeLight and lum < 0.25 then
+						o.BackgroundColor3 = Theme.Panel
+					elseif (not ST.ThemeLight) and lum > 0.85 then
+						o.BackgroundColor3 = Theme.Panel
+					end
+				end
+			end
+			for _, ch in ipairs(o:GetChildren()) do walk(ch) end
+		end
+		walk(root)
+	end)
+end
+
 function applyThemeMode(light, animate)
 	ST.ThemeLight = light and true or false
 	local srcT = light and ThemeLight or ThemeDark
@@ -4285,7 +4327,7 @@ function applyThemeMode(light, animate)
 			fireTheme()
 			-- repaint common roots
 			pcall(function()
-				if UIRefs.window then UIRefs.window.BackgroundColor3 = Theme.Bg end
+				if UIRefs.window then UIRefs.window.BackgroundColor3 = Theme.Bg; repaintThemeTree(UIRefs.window) end; if gui then repaintThemeTree(gui) end
 			end)
 			if a >= 1 then
 				conn:Disconnect()
@@ -4301,7 +4343,7 @@ function applyThemeMode(light, animate)
 		Theme.OnTrack = accent
 		fireTheme()
 		pcall(function()
-			if UIRefs.window then UIRefs.window.BackgroundColor3 = Theme.Bg end
+			if UIRefs.window then UIRefs.window.BackgroundColor3 = Theme.Bg; repaintThemeTree(UIRefs.window) end; if gui then repaintThemeTree(gui) end
 		end)
 	end
 end
@@ -4311,7 +4353,20 @@ new = function(c, p, ch) local o = Instance.new(c); for k, v in pairs(p or {}) d
 corner = function(r) return new("UICorner", { CornerRadius = UDim.new(0, r) }) end
 round = function() return new("UICorner", { CornerRadius = UDim.new(0.5, 0) }) end
 stroke = function(c, t) return new("UIStroke", { Color = c or Theme.Stroke, Thickness = t or 1, ApplyStrokeMode = Enum.ApplyStrokeMode.Border }) end
-label = function(p) p.BackgroundTransparency = 1; p.Font = p.Font or Enum.Font.Gotham; p.TextColor3 = p.TextColor3 or Theme.Text; p.TextSize = p.TextSize or 15; p.TextXAlignment = p.TextXAlignment or Enum.TextXAlignment.Left; return new("TextLabel", p) end
+label = function(p)
+	p.BackgroundTransparency = 1
+	p.Font = p.Font or Enum.Font.Gotham
+	p.TextColor3 = p.TextColor3 or Theme.Text
+	p.TextSize = p.TextSize or 15
+	p.TextXAlignment = p.TextXAlignment or Enum.TextXAlignment.Left
+	local langKey = p.LangKey
+	p.LangKey = nil
+	local o = new("TextLabel", p)
+	if type(langKey) == "string" and langKey ~= "" then
+		o:SetAttribute("CLL_LangKey", langKey)
+	end
+	return o
+end
 function tween(o, t, p)
 	if typeof(o) ~= "Instance" then return end
 	pcall(function() TweenService:Create(o, TweenInfo.new(t, Enum.EasingStyle.Quad), p):Play() end)
@@ -4343,13 +4398,19 @@ subscribeTheme(function() local s = fovCircle:FindFirstChildOfClass("UIStroke");
 function cosmeticColor() return CosmeticUseCustom and CosmeticColorCustom or Theme.Accent end
 
 
--- Full anti-shake: visual + real (uber/flash/recoil attributes)
+-- Anti-displace: dump CameraShaker binds at Last+1 — strip + run later
 task.spawn(function()
 	local bindName = "CLL_NoShake"
 	pcall(function() RunService:UnbindFromRenderStep(bindName) end)
-	RunService:BindToRenderStep(bindName, Enum.RenderPriority.Last.Value, function()
+	local function stripShakers()
+		for _, n in ipairs({"forge_updateCameraShake", "VFXRuntimeCameraShaker", "CameraShake", "CameraShakerUpdate"}) do
+			pcall(function() RunService:UnbindFromRenderStep(n) end)
+		end
+	end
+	stripShakers()
+	RunService:BindToRenderStep(bindName, Enum.RenderPriority.Last.Value + 5, function()
 		if ST.isUnloaded then return end
-		-- kill REAL camera displacement after uber/flash (offset + attributes)
+		stripShakers()
 		local cam = workspace.CurrentCamera
 		local char = LocalPlayer.Character
 		if char then
@@ -4361,18 +4422,9 @@ task.spawn(function()
 				char:SetAttribute("Recoil", Vector3.zero)
 			end)
 			local hum = char:FindFirstChildOfClass("Humanoid")
-			if hum then
-				pcall(function()
-					hum.CameraOffset = Vector3.zero
-				end)
-			end
+			if hum then pcall(function() hum.CameraOffset = Vector3.zero end) end
 		end
-		-- zero spring-style shake values if present on camera modules
-		pcall(function()
-			if cam then
-				cam:SetAttribute("Shake", nil)
-			end
-		end)
+		pcall(function() if cam then cam:SetAttribute("Shake", nil) end end)
 		if ST.AntiFlashEnabled then
 			pcall(function()
 				local pg = LocalPlayer:FindFirstChild("PlayerGui")
@@ -4442,7 +4494,7 @@ fit(); workspace.CurrentCamera:GetPropertyChangedSignal("ViewportSize"):Connect(
 local header = new("Frame", { Size = UDim2.new(1, 0, 0, 62), BackgroundTransparency = 1, Parent = window })
 local logoLabel = label({ Text = "CLL", Font = Enum.Font.Michroma, TextSize = 26, TextTruncate = Enum.TextTruncate.AtEnd, Size = UDim2.fromOffset(100, 62), Position = UDim2.fromOffset(23, 0), Parent = header })
 logoLabel.TextColor3 = Color3.fromRGB(255, 255, 255) -- Always white
-local verLabel = label({ Text = "v11.79-ba", Font = Enum.Font.GothamBold, TextSize = 12, TextColor3 = Theme.Dim, Size = UDim2.fromOffset(50, 62), Position = UDim2.fromOffset(85, 2), Parent = header })
+local verLabel = label({ Text = "v11.80-bb", Font = Enum.Font.GothamBold, TextSize = 12, TextColor3 = Theme.Dim, Size = UDim2.fromOffset(50, 62), Position = UDim2.fromOffset(85, 2), Parent = header })
 local timeLabel = label({ Text = "Session: 00:00", Font = Enum.Font.GothamMedium, TextSize = 13, TextColor3 = Theme.Dim, Size = UDim2.fromOffset(150, 62), Position = UDim2.fromOffset(150, 0), Parent = header })
 task.spawn(function()
 	while not ST.isUnloaded do
@@ -4902,11 +4954,17 @@ function buildFeaturePage(page, sectionTitle, features)
 	label({ Text = "RMB - settings", Font = Enum.Font.Gotham, TextSize = 11, TextColor3 = Theme.Dim, TextXAlignment = Enum.TextXAlignment.Right, Size = UDim2.fromOffset(120, 18), Position = UDim2.new(1, -132, 0, 12), Parent = panel })
 	local list = new("ScrollingFrame", { Size = UDim2.new(1, -12, 1, -42), Position = UDim2.fromOffset(6, 36), BackgroundTransparency = 1, BorderSizePixel = 0, ScrollBarThickness = 3, ScrollBarImageColor3 = Theme.Stroke, CanvasSize = UDim2.new(), AutomaticCanvasSize = Enum.AutomaticSize.Y, Parent = panel }, { new("UIListLayout", { Padding = UDim.new(0, 4), SortOrder = Enum.SortOrder.LayoutOrder }), new("UIPadding", { PaddingTop = UDim.new(0, 4), PaddingBottom = UDim.new(0, 8), PaddingLeft = UDim.new(0, 8), PaddingRight = UDim.new(0, 8) }) })
 	for i, feat in ipairs(features) do
-		local row = new("Frame", { Size = UDim2.new(1, 0, 0, 36), BackgroundColor3 = Theme.Row, BackgroundTransparency = 0.35, LayoutOrder = i, Parent = list }, { corner(8) })
-		local accentLine = new("Frame", { Size = UDim2.fromOffset(3, 16), Position = UDim2.fromOffset(8, 10), BackgroundColor3 = Theme.Accent, BackgroundTransparency = feat.buildDetail and 0.3 or 1, BorderSizePixel = 0, Parent = row }, { corner(2) })
+		local descText = (feat.descKey and L(feat.descKey)) or feat.desc
+		local rowH = descText and 52 or 36
+		local row = new("Frame", { Size = UDim2.new(1, 0, 0, rowH), BackgroundColor3 = Theme.Row, BackgroundTransparency = 0.35, LayoutOrder = i, Parent = list }, { corner(8) })
+		local accentLine = new("Frame", { Size = UDim2.fromOffset(3, 16), Position = UDim2.fromOffset(8, descText and 18 or 10), BackgroundColor3 = Theme.Accent, BackgroundTransparency = feat.buildDetail and 0.3 or 1, BorderSizePixel = 0, Parent = row }, { corner(2) })
 		subscribeTheme(function() accentLine.BackgroundColor3 = Theme.Accent end)
-		label({ Text = feat.name, Font = Enum.Font.GothamMedium, TextSize = 13, Size = UDim2.new(1, -100, 1, 0), Position = UDim2.fromOffset(18, 0), Parent = row })
-		if feat.buildDetail then label({ Text = "⚙", Font = Enum.Font.GothamBold, TextSize = 14, TextColor3 = Theme.Dim, TextXAlignment = Enum.TextXAlignment.Center, Size = UDim2.fromOffset(28, 36), Position = UDim2.new(1, -78, 0, 0), Parent = row }) end
+		local titleStr = (feat.nameKey and L(feat.nameKey)) or feat.name
+		label({ Text = titleStr, Font = Enum.Font.GothamMedium, TextSize = 13, Size = UDim2.new(1, -100, 0, 18), Position = UDim2.fromOffset(18, descText and 6 or 9), Parent = row, LangKey = feat.nameKey })
+		if descText then
+			label({ Text = descText, Font = Enum.Font.Gotham, TextSize = 11, TextColor3 = Theme.Dim, TextTruncate = Enum.TextTruncate.AtEnd, Size = UDim2.new(1, -100, 0, 16), Position = UDim2.fromOffset(18, 28), Parent = row, LangKey = feat.descKey })
+		end
+		if feat.buildDetail then label({ Text = "⚙", Font = Enum.Font.GothamBold, TextSize = 14, TextColor3 = Theme.Dim, TextXAlignment = Enum.TextXAlignment.Center, Size = UDim2.fromOffset(28, rowH), Position = UDim2.new(1, -78, 0, 0), Parent = row }) end
 		local hit = new("TextButton", { Text = "", AutoButtonColor = false, BackgroundTransparency = 1, Size = UDim2.new(1, -52, 1, 0), Parent = row })
 		local swHolder = new("Frame", { BackgroundTransparency = 1, Size = UDim2.fromOffset(48, 36), Position = UDim2.new(1, -48, 0, 0), ZIndex = 5, Parent = row })
 		local initOn = feat.getState and (feat.getState() == true) or (feat.initial == true)
@@ -5324,7 +5382,7 @@ function buildProfile()
 		return t, v
 	end
 	local tBuild, vBuild = row("profile_build", 225)
-	vBuild.Text = "v11.79-ba"
+	vBuild.Text = "v11.80-bb"
 	local tSess, vSess = row("profile_session", 250)
 	local tStat, vStat = row("profile_status", 275)
 	vStat.Text = L("profile_active")
@@ -6438,7 +6496,7 @@ buildFeaturePage(pages.Effects, "EFFECTS", {
 	{ name = "China Hat", nameKey = "t_hat", descKey = "d_hat", initial = false, onToggle = function(v) ST.ChinaHatEnabled = v; pcall(function() Cosmetics.setHat(v) end) end, buildDetail = nil },
 	{ name = "Custom Wings", nameKey = "t_wings", descKey = "d_wings", initial = false, onToggle = function(v) ST.WingsEnabled = v; pcall(function() Cosmetics.setWings(v) end) end, buildDetail = nil },
 	{ name = "Anti-Lag", nameKey = "t_antilag", descKey = "d_antilag", initial = false, onToggle = function(s) ST.AntiLagEnabled = s; if s then CleanDebris() end end, buildDetail = nil },
-		{ name = "Clear Rain/Weather", initial = false, onToggle = function(s)
+		{ name = "Clear Rain/Weather", nameKey = "t_rain", descKey = "d_rain", initial = false, onToggle = function(s)
 		-- one-shot: clear once, do not leave a laggy loop on
 		ST.RemoveRainEnabled = false
 		if not s then return end
@@ -6475,7 +6533,7 @@ buildFeaturePage(pages.Effects, "EFFECTS", {
 	end, buildDetail = nil },
 	{ name = "Remove Fog", nameKey = "t_fog", descKey = "d_fog", initial = false, onToggle = function(s) ST.RemoveFogEnabled = s; if not s then game:GetService("Lighting").FogEnd = 1000 end end, buildDetail = nil },
 	{ name = "Fullbright", nameKey = "t_fb", descKey = "d_fb", initial = false, onToggle = function(s) ST.FullbrightEnabled = s end, buildDetail = nil },
-	{ name = "Weather Rain", initial = false, onToggle = function(v) if v then startWeatherRain() else stopWeather() end end, buildDetail = nil },
+	{ name = "Weather Rain", nameKey = "t_wrain", descKey = "d_wrain", initial = false, onToggle = function(v) if v then startWeatherRain() else stopWeather() end end, buildDetail = nil },
 	{ name = "Time Override", nameKey = "t_time", descKey = "d_time", initial = false, onToggle = function(s) ST.TimeOverrideEnabled = s; if not s then game:GetService("Lighting").ClockTime = 14 end end, buildDetail = function(d) detailSlider(d, 1, "Time", 0, 24, ST.TimeOverrideValue, 0.1, function(v) ST.TimeOverrideValue = v end) end },
 	{ name = "Camera FOV Lock", nameKey = "t_fovlock", descKey = "d_fovlock", initial = false, onToggle = function(s)
 		ST.CameraFOVLocked = s
