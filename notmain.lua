@@ -1,6 +1,6 @@
 --[[
     ╔═══════════════════════════════════════════════════════════════╗
-    ║              CLL CHEAT - FULL INTEGRATION v11.84-bf (native Q/G grab mirror + VR restore)                ║
+    ║              CLL CHEAT - FULL INTEGRATION v11.85-bg (native Q/G grab mirror + VR restore)                ║
     ╠═══════════════════════════════════════════════════════════════╣
     ║  SUK head-hit, real crosshair, tracers, ESP outline nick,     ║
     ║  ChinaHat/Wings fix, VR hands, anti-flash/shake, antibypass   ║
@@ -381,7 +381,7 @@ local LANG = {
 		d_heal = "Телепорт в зону хила только пока HP ниже максимума.",
 		d_heal_h = "Высота над зоной хила при автотелепорте.",
 		d_ignore_friends = "SUK не стреляет по игрокам из списка друзей.",
-		d_target_npcs = "SUK также берёт NPC из workspace.Humans.",
+		d_target_npcs = "SUK также берёт NPC из NPC list.",
 		d_equip = "Стрельба только если Spas-12 экипирован.",
 		d_silent = "Подводит направление выстрела к цели в FOV.",
 		d_invis = "Уносит персонажа далеко на сервере и локально.",
@@ -479,7 +479,7 @@ local LANG = {
 		d_heal = "Teleports to the heal zone only while HP is below max.",
 		d_heal_h = "Height above the heal zone when auto-porting.",
 		d_ignore_friends = "SUK skips players on your friends list.",
-		d_target_npcs = "SUK also targets NPCs in workspace.Humans.",
+		d_target_npcs = "SUK also targets NPCs in NPC list.",
 		d_equip = "Only shoots while Spas-12 is equipped.",
 		d_silent = "Bends your shot direction toward a FOV target.",
 		d_invis = "Moves your character far away on client and server.",
@@ -1228,7 +1228,7 @@ function GetTargets()
     end
     local function addNPCs()
         if #NPC_List == 0 and ST.SUK_TargetNPCs then
-            -- cheap scan: only workspace.Humans (no full GetDescendants)
+            -- cheap scan: only NPC list (no full GetDescendants)
             local folder = workspace:FindFirstChild("Humans")
             if folder then
                 for _, inst in ipairs(folder:GetChildren()) do
@@ -2116,17 +2116,23 @@ function StartHealLoop()
 		local char, hum, root = getCharacterParts()
 		if not char or not hum or not root or hum.Health <= 0 then return end
 		local healBrick = workspace:FindFirstChild("Heal100Brick", true)
-		if not healBrick then return end
-		-- only port when actually hurt (not on toggle alone)
-		local maxH = hum.MaxHealth > 0 and hum.MaxHealth or 100
-		if hum.Health >= maxH - 0.5 then
-			-- full HP: release platform stand if we held it only for heal
-			return
+		if not healBrick then
+			pcall(function()
+				for _, o in ipairs(workspace:GetDescendants()) do
+					if o:IsA("BasePart") and string.lower(o.Name):find("heal") then
+						healBrick = o
+						break
+					end
+				end
+			end)
 		end
+		if not healBrick then return end
 		if not hum.PlatformStand then hum.PlatformStand = true end
-		local basePos = healBrick.Position + Vector3.new(0, ST.HealFlyHeight or 3.5, 0)
-		root.CFrame = ST.isMultiSuk and CFrame.new(basePos) or CFrame.new(basePos + Vector3.new(0, math.sin(os.clock() * 2) * 0.5, 0))
-		root.AssemblyLinearVelocity = Vector3.zero; root.AssemblyAngularVelocity = Vector3.zero
+		local h = ST.HealFlyHeight or 3.5
+		local basePos = healBrick.Position + Vector3.new(0, h, 0)
+		root.CFrame = CFrame.new(basePos + Vector3.new(0, math.sin(os.clock() * 2) * 0.4, 0))
+		root.AssemblyLinearVelocity = Vector3.zero
+		root.AssemblyAngularVelocity = Vector3.zero
 		for _, p in ipairs(char:GetDescendants()) do if p:IsA("BasePart") then if not savedCollision[p] then savedCollision[p] = p.CanCollide end; p.CanCollide = false end end
 	end)
 	table.insert(Connections, healConnection)
@@ -4582,8 +4588,35 @@ end)
 local window = new("CanvasGroup", { Size = UDim2.fromOffset(DESIGN_W, DESIGN_H), Position = UDim2.fromOffset(100, 100), BackgroundColor3 = Theme.Bg, GroupTransparency = 1, Parent = gui }, { corner(18), stroke() })
 UIRefs.window = window
 
--- bottom-right resize handle
+-- bottom-right resize handle + layout sync
 pcall(function()
+	local DEFAULT_W, DEFAULT_H = DESIGN_W, DESIGN_H
+	local function applyLayoutSize(nw, nh)
+		window.Size = UDim2.fromOffset(nw, nh)
+		if sidebar then
+			sidebar.Size = UDim2.fromOffset(150, nh - 62)
+		end
+		if contentFrame then
+			contentFrame.Size = UDim2.new(1, -150, 1, -62)
+		end
+		local drawer = window:FindFirstChild("FeatureDrawer")
+		if drawer then
+			drawer.Size = UDim2.fromOffset(300, math.max(200, nh - 80))
+		end
+		if pages and pages.Profile then
+			local panel = pages.Profile:FindFirstChildWhichIsA("Frame")
+			if panel then
+				panel.Size = UDim2.new(1, -40, 1, -40)
+				panel.Position = UDim2.fromOffset(20, 20)
+			end
+		end
+	end
+
+	local old = window:FindFirstChild("CLL_ResizeHandle")
+	if old then old:Destroy() end
+	local oldR = window:FindFirstChild("CLL_ResizeReset")
+	if oldR then oldR:Destroy() end
+
 	local handle = Instance.new("TextButton")
 	handle.Name = "CLL_ResizeHandle"
 	handle.Text = ""
@@ -4591,10 +4624,34 @@ pcall(function()
 	handle.Size = UDim2.fromOffset(18, 18)
 	handle.Position = UDim2.new(1, -18, 1, -18)
 	handle.BackgroundColor3 = Theme.Accent
-	handle.BackgroundTransparency = 0.35
+	handle.BackgroundTransparency = 0.25
 	handle.ZIndex = 50
 	handle.Parent = window
 	Instance.new("UICorner", handle).CornerRadius = UDim.new(0, 4)
+	pcall(function()
+		subscribeTheme(function()
+			if handle and handle.Parent then handle.BackgroundColor3 = Theme.Accent end
+		end)
+	end)
+
+	local resetBtn = Instance.new("TextButton")
+	resetBtn.Name = "CLL_ResizeReset"
+	resetBtn.Text = "↺"
+	resetBtn.Font = Enum.Font.GothamBold
+	resetBtn.TextSize = 12
+	resetBtn.TextColor3 = Color3.fromRGB(240, 242, 248)
+	resetBtn.AutoButtonColor = false
+	resetBtn.Size = UDim2.fromOffset(22, 18)
+	resetBtn.Position = UDim2.new(1, -42, 1, -18)
+	resetBtn.BackgroundColor3 = Theme.Row
+	resetBtn.BackgroundTransparency = 0.15
+	resetBtn.ZIndex = 50
+	resetBtn.Parent = window
+	Instance.new("UICorner", resetBtn).CornerRadius = UDim.new(0, 4)
+	resetBtn.MouseButton1Click:Connect(function()
+		applyLayoutSize(DEFAULT_W, DEFAULT_H)
+	end)
+
 	local dragging, startMouse, startSize = false, nil, nil
 	handle.InputBegan:Connect(function(input)
 		if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
@@ -4607,9 +4664,9 @@ pcall(function()
 		if not dragging then return end
 		if input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch then
 			local delta = Vector2.new(input.Position.X, input.Position.Y) - startMouse
-			local nw = math.clamp(startSize.X + delta.X, 640, 1400)
-			local nh = math.clamp(startSize.Y + delta.Y, 420, 900)
-			window.Size = UDim2.fromOffset(nw, nh)
+			local nw = math.clamp(math.floor(startSize.X + delta.X), 700, 1400)
+			local nh = math.clamp(math.floor(startSize.Y + delta.Y), 460, 900)
+			applyLayoutSize(nw, nh)
 		end
 	end)
 	UIS.InputEnded:Connect(function(input)
@@ -4618,6 +4675,7 @@ pcall(function()
 		end
 	end)
 end)
+
 
 
 window.Visible = false
@@ -4631,7 +4689,7 @@ fit(); workspace.CurrentCamera:GetPropertyChangedSignal("ViewportSize"):Connect(
 local header = new("Frame", { Size = UDim2.new(1, 0, 0, 62), BackgroundTransparency = 1, Parent = window })
 local logoLabel = label({ Text = "CLL", Font = Enum.Font.Michroma, TextSize = 26, TextTruncate = Enum.TextTruncate.AtEnd, Size = UDim2.fromOffset(100, 62), Position = UDim2.fromOffset(23, 0), Parent = header })
 logoLabel.TextColor3 = Color3.fromRGB(255, 255, 255) -- Always white
-local verLabel = label({ Text = "v11.84-bf", Font = Enum.Font.GothamBold, TextSize = 12, TextColor3 = Theme.Dim, Size = UDim2.fromOffset(50, 62), Position = UDim2.fromOffset(85, 2), Parent = header })
+local verLabel = label({ Text = "v11.85-bg", Font = Enum.Font.GothamBold, TextSize = 12, TextColor3 = Theme.Dim, Size = UDim2.fromOffset(50, 62), Position = UDim2.fromOffset(85, 2), Parent = header })
 local timeLabel = label({ Text = "Session: 00:00", Font = Enum.Font.GothamMedium, TextSize = 13, TextColor3 = Theme.Dim, Size = UDim2.fromOffset(150, 62), Position = UDim2.fromOffset(150, 0), Parent = header })
 task.spawn(function()
 	while not ST.isUnloaded do
@@ -5511,7 +5569,7 @@ function buildVR()
 end
 
 function buildProfile()
-	local panel = new("Frame", { Size = UDim2.fromOffset(350, DESIGN_H - 102), Position = UDim2.fromOffset(20, 20), BackgroundColor3 = Theme.Panel, Parent = pages.Profile }, { corner(16), stroke() })
+	local panel = new("Frame", { Size = UDim2.new(1, -40, 1, -40), Position = UDim2.fromOffset(20, 20), BackgroundColor3 = Theme.Panel, Parent = pages.Profile }, { corner(16), stroke() })
 	local title = label({ Text = L("profile_title"), Font = Enum.Font.GothamMedium, TextSize = 20, Size = UDim2.fromOffset(250, 30), Position = UDim2.fromOffset(PAD, 20), Parent = panel })
 	divider(panel, 61)
 	local avatar = new("ImageLabel", { Size = UDim2.fromOffset(80, 80), Position = UDim2.fromOffset(PAD, 80), BackgroundColor3 = Theme.Row, Parent = panel }, { round(), stroke() })
@@ -5529,7 +5587,7 @@ function buildProfile()
 		return t, v
 	end
 	local tBuild, vBuild = row("profile_build", 225)
-	vBuild.Text = "v11.84-bf"
+	vBuild.Text = "v11.85-bg"
 	local tSess, vSess = row("profile_session", 250)
 	local tStat, vStat = row("profile_status", 275)
 	vStat.Text = L("profile_active")
@@ -5718,6 +5776,7 @@ function buildSettings()
 		accentPrev.BackgroundColor3 = c
 		fireTheme()
 		if rebuildMenuGrid and ST.MenuGridEnabled then pcall(rebuildMenuGrid) end
+		if UI_SliderHooks then for _, fn in ipairs(UI_SliderHooks) do pcall(fn) end end
 	end)
 	y += 40
 	label({ Text = "Hex #RRGGBB", TextSize = 12, TextColor3 = Theme.Dim, Size = UDim2.fromOffset(120, 18), Position = UDim2.fromOffset(PAD, y), Parent = leftScroll })
@@ -5742,6 +5801,9 @@ function buildSettings()
 		accentPrev.BackgroundColor3 = c
 		fireTheme()
 		if rebuildMenuGrid and ST.MenuGridEnabled then pcall(rebuildMenuGrid) end
+		if UI_SliderHooks then
+			for _, fn in ipairs(UI_SliderHooks) do pcall(fn) end
+		end
 	end)
 	y += 56
 	toggle(leftScroll, y, L("t_wm"), function(v) ST.WatermarkMainVisible = v; if watermarkMain then watermarkMain.Visible = v end end, true, function() return ST.WatermarkMainVisible end, L("d_wm")); y += 48
@@ -6814,9 +6876,8 @@ rebuildMenuGrid = function()
 
 		local style = ST.MenuBgStyle or "grid"
 		local col = ST.MenuGridColor or Theme.Accent or Color3.fromRGB(80, 140, 255)
-		local tr = math.clamp(ST.MenuGridTransparency or 0.85, 0.15, 0.98)
-		local rot = tonumber(ST.MenuGridRotation) or 0
-		local cell = 28
+		local tr = math.clamp(ST.MenuGridTransparency or 0.85, 0.2, 0.98)
+		local spacing = 28
 		local t0 = os.clock()
 
 		local function mk(parent, x, y, w, h, c, a)
@@ -6831,91 +6892,92 @@ rebuildMenuGrid = function()
 			return f
 		end
 
-		local holder = Instance.new("Frame")
-		holder.BackgroundTransparency = 1
-		holder.Size = UDim2.fromScale(3, 3)
-		holder.Position = UDim2.fromScale(0.5, 0.5)
-		holder.AnchorPoint = Vector2.new(0.5, 0.5)
-		holder.Rotation = rot
-		holder.ZIndex = 0
-		holder.Parent = folder
-
-		if style == "chess" then
-			local cells = {}
-			local dark = Color3.new(col.R * 0.32, col.G * 0.32, col.B * 0.32)
-			for gy = 0, 36 do
-				for gx = 0, 42 do
-					local on = ((gx + gy) % 2 == 0)
-					local c = on and col or dark
-					local a = on and (tr * 0.5 + 0.3) or (tr * 0.8 + 0.12)
-					cells[#cells + 1] = { f = mk(holder, gx * cell - 80, gy * cell - 80, cell, cell, c, a), on = on }
-				end
+		if style == "waves" then
+			-- NO rotation. Horizontal waves full width (header + body)
+			local waves = {}
+			for i = 0, 28 do
+				waves[#waves + 1] = { f = mk(folder, -40, i * 20 - 30, 2000, 3, col, tr), i = i }
 			end
 			menuGridConn = RunService.RenderStepped:Connect(function()
 				if ST.isUnloaded or not ST.MenuGridEnabled or not folder.Parent then
 					if menuGridConn then menuGridConn:Disconnect() end
 					return
 				end
-				holder.Rotation = ST.MenuGridRotation or 0
-				local c2 = ST.MenuGridColor or Theme.Accent or col
-				local dark2 = Color3.new(c2.R * 0.32, c2.G * 0.32, c2.B * 0.32)
-				local tr2 = math.clamp(ST.MenuGridTransparency or tr, 0.15, 0.98)
-				for _, c in ipairs(cells) do
-					c.f.BackgroundColor3 = c.on and c2 or dark2
-					c.f.BackgroundTransparency = c.on and (tr2 * 0.5 + 0.3) or (tr2 * 0.8 + 0.12)
-				end
-			end)
-		elseif style == "waves" then
-			local bars = {}
-			for i = 0, 80 do
-				bars[#bars + 1] = { f = mk(holder, i * 14 - 40, -200, 8, 2000, col, tr), i = i }
-			end
-			menuGridConn = RunService.RenderStepped:Connect(function()
-				if ST.isUnloaded or not ST.MenuGridEnabled or not folder.Parent then
-					if menuGridConn then menuGridConn:Disconnect() end
-					return
-				end
-				holder.Rotation = ST.MenuGridRotation or 0
 				local spd = math.clamp(ST.MenuGridSpeed or 1, 0.05, 8)
 				local t = (os.clock() - t0) * spd
 				local c2 = ST.MenuGridColor or Theme.Accent or col
-				local tr2 = math.clamp(ST.MenuGridTransparency or tr, 0.15, 0.98)
-				for _, b in ipairs(bars) do
-					local y = math.sin(t * 1.2 + b.i * 0.28) * 18 + math.sin(t * 0.5 + b.i * 0.1) * 8
-					b.f.Position = UDim2.fromOffset(b.i * 14 - 40, y - 100)
-					b.f.Size = UDim2.fromOffset(7, 2200)
-					b.f.BackgroundColor3 = c2
-					b.f.BackgroundTransparency = tr2
+				local tr2 = math.clamp(ST.MenuGridTransparency or tr, 0.2, 0.98)
+				local w = math.max(window.AbsoluteSize.X, 500) + 100
+				for _, wvd in ipairs(waves) do
+					local phase = t * 1.3 + wvd.i * 0.35
+					local y = wvd.i * 20 - 30 + math.sin(phase) * 10
+					wvd.f.Rotation = 0
+					wvd.f.Position = UDim2.fromOffset(-40 + math.sin(phase * 0.45) * 14, y)
+					wvd.f.Size = UDim2.fromOffset(w, 3)
+					wvd.f.BackgroundColor3 = c2
+					wvd.f.BackgroundTransparency = tr2
 				end
 			end)
-		else
-			local spacing = 26
-			local lines = {}
-			for i = 0, 60 do
-				lines[#lines + 1] = { ln = mk(holder, i * spacing - 100, -200, 1, 2500, col, tr), axis = "v", i = i }
-			end
-			for i = 0, 50 do
-				lines[#lines + 1] = { ln = mk(holder, -200, i * spacing - 100, 2500, 1, col, tr), axis = "h", i = i }
+		elseif style == "chess" then
+			-- same scroll as grid + filled checker cubes
+			local cells = {}
+			local dark = Color3.new(col.R * 0.28, col.G * 0.28, col.B * 0.28)
+			for gy = 0, 40 do
+				for gx = 0, 48 do
+					local on = ((gx + gy) % 2 == 0)
+					cells[#cells + 1] = {
+						f = mk(folder, gx * spacing - spacing, gy * spacing - spacing, spacing, spacing, on and col or dark, on and (tr * 0.45 + 0.35) or (tr * 0.75 + 0.15)),
+						gx = gx, gy = gy, on = on,
+					}
+				end
 			end
 			menuGridConn = RunService.RenderStepped:Connect(function()
 				if ST.isUnloaded or not ST.MenuGridEnabled or not folder.Parent then
 					if menuGridConn then menuGridConn:Disconnect() end
 					return
 				end
-				holder.Rotation = ST.MenuGridRotation or 0
 				local spd = math.clamp(ST.MenuGridSpeed or 1, 0.05, 8)
 				local off = ((os.clock() - t0) * spd * 12) % spacing
 				local c2 = ST.MenuGridColor or Theme.Accent or col
-				local tr2 = math.clamp(ST.MenuGridTransparency or tr, 0.15, 0.98)
+				local dark2 = Color3.new(c2.R * 0.28, c2.G * 0.28, c2.B * 0.28)
+				local tr2 = math.clamp(ST.MenuGridTransparency or tr, 0.2, 0.98)
+				local tilt = tonumber(ST.MenuGridRotation) or 0
+				for _, c in ipairs(cells) do
+					c.f.Position = UDim2.fromOffset(c.gx * spacing - spacing - off, c.gy * spacing - spacing - off)
+					c.f.BackgroundColor3 = c.on and c2 or dark2
+					c.f.BackgroundTransparency = c.on and (tr2 * 0.45 + 0.35) or (tr2 * 0.75 + 0.15)
+					c.f.Rotation = tilt
+				end
+			end)
+		else
+			-- orthogonal grid lines + scroll (tilt optional)
+			local lines = {}
+			for i = 0, 50 do
+				lines[#lines + 1] = { ln = mk(folder, i * spacing - spacing, -40, 1, 2000, col, tr), axis = "v", i = i }
+			end
+			for i = 0, 40 do
+				lines[#lines + 1] = { ln = mk(folder, -40, i * spacing - spacing, 2000, 1, col, tr), axis = "h", i = i }
+			end
+			menuGridConn = RunService.RenderStepped:Connect(function()
+				if ST.isUnloaded or not ST.MenuGridEnabled or not folder.Parent then
+					if menuGridConn then menuGridConn:Disconnect() end
+					return
+				end
+				local spd = math.clamp(ST.MenuGridSpeed or 1, 0.05, 8)
+				local off = ((os.clock() - t0) * spd * 12) % spacing
+				local c2 = ST.MenuGridColor or Theme.Accent or col
+				local tr2 = math.clamp(ST.MenuGridTransparency or tr, 0.2, 0.98)
+				local tilt = tonumber(ST.MenuGridRotation) or 0
 				for _, L in ipairs(lines) do
 					L.ln.BackgroundColor3 = c2
 					L.ln.BackgroundTransparency = tr2
+					L.ln.Rotation = tilt
 					if L.axis == "v" then
-						L.ln.Position = UDim2.fromOffset(L.i * spacing - 100 - off, -200)
-						L.ln.Size = UDim2.fromOffset(1, 2500)
+						L.ln.Position = UDim2.fromOffset(L.i * spacing - spacing - off, -40)
+						L.ln.Size = UDim2.fromOffset(1, 2000)
 					else
-						L.ln.Position = UDim2.fromOffset(-200, L.i * spacing - 100 - off)
-						L.ln.Size = UDim2.fromOffset(2500, 1)
+						L.ln.Position = UDim2.fromOffset(-40, L.i * spacing - spacing - off)
+						L.ln.Size = UDim2.fromOffset(2000, 1)
 					end
 				end
 			end)
