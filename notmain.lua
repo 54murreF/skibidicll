@@ -1,6 +1,6 @@
 --[[
     ╔═══════════════════════════════════════════════════════════════╗
-    ║              CLL CHEAT - FULL INTEGRATION v11.86-bh (native Q/G grab mirror + VR restore)                ║
+    ║              CLL CHEAT - FULL INTEGRATION v11.87-bi (native Q/G grab mirror + VR restore)                ║
     ╠═══════════════════════════════════════════════════════════════╣
     ║  SUK head-hit, real crosshair, tracers, ESP outline nick,     ║
     ║  ChinaHat/Wings fix, VR hands, anti-flash/shake, antibypass   ║
@@ -415,6 +415,12 @@ local LANG = {
 		t_chams = "Чамсы", d_chams = "Подсветка моделей игроков.",
 		t_aimvis = "Aim Visualizer", d_aimvis = "Визуальные хелперы прицела/FOV.",
 		t_killhl = "Kill Highlight", d_killhl = "Подсветка убитых игроков.",
+		t_killtri = "Треугольник килла", d_killtri = "Треугольник у прицела при убийстве.",
+		t_killcrown = "Корона килла", d_killcrown = "Корона над головой жертвы.",
+		t_killwreath = "Венок килла", d_killwreath = "Венок над головой жертвы.",
+		t_foottrails = "Следы ног", d_foottrails = "Неоновые кресты при ходьбе.",
+		t_handtrails = "Следы рук", d_handtrails = "Trail на обеих кистях.",
+		t_rockarc = "Траектория камня", d_rockarc = "Предпросмотр баллистики камня.",
 		t_hat = "China Hat", d_hat = "Косметический конус на голове.",
 		t_wings = "Крылья", d_wings = "Косметические крылья на спине.",
 		t_antilag = "Anti-Lag", d_antilag = "Чистит дебрис и тяжёлые эффекты.",
@@ -2152,15 +2158,35 @@ function StopHealLoop()
 	if SwingRemote and ST.isBlockActive then SwingRemote:FireServer('UnBlock'); ST.isBlockActive = false end
 	if savedHealPosition then local _, _, root = getCharacterParts(); if root then root.CFrame = savedHealPosition end; savedHealPosition = nil end
 	local char, humanoid, root = getCharacterParts()
-	if humanoid and not (isCharRagdoll and isCharRagdoll(char, humanoid)) then
+	if humanoid then
 		humanoid.PlatformStand = false
+		pcall(function() humanoid:ChangeState(Enum.HumanoidStateType.GettingUp) end)
 	end
 	pcall(function()
-		if root then root.Anchored = false end
+		if root then
+			root.Anchored = false
+			root.AssemblyLinearVelocity = Vector3.zero
+			root.AssemblyAngularVelocity = Vector3.zero
+		end
 		if char then
 			for _, part in ipairs(char:GetDescendants()) do
 				if part:IsA("BasePart") then part.Anchored = false end
 			end
+		end
+	end)
+	task.spawn(function()
+		for _ = 1, 12 do
+			task.wait(0.05)
+			pcall(function()
+				local c, h, r = getCharacterParts()
+				if h then h.PlatformStand = false end
+				if r then r.Anchored = false end
+				if c then
+					for _, part in ipairs(c:GetDescendants()) do
+						if part:IsA("BasePart") then part.Anchored = false end
+					end
+				end
+			end)
 		end
 	end)
 	for p, original in pairs(savedCollision) do if p and p.Parent then p.CanCollide = original end end
@@ -4707,7 +4733,7 @@ fit(); workspace.CurrentCamera:GetPropertyChangedSignal("ViewportSize"):Connect(
 local header = new("Frame", { Size = UDim2.new(1, 0, 0, 62), BackgroundTransparency = 1, Parent = window })
 local logoLabel = label({ Text = "CLL", Font = Enum.Font.Michroma, TextSize = 26, TextTruncate = Enum.TextTruncate.AtEnd, Size = UDim2.fromOffset(100, 62), Position = UDim2.fromOffset(23, 0), Parent = header })
 logoLabel.TextColor3 = Color3.fromRGB(255, 255, 255) -- Always white
-local verLabel = label({ Text = "v11.86-bh", Font = Enum.Font.GothamBold, TextSize = 12, TextColor3 = Theme.Dim, Size = UDim2.fromOffset(50, 62), Position = UDim2.fromOffset(85, 2), Parent = header })
+local verLabel = label({ Text = "v11.87-bi", Font = Enum.Font.GothamBold, TextSize = 12, TextColor3 = Theme.Dim, Size = UDim2.fromOffset(50, 62), Position = UDim2.fromOffset(85, 2), Parent = header })
 local timeLabel = label({ Text = "Session: 00:00", Font = Enum.Font.GothamMedium, TextSize = 13, TextColor3 = Theme.Dim, Size = UDim2.fromOffset(150, 62), Position = UDim2.fromOffset(150, 0), Parent = header })
 task.spawn(function()
 	while not ST.isUnloaded do
@@ -5352,7 +5378,7 @@ function buildCombat()
 end
 
 function buildTarget()
-	local left = new("Frame", { Size = UDim2.fromOffset(300, DESIGN_H - 102), Position = UDim2.fromOffset(12, 12), BackgroundColor3 = Theme.Panel, ClipsDescendants = true, Parent = pages.Target }, { corner(14), stroke() })
+	local left = new("Frame", { Size = UDim2.new(0, 300, 1, -24), Position = UDim2.fromOffset(12, 12), BackgroundColor3 = Theme.Panel, ClipsDescendants = true, Parent = pages.Target }, { corner(14), stroke() })
 	local right = new("Frame", { Size = UDim2.new(1, -328, 1, -24), Position = UDim2.fromOffset(320, 12), BackgroundColor3 = Theme.Panel, Parent = pages.Target }, { corner(14), stroke() })
 	label({ Text = "COMBAT TARGET", Font = Enum.Font.GothamBold, TextSize = 11, TextColor3 = Theme.Dim, Size = UDim2.fromOffset(200, 18), Position = UDim2.fromOffset(14, 12), Parent = left })
 	local scroll = new("ScrollingFrame", { Size = UDim2.new(1, 0, 1, -38), Position = UDim2.fromOffset(0, 34), BackgroundTransparency = 1, BorderSizePixel = 0, ScrollBarThickness = 3, ScrollBarImageColor3 = Theme.Stroke, CanvasSize = UDim2.fromOffset(0, 0), AutomaticCanvasSize = Enum.AutomaticSize.Y, Parent = left })
@@ -5607,7 +5633,7 @@ function buildProfile()
 		return t, v
 	end
 	local tBuild, vBuild = row("profile_build", 225)
-	vBuild.Text = "v11.86-bh"
+	vBuild.Text = "v11.87-bi"
 	local tSess, vSess = row("profile_session", 250)
 	local tStat, vStat = row("profile_status", 275)
 	vStat.Text = L("profile_active")
@@ -6777,6 +6803,25 @@ buildFeaturePage(pages.Effects, "EFFECTS", {
 		detailColor(d, 3, "Color", function() return ST.KillHighlightColor end, function(c) ST.KillHighlightColor = c end)
 		detailToggle(d, 4, "Sky pillar", ST.KillBeamEnabled ~= false, function(v) ST.KillBeamEnabled = v end)
 	end },
+	{ name = "Kill Triangle", nameKey = "t_killtri", descKey = "d_killtri", initial = true, getState = function() return ST.KillTriangleEnabled end, onToggle = function(v) ST.KillTriangleEnabled = v end },
+	{ name = "Kill Crown", nameKey = "t_killcrown", descKey = "d_killcrown", initial = false, getState = function() return ST.KillCrownEnabled end, onToggle = function(v) ST.KillCrownEnabled = v end },
+	{ name = "Kill Wreath", nameKey = "t_killwreath", descKey = "d_killwreath", initial = false, getState = function() return ST.KillWreathEnabled end, onToggle = function(v) ST.KillWreathEnabled = v end },
+	{ name = "Foot Trails", nameKey = "t_foottrails", descKey = "d_foottrails", initial = false, getState = function() return ST.FootTrailsEnabled end, onToggle = function(v) ST.FootTrailsEnabled = v end, buildDetail = function(d)
+		detailColor(d, 1, "Color", function() return ST.FootTrailColor end, function(c) ST.FootTrailColor = c end)
+	end },
+	{ name = "Hand Trails", nameKey = "t_handtrails", descKey = "d_handtrails", initial = false, getState = function() return ST.HandTrailsEnabled end, onToggle = function(v)
+		ST.HandTrailsEnabled = v
+		pcall(function()
+			if v and LocalPlayer.Character then attachHandTrails(LocalPlayer.Character)
+			else
+				for _, t in pairs(HandTrailParts or {}) do pcall(function() t:Destroy() end) end
+				HandTrailParts = {}
+			end
+		end)
+	end, buildDetail = function(d)
+		detailColor(d, 1, "Color", function() return ST.HandTrailColor end, function(c) ST.HandTrailColor = c end)
+	end },
+	{ name = "Rock Trajectory", nameKey = "t_rockarc", descKey = "d_rockarc", initial = false, getState = function() return ST.RockTrajectoryEnabled end, onToggle = function(v) ST.RockTrajectoryEnabled = v end },
 	{ name = "Anti Flash", nameKey = "t_antiflash", descKey = "d_antiflash", initial = true, onToggle = function(v) ST.AntiFlashEnabled = v end, buildDetail = function(d)
 		detailToggle(d, 1, "Block kill highlight", ST.AntiFlashBlockKill, function(v) ST.AntiFlashBlockKill = v end)
 		detailToggle(d, 2, "Block flashbang", ST.AntiFlashBlockBang, function(v) ST.AntiFlashBlockBang = v end)
@@ -7473,6 +7518,132 @@ UIS.InputBegan:Connect(function(input, gp)
 	end
 end)
 
+
+
+--// FOOT / HAND TRAILS + ROCK ARC
+FootTrailFolder, HandTrailParts = nil, {}
+function ensureTrailFolder()
+	if FootTrailFolder and FootTrailFolder.Parent then return FootTrailFolder end
+	FootTrailFolder = Instance.new("Folder")
+	FootTrailFolder.Name = "CLL_Trails"
+	FootTrailFolder.Parent = workspace
+	return FootTrailFolder
+end
+function spawnFootCross(pos, col)
+	local folder = ensureTrailFolder()
+	local p = Instance.new("Part")
+	p.Anchored = true
+	p.CanCollide = false
+	p.Material = Enum.Material.Neon
+	p.Color = col or ST.FootTrailColor or Color3.fromRGB(80, 200, 255)
+	p.Size = Vector3.new(0.9, 0.08, 0.18)
+	p.CFrame = CFrame.new(pos) * CFrame.Angles(0, math.random() * math.pi, 0)
+	p.Parent = folder
+	local p2 = p:Clone()
+	p2.CFrame = p.CFrame * CFrame.Angles(0, math.rad(90), 0)
+	p2.Parent = folder
+	task.spawn(function()
+		local t0 = os.clock()
+		while p.Parent and os.clock() - t0 < 0.85 do
+			local a = (os.clock() - t0) / 0.85
+			p.CFrame = p.CFrame * CFrame.Angles(0, (1 - a) * 0.25, 0)
+			p2.CFrame = p.CFrame * CFrame.Angles(0, math.rad(90), 0)
+			p.Transparency = a
+			p2.Transparency = a
+			task.wait()
+		end
+		pcall(function() p:Destroy() end)
+		pcall(function() p2:Destroy() end)
+	end)
+end
+function attachHandTrails(char)
+	for _, t in pairs(HandTrailParts or {}) do pcall(function() t:Destroy() end) end
+	HandTrailParts = {}
+	if not ST.HandTrailsEnabled or not char then return end
+	local col = ST.HandTrailColor or Color3.fromRGB(255, 120, 200)
+	for _, name in ipairs({ "LeftHand", "RightHand", "Left Arm", "Right Arm", "LeftLowerArm", "RightLowerArm" }) do
+		local part = char:FindFirstChild(name, true)
+		if part and part:IsA("BasePart") then
+			local a0 = Instance.new("Attachment"); a0.Parent = part
+			local a1 = Instance.new("Attachment"); a1.Position = Vector3.new(0, -0.5, 0); a1.Parent = part
+			local tr = Instance.new("Trail")
+			tr.Attachment0 = a0; tr.Attachment1 = a1
+			tr.Color = ColorSequence.new(col)
+			tr.Transparency = NumberSequence.new({ NumberSequenceKeypoint.new(0, 0.15), NumberSequenceKeypoint.new(1, 1) })
+			tr.Lifetime = 0.25; tr.MinLength = 0.05; tr.FaceCamera = true
+			tr.Parent = part
+			HandTrailParts[#HandTrailParts + 1] = tr
+			HandTrailParts[#HandTrailParts + 1] = a0
+			HandTrailParts[#HandTrailParts + 1] = a1
+		end
+	end
+end
+local _footAcc = 0
+pcall(function()
+	table.insert(Connections, RunService.Heartbeat:Connect(function(dt)
+		if ST.isUnloaded or not ST.FootTrailsEnabled then return end
+		local char = LocalPlayer.Character
+		local hum = char and char:FindFirstChildOfClass("Humanoid")
+		local root = char and char:FindFirstChild("HumanoidRootPart")
+		if not hum or not root or hum.Health <= 0 then return end
+		local spd = Vector3.new(root.AssemblyLinearVelocity.X, 0, root.AssemblyLinearVelocity.Z).Magnitude
+		if spd < 4 then return end
+		_footAcc = _footAcc + dt * math.clamp(spd / 16, 0.5, 2)
+		if _footAcc < 0.28 then return end
+		_footAcc = 0
+		local pos = root.Position - Vector3.new(0, 2.6, 0) + root.CFrame.RightVector * ((math.random(0, 1) * 2 - 1) * 0.35)
+		spawnFootCross(pos, ST.FootTrailColor)
+	end))
+	table.insert(Connections, LocalPlayer.CharacterAdded:Connect(function(c)
+		task.wait(0.4)
+		if ST.HandTrailsEnabled then attachHandTrails(c) end
+	end))
+	table.insert(Connections, RunService.RenderStepped:Connect(function()
+		if ST.isUnloaded or not ST.RockTrajectoryEnabled then
+			local old = workspace:FindFirstChild("CLL_RockArc")
+			if old then old:Destroy() end
+			return
+		end
+		local char = LocalPlayer.Character
+		if not char then return end
+		local tool = char:FindFirstChildOfClass("Tool")
+		if not tool or not string.lower(tool.Name):find("rock") then
+			local old = workspace:FindFirstChild("CLL_RockArc")
+			if old then old:Destroy() end
+			return
+		end
+		local head = char:FindFirstChild("Head") or char:FindFirstChild("HumanoidRootPart")
+		local cam = workspace.CurrentCamera
+		if not head then return end
+		local dir = cam and cam.CFrame.LookVector or head.CFrame.LookVector
+		local origin = head.Position + dir * 1.5
+		local vel = dir * 90 + Vector3.new(0, 30, 0)
+		local g = Vector3.new(0, -workspace.Gravity, 0)
+		local folder = workspace:FindFirstChild("CLL_RockArc")
+		if not folder then
+			folder = Instance.new("Folder")
+			folder.Name = "CLL_RockArc"
+			folder.Parent = workspace
+		end
+		for _, c in ipairs(folder:GetChildren()) do c:Destroy() end
+		local pos, v, dt = origin, vel, 0.05
+		for i = 1, 40 do
+			local nextPos = pos + v * dt + 0.5 * g * dt * dt
+			v = v + g * dt
+			local dot = Instance.new("Part")
+			dot.Anchored = true; dot.CanCollide = false
+			dot.Material = Enum.Material.Neon
+			dot.Color = Theme.Accent
+			dot.Size = Vector3.new(0.25, 0.25, 0.25)
+			dot.Shape = Enum.PartType.Ball
+			dot.Transparency = 0.25 + i * 0.015
+			dot.CFrame = CFrame.new(nextPos)
+			dot.Parent = folder
+			pos = nextPos
+			if pos.Y < origin.Y - 80 then break end
+		end
+	end))
+end)
 
 -- residual cam cleanup: ONLY when ST.AntiCamShakeEnabled (tied to FOV lock)
 -- NoRecoil alone only strips Helper Fx via namecall, does NOT fight camera
