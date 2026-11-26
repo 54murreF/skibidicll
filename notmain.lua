@@ -1,6 +1,6 @@
 --[[
     ╔═══════════════════════════════════════════════════════════════╗
-    ║              CLL CHEAT - FULL INTEGRATION v11.79-ay (native Q/G grab mirror + VR restore)                ║
+    ║              CLL CHEAT - FULL INTEGRATION v11.79-az (native Q/G grab mirror + VR restore)                ║
     ╠═══════════════════════════════════════════════════════════════╣
     ║  SUK head-hit, real crosshair, tracers, ESP outline nick,     ║
     ║  ChinaHat/Wings fix, VR hands, anti-flash/shake, antibypass   ║
@@ -4228,7 +4228,6 @@ end)
 local oldIndex = nil
 
 --// ==================== UI FRAMEWORK ====================
-local 
 local ThemeDark = {
 	Bg = Color3.fromRGB(10, 10, 12), Panel = Color3.fromRGB(16, 16, 20), Row = Color3.fromRGB(24, 24, 30),
 	Stroke = Color3.fromRGB(38, 40, 50), Text = Color3.fromRGB(240, 242, 248), Dim = Color3.fromRGB(110, 114, 130),
@@ -4241,7 +4240,7 @@ local ThemeLight = {
 	Off = Color3.fromRGB(220, 224, 232), OnTrack = Color3.fromRGB(55, 120, 255), Knob = Color3.fromRGB(255, 255, 255),
 	TabOn = Color3.fromRGB(228, 232, 242), Accent = Color3.fromRGB(55, 120, 255),
 }
-Theme = {}
+local Theme = {}
 for k, v in pairs(ThemeDark) do Theme[k] = v end
 ST.ThemeLight = ST.ThemeLight or false
 
@@ -4443,7 +4442,7 @@ fit(); workspace.CurrentCamera:GetPropertyChangedSignal("ViewportSize"):Connect(
 local header = new("Frame", { Size = UDim2.new(1, 0, 0, 62), BackgroundTransparency = 1, Parent = window })
 local logoLabel = label({ Text = "CLL", Font = Enum.Font.Michroma, TextSize = 26, TextTruncate = Enum.TextTruncate.AtEnd, Size = UDim2.fromOffset(100, 62), Position = UDim2.fromOffset(23, 0), Parent = header })
 logoLabel.TextColor3 = Color3.fromRGB(255, 255, 255) -- Always white
-local verLabel = label({ Text = "v11.79-ay", Font = Enum.Font.GothamBold, TextSize = 12, TextColor3 = Theme.Dim, Size = UDim2.fromOffset(50, 62), Position = UDim2.fromOffset(85, 2), Parent = header })
+local verLabel = label({ Text = "v11.79-az", Font = Enum.Font.GothamBold, TextSize = 12, TextColor3 = Theme.Dim, Size = UDim2.fromOffset(50, 62), Position = UDim2.fromOffset(85, 2), Parent = header })
 local timeLabel = label({ Text = "Session: 00:00", Font = Enum.Font.GothamMedium, TextSize = 13, TextColor3 = Theme.Dim, Size = UDim2.fromOffset(150, 62), Position = UDim2.fromOffset(150, 0), Parent = header })
 task.spawn(function()
 	while not ST.isUnloaded do
@@ -5325,7 +5324,7 @@ function buildProfile()
 		return t, v
 	end
 	local tBuild, vBuild = row("profile_build", 225)
-	vBuild.Text = "v11.79-ay"
+	vBuild.Text = "v11.79-az"
 	local tSess, vSess = row("profile_session", 250)
 	local tStat, vStat = row("profile_status", 275)
 	vStat.Text = L("profile_active")
