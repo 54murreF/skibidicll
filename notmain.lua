@@ -1,6 +1,6 @@
 --[[
     ╔═══════════════════════════════════════════════════════════════╗
-    ║              CLL CHEAT - FULL INTEGRATION v11.77-aw (native Q/G grab mirror + VR restore)                ║
+    ║              CLL CHEAT - FULL INTEGRATION v11.78-ax (native Q/G grab mirror + VR restore)                ║
     ╠═══════════════════════════════════════════════════════════════╣
     ║  SUK head-hit, real crosshair, tracers, ESP outline nick,     ║
     ║  ChinaHat/Wings fix, VR hands, anti-flash/shake, antibypass   ║
@@ -402,6 +402,23 @@ local LANG = {
 		d_wm_world = "Доп. инфо о мире на экране.",
 		t_wm_ammo = "Watermark патроны",
 		d_wm_ammo = "Показ патронов у курсора.",
+		t_walk = "Скорость ходьбы", d_walk = "Меняет скорость ходьбы.",
+		t_jump = "Сила прыжка", d_jump = "Меняет высоту прыжка.",
+		t_fly = "Полёт", d_fly = "Позволяет летать в воздухе.",
+		t_spin = "Спин", d_spin = "Вращает персонажа на месте.",
+		t_noclip = "Ноуклип", d_noclip = "Проход сквозь стены и объекты.",
+		t_infjump = "Бесконечный прыжок", d_infjump = "Прыжок снова в воздухе.",
+		t_chams = "Чамсы", d_chams = "Подсветка моделей игроков.",
+		t_aimvis = "Aim Visualizer", d_aimvis = "Визуальные хелперы прицела/FOV.",
+		t_killhl = "Kill Highlight", d_killhl = "Подсветка убитых игроков.",
+		t_hat = "China Hat", d_hat = "Косметический конус на голове.",
+		t_wings = "Крылья", d_wings = "Косметические крылья на спине.",
+		t_antilag = "Anti-Lag", d_antilag = "Чистит дебрис и тяжёлые эффекты.",
+		t_fog = "Убрать туман", d_fog = "Убирает дальний туман.",
+		t_fb = "Fullbright", d_fb = "Делает карту полностью яркой.",
+		t_time = "Время суток", d_time = "Фиксирует время дня.",
+		t_fovlock = "FOV камеры", d_fovlock = "Фиксирует поле зрения камеры.",
+
 	},
 	en = {
 		suk_warn = "⚠ For stable hitreg: RPS 6–8 · Delay 0.12–0.15 · Targets/tick = 1.\nToo high firerate → FX only, no damage.",
@@ -470,6 +487,23 @@ local LANG = {
 		d_wm_world = "Extra world info overlay.",
 		t_wm_ammo = "Watermark Ammo",
 		d_wm_ammo = "Ammo counter near the cursor.",
+		t_walk = "Walk Speed", d_walk = "Changes how fast you walk.",
+		t_jump = "Jump Power", d_jump = "Changes how high you jump.",
+		t_fly = "Fly", d_fly = "Lets you fly in the air.",
+		t_spin = "Spin", d_spin = "Spins your character in place.",
+		t_noclip = "No Clip", d_noclip = "Walk through walls and parts.",
+		t_infjump = "Infinite Jump", d_infjump = "Jump again while in the air.",
+		t_chams = "Highlight Chams", d_chams = "Highlights player models through walls.",
+		t_aimvis = "Aim Visualizer", d_aimvis = "Shows aim/FOV helpers on screen.",
+		t_killhl = "Kill Highlight", d_killhl = "Marks players you kill.",
+		t_hat = "China Hat", d_hat = "Cosmetic cone hat on your head.",
+		t_wings = "Custom Wings", d_wings = "Cosmetic wings on your back.",
+		t_antilag = "Anti-Lag", d_antilag = "Cleans debris and heavy effects.",
+		t_fog = "Remove Fog", d_fog = "Removes distance fog.",
+		t_fb = "Fullbright", d_fb = "Makes the map fully bright.",
+		t_time = "Time Override", d_time = "Locks the clock time of day.",
+		t_fovlock = "Camera FOV Lock", d_fovlock = "Locks camera field of view.",
+
 	},
 }
 
@@ -1383,20 +1417,23 @@ function InstantReload(tool)
 			current = math.max(0, tonumber(current) or 0)
 			max = math.clamp(tonumber(max) or 8, 1, 12)
 			maxA = max
-			-- SUK emptied chamber → always top up to full mag
-			if ST._sukChamber == 0 or current <= 0 then
+			-- empty chamber → force real shell cycle (never pretend already full)
+			local forceFullCycle = (ST._sukChamber or 0) <= 0 or current <= 0
+			if forceFullCycle then
 				current = 0
 				pcall(function()
 					tool:SetAttribute("ClientAmmo", 0)
 					tool:SetAttribute("CurrentAmmo", 0)
+					local cv = tool:FindFirstChild("CurrentAmmo")
+					if cv and (cv:IsA("NumberValue") or cv:IsA("IntValue")) then cv.Value = 0 end
 				end)
 			end
 			local need = max - current
-			if need <= 0 then
-				ST._sukChamber = max
+			if need <= 0 and not forceFullCycle then
 				okReload = true
 				return
 			end
+			if need <= 0 then need = max end
 
 			local nameL = string.lower(tool.Name)
 			local isShotgun = tool:GetAttribute("Shotgun") or nameL:find("spas") or nameL:find("remington")
@@ -1453,14 +1490,18 @@ function InstantReload(tool)
 			maxA = tonumber(m) or maxA
 		end)
 		if okReload then
-			-- Spas full tube after reload
-			ST._sukChamber = maxA
-			pcall(function()
-				tool:SetAttribute("ClientAmmo", maxA)
-				tool:SetAttribute("CurrentAmmo", maxA)
-				local cv = tool:FindFirstChild("CurrentAmmo")
-				if cv and (cv:IsA("NumberValue") or cv:IsA("IntValue")) then cv.Value = maxA end
-			end)
+			-- after real shells only
+			local ca = select(1, ReadAmmo(tool))
+			ca = tonumber(ca)
+			if ca and ca > 0 then
+				ST._sukChamber = ca
+			else
+				ST._sukChamber = maxA
+				pcall(function()
+					tool:SetAttribute("ClientAmmo", maxA)
+					tool:SetAttribute("CurrentAmmo", maxA)
+				end)
+			end
 		else
 			ST._sukChamber = 0
 		end
@@ -1632,21 +1673,20 @@ function MultiFireAt()
 		if cv and (cv:IsA("NumberValue") or cv:IsA("IntValue")) then cv.Value = cur end
 	end)
 
-	-- Head-TP: origin just before skull ALONG (muzzle→head), never random LookVector
+	-- Head-TP: origin INSIDE the head so Hit registers (not beside the skull)
 	local pred = hitPos
 	pcall(function()
 		if head and head.AssemblyLinearVelocity then
 			local dist = (hitPos - muzzle).Magnitude
-			local t = math.clamp(dist / 2000, 0, 0.15)
+			local t = math.clamp(dist / 2000, 0, 0.12)
 			pred = hitPos + head.AssemblyLinearVelocity * t
 		end
 	end)
 	local toHead = pred - muzzle
 	local tpDir = (typeof(toHead) == "Vector3" and toHead.Magnitude > 0.05) and toHead.Unit or Vector3.new(0, 0, -1)
-	-- jam origin on the approach path, 0.5 studs before the skull
-	local tpOrigin = pred - tpDir * 0.5
+	local tpOrigin = pred -- inside head
 	local vel = tpDir * 2000
-	local bcf = CFrame.lookAt(tpOrigin, pred)
+	local bcf = CFrame.lookAt(pred - tpDir * 0.15, pred)
 
 	local function sendFire(org, d)
 		local payload = {
@@ -4241,6 +4281,84 @@ subscribeTheme(function() local s = fovCircle:FindFirstChildOfClass("UIStroke");
 
 function cosmeticColor() return CosmeticUseCustom and CosmeticColorCustom or Theme.Accent end
 
+
+-- Full anti-shake: visual + real (uber/flash/recoil attributes)
+task.spawn(function()
+	local bindName = "CLL_NoShake"
+	pcall(function() RunService:UnbindFromRenderStep(bindName) end)
+	RunService:BindToRenderStep(bindName, Enum.RenderPriority.Camera.Value + 3, function()
+		if ST.isUnloaded then return end
+		-- always kill camera punch (uber/flash/recoil)
+		local cam = workspace.CurrentCamera
+		local char = LocalPlayer.Character
+		if char then
+			pcall(function()
+				char:SetAttribute("CameraShake", Vector3.zero)
+				char:SetAttribute("VR_CAMERA_RECOIL", Vector3.zero)
+				char:SetAttribute("VR_RIGHT_ARM_RECOIL", CFrame.new())
+			end)
+			local hum = char:FindFirstChildOfClass("Humanoid")
+			if hum then
+				pcall(function()
+					hum.CameraOffset = Vector3.zero
+				end)
+			end
+		end
+		if ST.AntiFlashEnabled then
+			pcall(function()
+				local pg = LocalPlayer:FindFirstChild("PlayerGui")
+				if not pg then return end
+				for _, n in ipairs({"VFXRuntimeScreenFX", "Flashbang", "Flash", "Blind", "ScreenFX"}) do
+					local g = pg:FindFirstChild(n, true)
+					if g then
+						if g:IsA("GuiObject") then g.Visible = false end
+						if g:IsA("ScreenGui") then g.Enabled = false end
+						for _, c in ipairs(g:GetDescendants()) do
+							if c:IsA("Frame") or c:IsA("ImageLabel") then
+								c.BackgroundTransparency = 1
+								if c:IsA("ImageLabel") then c.ImageTransparency = 1 end
+							end
+							if c:IsA("BlurEffect") or c:IsA("ColorCorrectionEffect") then
+								pcall(function() c.Enabled = false end)
+							end
+						end
+					end
+				end
+				local lighting = game:GetService("Lighting")
+				for _, c in ipairs(lighting:GetChildren()) do
+					if c:IsA("BlurEffect") and (c.Name:lower():find("flash") or c.Size > 8) then
+						c.Size = 0
+					end
+				end
+			end)
+		end
+	end)
+end)
+
+
+-- Fire-rate assist: while LMB held, clear gun debounces so packets go out faster
+task.spawn(function()
+	while not ST.isUnloaded do
+		local held = UIS:IsMouseButtonPressed(Enum.UserInputType.MouseButton1)
+		if held and not ST.isMultiSuk then
+			local char = LocalPlayer.Character
+			local tool = char and char:FindFirstChildOfClass("Tool")
+			if tool then
+				pcall(function()
+					tool:SetAttribute("Cooldown", false)
+					tool:SetAttribute("ClientCooldownUntil", 0)
+					tool:SetAttribute("Debounce", false)
+					tool:SetAttribute("CanFire", true)
+					if char then char:SetAttribute("Reloading", false) end
+				end)
+			end
+			task.wait(0.03)
+		else
+			task.wait(0.08)
+		end
+	end
+end)
+
 -- Window (No Auto Center, No Position Reset)
 local window = new("CanvasGroup", { Size = UDim2.fromOffset(DESIGN_W, DESIGN_H), Position = UDim2.fromOffset(100, 100), BackgroundColor3 = Theme.Bg, GroupTransparency = 1, Parent = gui }, { corner(18), stroke() })
 UIRefs.window = window
@@ -4255,7 +4373,7 @@ fit(); workspace.CurrentCamera:GetPropertyChangedSignal("ViewportSize"):Connect(
 local header = new("Frame", { Size = UDim2.new(1, 0, 0, 62), BackgroundTransparency = 1, Parent = window })
 local logoLabel = label({ Text = "CLL", Font = Enum.Font.Michroma, TextSize = 26, TextTruncate = Enum.TextTruncate.AtEnd, Size = UDim2.fromOffset(100, 62), Position = UDim2.fromOffset(23, 0), Parent = header })
 logoLabel.TextColor3 = Color3.fromRGB(255, 255, 255) -- Always white
-local verLabel = label({ Text = "v11.77-aw", Font = Enum.Font.GothamBold, TextSize = 12, TextColor3 = Theme.Dim, Size = UDim2.fromOffset(50, 62), Position = UDim2.fromOffset(85, 2), Parent = header })
+local verLabel = label({ Text = "v11.78-ax", Font = Enum.Font.GothamBold, TextSize = 12, TextColor3 = Theme.Dim, Size = UDim2.fromOffset(50, 62), Position = UDim2.fromOffset(85, 2), Parent = header })
 local timeLabel = label({ Text = "Session: 00:00", Font = Enum.Font.GothamMedium, TextSize = 13, TextColor3 = Theme.Dim, Size = UDim2.fromOffset(150, 62), Position = UDim2.fromOffset(150, 0), Parent = header })
 task.spawn(function()
 	while not ST.isUnloaded do
@@ -4741,7 +4859,7 @@ end
 -- Pages
 function buildCombat()
 	buildFeaturePage(pages.Combat, "ATTACK", {
-		{ name = "Silent Aim", initial = false, getState = function() return ST.SilentAimEnabled end, onToggle = function(v) ST.SilentAimEnabled = v; updateFOVCircle() end, buildDetail = function(d)
+		{ name = "Silent Aim", nameKey = "t_silent", descKey = "d_silent", initial = false, getState = function() return ST.SilentAimEnabled end, onToggle = function(v) ST.SilentAimEnabled = v; updateFOVCircle() end, buildDetail = function(d)
 			detailSlider(d, 1, "FOV", 20, 360, ST.SilentAimFOV, 1, function(v) ST.SilentAimFOV = v; updateFOVCircle() end)
 			local parts = { "Head", "HumanoidRootPart", "Torso", "UpperTorso" }
 			local idx = 1
@@ -5137,7 +5255,7 @@ function buildProfile()
 		return t, v
 	end
 	local tBuild, vBuild = row("profile_build", 225)
-	vBuild.Text = "v11.77-aw"
+	vBuild.Text = "v11.78-ax"
 	local tSess, vSess = row("profile_session", 250)
 	local tStat, vStat = row("profile_status", 275)
 	vStat.Text = L("profile_active")
@@ -6185,13 +6303,13 @@ buildCombat(); buildTarget(); buildKeybinds(); buildVR(); buildSettings(); build
 
 -- Movement
 buildFeaturePage(pages.Movement, "MOVEMENT", {
-	{ name = "Walk Speed", initial = false, onToggle = function(v) ST.WalkSpeedEnabled = v; local _, h = getCharacterParts(); if h then h.WalkSpeed = v and ST.WalkSpeedValue or 16 end end, buildDetail = function(d) detailSlider(d, 1, "Speed", 16, 200, ST.WalkSpeedValue, 1, function(v) ST.WalkSpeedValue = v; if ST.WalkSpeedEnabled then local _, h = getCharacterParts(); if h then h.WalkSpeed = v end end end) end },
-	{ name = "Jump Power", initial = false, onToggle = function(v) ST.JumpPowerEnabled = v; local _, h = getCharacterParts(); if h then h.UseJumpPower = true; h.JumpPower = v and ST.JumpPowerValue or 50 end end, buildDetail = function(d) detailSlider(d, 1, "Power", 50, 500, ST.JumpPowerValue, 1, function(v) ST.JumpPowerValue = v; if ST.JumpPowerEnabled then local _, h = getCharacterParts(); if h then h.JumpPower = v end end end) end },
-	{ name = "Fly", initial = false, onToggle = function(v) ST.FlyEnabled = v; if flyVelocity then flyVelocity:Destroy(); flyVelocity = nil end; if flyGyro then flyGyro:Destroy(); flyGyro = nil end; if v then local _, _, r = getCharacterParts(); if r then flyVelocity = Instance.new("BodyVelocity", r); flyVelocity.MaxForce = Vector3.new(math.huge, math.huge, math.huge); flyGyro = Instance.new("BodyGyro", r); flyGyro.MaxTorque = Vector3.new(math.huge, math.huge, math.huge); flyGyro.P = 9000 end end end, buildDetail = function(d) detailSlider(d, 1, "Speed", 10, 200, ST.FlySpeed, 1, function(v) ST.FlySpeed = v end) end },
-	{ name = "Spin", initial = false, onToggle = function(v) ST.SpinEnabled = v; local _, _, r = getCharacterParts(); if spinAngular then spinAngular:Destroy(); spinAngular = nil end; if v and r then spinAngular = Instance.new("BodyAngularVelocity", r); spinAngular.AngularVelocity = Vector3.new(0, ST.SpinSpeed, 0); spinAngular.MaxTorque = Vector3.new(0, math.huge, 0); spinAngular.P = 1000 end end, buildDetail = function(d) detailSlider(d, 1, "Spin Speed", 10, 500, ST.SpinSpeed, 10, function(v) ST.SpinSpeed = v; if spinAngular then spinAngular.AngularVelocity = Vector3.new(0, v, 0) end end) end },
-	{ name = "No Clip", initial = false, onToggle = function(v) ST.NoClipEnabled = v; if not v then for part, old in pairs(savedCollision) do if part and part.Parent then part.CanCollide = old end end; table.clear(savedCollision) end end, buildDetail = nil },
-	{ name = "Infinite Jump", initial = false, onToggle = function(v) ST.InfiniteJumpEnabled = v; if InfiniteJumpConnection then InfiniteJumpConnection:Disconnect(); InfiniteJumpConnection = nil end; if v then InfiniteJumpConnection = UIS.JumpRequest:Connect(function() if ST.InfiniteJumpEnabled and not ST.isUnloaded then local _, h = getCharacterParts(); if h and h.Health > 0 then h:ChangeState(Enum.HumanoidStateType.Jumping) end end end) end end, buildDetail = nil },
-	{ name = "Anti-CC", initial = false, onToggle = function(v) ST.AntiCCEnabled = v; ST.AntiSlowEnabled = v end, buildDetail = function(d)
+	{ name = "Walk Speed", nameKey = "t_walk", descKey = "d_walk", initial = false, onToggle = function(v) ST.WalkSpeedEnabled = v; local _, h = getCharacterParts(); if h then h.WalkSpeed = v and ST.WalkSpeedValue or 16 end end, buildDetail = function(d) detailSlider(d, 1, "Speed", 16, 200, ST.WalkSpeedValue, 1, function(v) ST.WalkSpeedValue = v; if ST.WalkSpeedEnabled then local _, h = getCharacterParts(); if h then h.WalkSpeed = v end end end) end },
+	{ name = "Jump Power", nameKey = "t_jump", descKey = "d_jump", initial = false, onToggle = function(v) ST.JumpPowerEnabled = v; local _, h = getCharacterParts(); if h then h.UseJumpPower = true; h.JumpPower = v and ST.JumpPowerValue or 50 end end, buildDetail = function(d) detailSlider(d, 1, "Power", 50, 500, ST.JumpPowerValue, 1, function(v) ST.JumpPowerValue = v; if ST.JumpPowerEnabled then local _, h = getCharacterParts(); if h then h.JumpPower = v end end end) end },
+	{ name = "Fly", nameKey = "t_fly", descKey = "d_fly", initial = false, onToggle = function(v) ST.FlyEnabled = v; if flyVelocity then flyVelocity:Destroy(); flyVelocity = nil end; if flyGyro then flyGyro:Destroy(); flyGyro = nil end; if v then local _, _, r = getCharacterParts(); if r then flyVelocity = Instance.new("BodyVelocity", r); flyVelocity.MaxForce = Vector3.new(math.huge, math.huge, math.huge); flyGyro = Instance.new("BodyGyro", r); flyGyro.MaxTorque = Vector3.new(math.huge, math.huge, math.huge); flyGyro.P = 9000 end end end, buildDetail = function(d) detailSlider(d, 1, "Speed", 10, 200, ST.FlySpeed, 1, function(v) ST.FlySpeed = v end) end },
+	{ name = "Spin", nameKey = "t_spin", descKey = "d_spin", initial = false, onToggle = function(v) ST.SpinEnabled = v; local _, _, r = getCharacterParts(); if spinAngular then spinAngular:Destroy(); spinAngular = nil end; if v and r then spinAngular = Instance.new("BodyAngularVelocity", r); spinAngular.AngularVelocity = Vector3.new(0, ST.SpinSpeed, 0); spinAngular.MaxTorque = Vector3.new(0, math.huge, 0); spinAngular.P = 1000 end end, buildDetail = function(d) detailSlider(d, 1, "Spin Speed", 10, 500, ST.SpinSpeed, 10, function(v) ST.SpinSpeed = v; if spinAngular then spinAngular.AngularVelocity = Vector3.new(0, v, 0) end end) end },
+	{ name = "No Clip", nameKey = "t_noclip", descKey = "d_noclip", initial = false, onToggle = function(v) ST.NoClipEnabled = v; if not v then for part, old in pairs(savedCollision) do if part and part.Parent then part.CanCollide = old end end; table.clear(savedCollision) end end, buildDetail = nil },
+	{ name = "Infinite Jump", nameKey = "t_infjump", descKey = "d_infjump", initial = false, onToggle = function(v) ST.InfiniteJumpEnabled = v; if InfiniteJumpConnection then InfiniteJumpConnection:Disconnect(); InfiniteJumpConnection = nil end; if v then InfiniteJumpConnection = UIS.JumpRequest:Connect(function() if ST.InfiniteJumpEnabled and not ST.isUnloaded then local _, h = getCharacterParts(); if h and h.Health > 0 then h:ChangeState(Enum.HumanoidStateType.Jumping) end end end) end end, buildDetail = nil },
+	{ name = "Anti-CC", nameKey = "t_anticc", descKey = "d_anticc", initial = false, onToggle = function(v) ST.AntiCCEnabled = v; ST.AntiSlowEnabled = v end, buildDetail = function(d)
 		local order = 1
 		for flag, on in pairs(AntiCC_Flags) do
 			detailToggle(d, order, tostring(flag), on == true, function(v) AntiCC_Flags[flag] = v end)
@@ -6203,7 +6321,7 @@ buildFeaturePage(pages.Movement, "MOVEMENT", {
 -- Visuals
 buildFeaturePage(pages.Visual, "VISUAL", {
 	
-	{ name = "ESP", initial = false, onToggle = function(v) ESP_Config.Enabled = v end, buildDetail = function(d)
+	{ name = "ESP", nameKey = "t_esp", descKey = "d_esp", initial = false, onToggle = function(v) ESP_Config.Enabled = v end, buildDetail = function(d)
 		detailSlider(d, 1, "Max Distance", 100, 2000, ESP_Config.MaxDist, 50, function(v) ESP_Config.MaxDist = v end)
 		detailToggle(d, 2, "Box", ESP_Config.Box, function(v) ESP_Config.Box = v end)
 		detailToggle(d, 3, "Name", ESP_Config.Name, function(v) ESP_Config.Name = v end)
@@ -6214,7 +6332,7 @@ buildFeaturePage(pages.Visual, "VISUAL", {
 		detailColor(d, 9, "ESP Color", function() return ESP_Config.ChamsColor end, function(c) ESP_Config.ChamsColor = c end)
 		detailColor(d, 10, "Friend Color", function() return ESP_Config.FriendColor end, function(c) ESP_Config.FriendColor = c end)
 	end },
-	{ name = "Highlight Chams", initial = false, onToggle = function(v) ST.HighlightChamsEnabled = v end, buildDetail = function(d)
+	{ name = "Highlight Chams", nameKey = "t_chams", descKey = "d_chams", initial = false, onToggle = function(v) ST.HighlightChamsEnabled = v end, buildDetail = function(d)
 		detailSlider(d, 1, "Fill Transparency", 0, 1, ESP_Config.ChamsFillTrans, 0.05, function(v) ESP_Config.ChamsFillTrans = v end)
 		detailSlider(d, 2, "Outline Transparency", 0, 1, ESP_Config.ChamsOutlineTrans, 0.05, function(v) ESP_Config.ChamsOutlineTrans = v end)
 	end },
@@ -6223,8 +6341,8 @@ buildFeaturePage(pages.Visual, "VISUAL", {
 
 -- Effects
 buildFeaturePage(pages.Effects, "EFFECTS", {
-	{ name = "Aim Visualizer", initial = true, onToggle = function(v) ST.TrueCrosshairEnabled = v; if aimDot then aimDot.Visible = v end; if aimRing then aimRing.Visible = v end end, buildDetail = nil },
-	{ name = "Bullet Tracers", initial = false, onToggle = function(v) ST.TracersEnabled = v end, buildDetail = function(d)
+	{ name = "Aim Visualizer", nameKey = "t_aimvis", descKey = "d_aimvis", initial = true, onToggle = function(v) ST.TrueCrosshairEnabled = v; if aimDot then aimDot.Visible = v end; if aimRing then aimRing.Visible = v end end, buildDetail = nil },
+	{ name = "Bullet Tracers", nameKey = "t_tracers", descKey = "d_tracers", initial = false, onToggle = function(v) ST.TracersEnabled = v end, buildDetail = function(d)
 		detailSlider(d, 1, "Duration", 0.1, 2, ST.TracerDuration, 0.1, function(v) ST.TracerDuration = v end)
 		detailToggle(d, 3, "My tracers", ST.TracerSelfEnabled, function(v) ST.TracerSelfEnabled = v end)
 		detailColor(d, 3, "My color (red)", function() return ST.ColorSelf end, function(c) ST.ColorSelf = c end)
@@ -6233,20 +6351,20 @@ buildFeaturePage(pages.Effects, "EFFECTS", {
 		detailToggle(d, 6, "Friends' tracers", ST.TracerFriendsEnabled, function(v) ST.TracerFriendsEnabled = v end)
 		detailColor(d, 7, "Friends color (green)", function() return ST.ColorFriends end, function(c) ST.ColorFriends = c end)
 	end },
-	{ name = "Kill Highlight", initial = true, getState = function() return ST.KillHighlightEnabled end, onToggle = function(v) ST.KillHighlightEnabled = v end, buildDetail = function(d)
+	{ name = "Kill Highlight", nameKey = "t_killhl", descKey = "d_killhl", initial = true, getState = function() return ST.KillHighlightEnabled end, onToggle = function(v) ST.KillHighlightEnabled = v end, buildDetail = function(d)
 		detailSlider(d, 1, "Hold (sec)", 0.1, 2, ST.KillHighlightDuration or 0.5, 0.05, function(v) ST.KillHighlightDuration = v end)
 		detailSlider(d, 2, "Fade out (sec)", 0.05, 2, ST.KillHighlightFade or 0.4, 0.05, function(v) ST.KillHighlightFade = v end)
 		detailColor(d, 3, "Color", function() return ST.KillHighlightColor end, function(c) ST.KillHighlightColor = c end)
 		detailToggle(d, 4, "Sky pillar", ST.KillBeamEnabled ~= false, function(v) ST.KillBeamEnabled = v end)
 	end },
-	{ name = "Anti Flash", initial = true, onToggle = function(v) ST.AntiFlashEnabled = v end, buildDetail = function(d)
+	{ name = "Anti Flash", nameKey = "t_antiflash", descKey = "d_antiflash", initial = true, onToggle = function(v) ST.AntiFlashEnabled = v end, buildDetail = function(d)
 		detailToggle(d, 1, "Block kill highlight", ST.AntiFlashBlockKill, function(v) ST.AntiFlashBlockKill = v end)
 		detailToggle(d, 2, "Block flashbang", ST.AntiFlashBlockBang, function(v) ST.AntiFlashBlockBang = v end)
 	end },
 
-	{ name = "China Hat", initial = false, onToggle = function(v) ST.ChinaHatEnabled = v; pcall(function() Cosmetics.setHat(v) end) end, buildDetail = nil },
-	{ name = "Custom Wings", initial = false, onToggle = function(v) ST.WingsEnabled = v; pcall(function() Cosmetics.setWings(v) end) end, buildDetail = nil },
-	{ name = "Anti-Lag", initial = false, onToggle = function(s) ST.AntiLagEnabled = s; if s then CleanDebris() end end, buildDetail = nil },
+	{ name = "China Hat", nameKey = "t_hat", descKey = "d_hat", initial = false, onToggle = function(v) ST.ChinaHatEnabled = v; pcall(function() Cosmetics.setHat(v) end) end, buildDetail = nil },
+	{ name = "Custom Wings", nameKey = "t_wings", descKey = "d_wings", initial = false, onToggle = function(v) ST.WingsEnabled = v; pcall(function() Cosmetics.setWings(v) end) end, buildDetail = nil },
+	{ name = "Anti-Lag", nameKey = "t_antilag", descKey = "d_antilag", initial = false, onToggle = function(s) ST.AntiLagEnabled = s; if s then CleanDebris() end end, buildDetail = nil },
 		{ name = "Clear Rain/Weather", initial = false, onToggle = function(s)
 		-- one-shot: clear once, do not leave a laggy loop on
 		ST.RemoveRainEnabled = false
@@ -6282,11 +6400,11 @@ buildFeaturePage(pages.Effects, "EFFECTS", {
 		end)
 		if CLL_Notify then CLL_Notify("Weather", "Rain/clouds cleared once") end
 	end, buildDetail = nil },
-	{ name = "Remove Fog", initial = false, onToggle = function(s) ST.RemoveFogEnabled = s; if not s then game:GetService("Lighting").FogEnd = 1000 end end, buildDetail = nil },
-	{ name = "Fullbright", initial = false, onToggle = function(s) ST.FullbrightEnabled = s end, buildDetail = nil },
+	{ name = "Remove Fog", nameKey = "t_fog", descKey = "d_fog", initial = false, onToggle = function(s) ST.RemoveFogEnabled = s; if not s then game:GetService("Lighting").FogEnd = 1000 end end, buildDetail = nil },
+	{ name = "Fullbright", nameKey = "t_fb", descKey = "d_fb", initial = false, onToggle = function(s) ST.FullbrightEnabled = s end, buildDetail = nil },
 	{ name = "Weather Rain", initial = false, onToggle = function(v) if v then startWeatherRain() else stopWeather() end end, buildDetail = nil },
-	{ name = "Time Override", initial = false, onToggle = function(s) ST.TimeOverrideEnabled = s; if not s then game:GetService("Lighting").ClockTime = 14 end end, buildDetail = function(d) detailSlider(d, 1, "Time", 0, 24, ST.TimeOverrideValue, 0.1, function(v) ST.TimeOverrideValue = v end) end },
-	{ name = "Camera FOV Lock", initial = false, onToggle = function(s)
+	{ name = "Time Override", nameKey = "t_time", descKey = "d_time", initial = false, onToggle = function(s) ST.TimeOverrideEnabled = s; if not s then game:GetService("Lighting").ClockTime = 14 end end, buildDetail = function(d) detailSlider(d, 1, "Time", 0, 24, ST.TimeOverrideValue, 0.1, function(v) ST.TimeOverrideValue = v end) end },
+	{ name = "Camera FOV Lock", nameKey = "t_fovlock", descKey = "d_fovlock", initial = false, onToggle = function(s)
 		ST.CameraFOVLocked = s
 		ST.AntiCamShakeEnabled = s  -- locks FOV + kills Helper Camera Shake / Alt / Crosshair Shove
 		if not s then
