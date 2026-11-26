@@ -1,6 +1,6 @@
 --[[
     ╔═══════════════════════════════════════════════════════════════╗
-    ║              CLL CHEAT - FULL INTEGRATION v11.83-be (native Q/G grab mirror + VR restore)                ║
+    ║              CLL CHEAT - FULL INTEGRATION v11.84-bf (native Q/G grab mirror + VR restore)                ║
     ╠═══════════════════════════════════════════════════════════════╣
     ║  SUK head-hit, real crosshair, tracers, ESP outline nick,     ║
     ║  ChinaHat/Wings fix, VR hands, anti-flash/shake, antibypass   ║
@@ -160,7 +160,7 @@ local ST = {
 	MenuGridSpeed = 1,
 	MenuGridTransparency = 0.85,
 	MenuGridColor = Color3.fromRGB(80, 140, 255),
-	MenuBgStyle = "chess",
+	MenuBgStyle = "grid",
 	MenuGridRotation = 0,
 	AccentH = 220, AccentS = 0.78, AccentV = 1,
 	WatermarkMainVisible = true,
@@ -1624,14 +1624,21 @@ function MultiFireAt()
 	local cur = ST._sukChamber
 
 	if cur <= 0 then
-		-- HARD stop fire; start real shell reload once
 		ST._sukChamber = 0
 		if not ST._reloadRunning then
 			pcall(function()
 				tool:SetAttribute("ClientAmmo", 0)
 				tool:SetAttribute("CurrentAmmo", 0)
 			end)
-			pcall(InstantReload, tool)
+			task.spawn(function()
+				pcall(function()
+					local vim = game:GetService("VirtualInputManager")
+					vim:SendKeyEvent(true, Enum.KeyCode.R, false, game)
+					task.wait(0.05)
+					vim:SendKeyEvent(false, Enum.KeyCode.R, false, game)
+				end)
+				pcall(InstantReload, tool)
+			end)
 		end
 		return
 	end
@@ -2039,15 +2046,18 @@ function startLocalInvis()
 	end)
 
 	local function pickFar()
-		local x = (math.random() * 2 - 1) * (30000 + math.random(0, 40000))
-		local z = (math.random() * 2 - 1) * (30000 + math.random(0, 40000))
-		local y = 600 + math.random(0, 1400)
+		-- far but not so extreme server may reject physics
+		local x = (math.random() * 2 - 1) * (8000 + math.random(0, 12000))
+		local z = (math.random() * 2 - 1) * (8000 + math.random(0, 12000))
+		local y = 400 + math.random(0, 900)
 		return Vector3.new(x, y, z)
 	end
 	InvisFarPos = pickFar()
 
 	for _, p in ipairs(char:GetDescendants()) do
-		if p:IsA("BasePart") then
+		if p:FindFirstAncestorOfClass("Tool") then
+			-- keep tools usable / visible to systems
+		elseif p:IsA("BasePart") then
 			p.LocalTransparencyModifier = 1
 		elseif p:IsA("Decal") then
 			p.Transparency = 1
@@ -2070,18 +2080,22 @@ function startLocalInvis()
 		local pos = InvisFarPos
 		if pos.Y < 200 then pos = Vector3.new(pos.X, 600 + math.random(0, 400), pos.Z) end
 
-		-- UNANCHORED CFrame + PivotTo so physics ownership replicates to server
+		-- force server-visible move (unanchored + PivotTo + tiny velocity)
 		pcall(function()
 			for _, part in ipairs(c:GetDescendants()) do
 				if part:IsA("BasePart") then
 					part.Anchored = false
-					part.AssemblyLinearVelocity = Vector3.zero
 					part.AssemblyAngularVelocity = Vector3.zero
 				end
 			end
 			local cf = CFrame.new(pos)
+			pcall(function() c.PrimaryPart = r end)
+			pcall(function() c:PivotTo(cf) end)
 			r.CFrame = cf
-			c:PivotTo(cf)
+			r.AssemblyLinearVelocity = Vector3.new(0, 0.05, 0)
+			pcall(function()
+				if c.PrimaryPart then c:SetPrimaryPartCFrame(cf) end
+			end)
 		end)
 	end)
 	table.insert(Connections, InvisConn)
@@ -4567,6 +4581,45 @@ end)
 -- Window (No Auto Center, No Position Reset)
 local window = new("CanvasGroup", { Size = UDim2.fromOffset(DESIGN_W, DESIGN_H), Position = UDim2.fromOffset(100, 100), BackgroundColor3 = Theme.Bg, GroupTransparency = 1, Parent = gui }, { corner(18), stroke() })
 UIRefs.window = window
+
+-- bottom-right resize handle
+pcall(function()
+	local handle = Instance.new("TextButton")
+	handle.Name = "CLL_ResizeHandle"
+	handle.Text = ""
+	handle.AutoButtonColor = false
+	handle.Size = UDim2.fromOffset(18, 18)
+	handle.Position = UDim2.new(1, -18, 1, -18)
+	handle.BackgroundColor3 = Theme.Accent
+	handle.BackgroundTransparency = 0.35
+	handle.ZIndex = 50
+	handle.Parent = window
+	Instance.new("UICorner", handle).CornerRadius = UDim.new(0, 4)
+	local dragging, startMouse, startSize = false, nil, nil
+	handle.InputBegan:Connect(function(input)
+		if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+			dragging = true
+			startMouse = Vector2.new(input.Position.X, input.Position.Y)
+			startSize = Vector2.new(window.AbsoluteSize.X, window.AbsoluteSize.Y)
+		end
+	end)
+	UIS.InputChanged:Connect(function(input)
+		if not dragging then return end
+		if input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch then
+			local delta = Vector2.new(input.Position.X, input.Position.Y) - startMouse
+			local nw = math.clamp(startSize.X + delta.X, 640, 1400)
+			local nh = math.clamp(startSize.Y + delta.Y, 420, 900)
+			window.Size = UDim2.fromOffset(nw, nh)
+		end
+	end)
+	UIS.InputEnded:Connect(function(input)
+		if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+			dragging = false
+		end
+	end)
+end)
+
+
 window.Visible = false
 local uiScale = new("UIScale", { Parent = window })
 local baseScale = 1; local animFactor = new("NumberValue", { Value = 1, Parent = gui })
@@ -4578,7 +4631,7 @@ fit(); workspace.CurrentCamera:GetPropertyChangedSignal("ViewportSize"):Connect(
 local header = new("Frame", { Size = UDim2.new(1, 0, 0, 62), BackgroundTransparency = 1, Parent = window })
 local logoLabel = label({ Text = "CLL", Font = Enum.Font.Michroma, TextSize = 26, TextTruncate = Enum.TextTruncate.AtEnd, Size = UDim2.fromOffset(100, 62), Position = UDim2.fromOffset(23, 0), Parent = header })
 logoLabel.TextColor3 = Color3.fromRGB(255, 255, 255) -- Always white
-local verLabel = label({ Text = "v11.83-be", Font = Enum.Font.GothamBold, TextSize = 12, TextColor3 = Theme.Dim, Size = UDim2.fromOffset(50, 62), Position = UDim2.fromOffset(85, 2), Parent = header })
+local verLabel = label({ Text = "v11.84-bf", Font = Enum.Font.GothamBold, TextSize = 12, TextColor3 = Theme.Dim, Size = UDim2.fromOffset(50, 62), Position = UDim2.fromOffset(85, 2), Parent = header })
 local timeLabel = label({ Text = "Session: 00:00", Font = Enum.Font.GothamMedium, TextSize = 13, TextColor3 = Theme.Dim, Size = UDim2.fromOffset(150, 62), Position = UDim2.fromOffset(150, 0), Parent = header })
 task.spawn(function()
 	while not ST.isUnloaded do
@@ -5476,7 +5529,7 @@ function buildProfile()
 		return t, v
 	end
 	local tBuild, vBuild = row("profile_build", 225)
-	vBuild.Text = "v11.83-be"
+	vBuild.Text = "v11.84-bf"
 	local tSess, vSess = row("profile_session", 250)
 	local tStat, vStat = row("profile_status", 275)
 	vStat.Text = L("profile_active")
@@ -5605,13 +5658,13 @@ function buildSettings()
 	y += 54
 	label({ Text = "BG Style", TextSize = 13, TextColor3 = Theme.Dim, Size = UDim2.fromOffset(140, 18), Position = UDim2.fromOffset(PAD, y), Parent = leftScroll })
 	local styleBtn = new("TextButton", {
-		Text = tostring(ST.MenuBgStyle or "chess"), Font = Enum.Font.GothamMedium, TextSize = 12, TextColor3 = Theme.Text,
+		Text = tostring(ST.MenuBgStyle or "grid"), Font = Enum.Font.GothamMedium, TextSize = 12, TextColor3 = Theme.Text,
 		AutoButtonColor = false, Size = UDim2.new(1, -PAD * 2 - 150, 0, 28),
 		Position = UDim2.fromOffset(PAD + 150, y - 4), BackgroundColor3 = Theme.Row, Parent = leftScroll,
 	}, { corner(8), stroke() })
 	local styles = { "chess", "grid", "waves" }
 	styleBtn.MouseButton1Click:Connect(function()
-		local cur = ST.MenuBgStyle or "chess"
+		local cur = ST.MenuBgStyle or "grid"
 		local idx = 1
 		for i, s in ipairs(styles) do if s == cur then idx = i break end end
 		ST.MenuBgStyle = styles[(idx % #styles) + 1]
@@ -5645,6 +5698,51 @@ function buildSettings()
 	slider(leftScroll, y, "V", 0, 1, ST.AccentV or 1, 0.01, function(v)
 		ST.AccentV = v; accentPrev.BackgroundColor3 = accentFromHSV()
 	end, function() return ST.AccentV or 1 end)
+	y += 52
+	local rgbPresets = {
+		Color3.fromRGB(55, 120, 255), Color3.fromRGB(255, 80, 120), Color3.fromRGB(80, 255, 160),
+		Color3.fromRGB(255, 200, 60), Color3.fromRGB(180, 100, 255), Color3.fromRGB(255, 255, 255),
+	}
+	local rpi = 1
+	local rgbBtn = new("TextButton", {
+		Text = "Cycle RGB preset", Font = Enum.Font.GothamMedium, TextSize = 12, TextColor3 = Theme.Text,
+		AutoButtonColor = false, Size = UDim2.new(1, -PAD * 2, 0, 28), Position = UDim2.fromOffset(PAD, y),
+		BackgroundColor3 = Theme.Row, Parent = leftScroll
+	}, { corner(8), stroke() })
+	rgbBtn.MouseButton1Click:Connect(function()
+		rpi = (rpi % #rgbPresets) + 1
+		local c = rgbPresets[rpi]
+		Theme.Accent = c; Theme.OnTrack = c; ST.MenuGridColor = c; CosmeticColorCustom = c
+		local h, s, v = c:ToHSV()
+		ST.AccentH, ST.AccentS, ST.AccentV = h * 360, s, v
+		accentPrev.BackgroundColor3 = c
+		fireTheme()
+		if rebuildMenuGrid and ST.MenuGridEnabled then pcall(rebuildMenuGrid) end
+	end)
+	y += 40
+	label({ Text = "Hex #RRGGBB", TextSize = 12, TextColor3 = Theme.Dim, Size = UDim2.fromOffset(120, 18), Position = UDim2.fromOffset(PAD, y), Parent = leftScroll })
+	local hexBox = new("TextBox", {
+		Text = "", PlaceholderText = "#3878FF", Font = Enum.Font.GothamMedium, TextSize = 12,
+		TextColor3 = Theme.Text, PlaceholderColor3 = Theme.Dim, ClearTextOnFocus = false,
+		Size = UDim2.new(1, -PAD * 2 - 120, 0, 28), Position = UDim2.fromOffset(PAD + 120, y - 4),
+		BackgroundColor3 = Theme.Row, Parent = leftScroll
+	}, { corner(8), stroke() })
+	hexBox.FocusLost:Connect(function()
+		local raw = tostring(hexBox.Text or ""):gsub("%s", ""):gsub("#", "")
+		if #raw == 3 then raw = raw:sub(1,1):rep(2) .. raw:sub(2,2):rep(2) .. raw:sub(3,3):rep(2) end
+		if #raw ~= 6 then return end
+		local r = tonumber(raw:sub(1, 2), 16)
+		local g = tonumber(raw:sub(3, 4), 16)
+		local b = tonumber(raw:sub(5, 6), 16)
+		if not r or not g or not b then return end
+		local c = Color3.fromRGB(r, g, b)
+		Theme.Accent = c; Theme.OnTrack = c; ST.MenuGridColor = c; CosmeticColorCustom = c
+		local hh, ss, vv = c:ToHSV()
+		ST.AccentH, ST.AccentS, ST.AccentV = hh * 360, ss, vv
+		accentPrev.BackgroundColor3 = c
+		fireTheme()
+		if rebuildMenuGrid and ST.MenuGridEnabled then pcall(rebuildMenuGrid) end
+	end)
 	y += 56
 	toggle(leftScroll, y, L("t_wm"), function(v) ST.WatermarkMainVisible = v; if watermarkMain then watermarkMain.Visible = v end end, true, function() return ST.WatermarkMainVisible end, L("d_wm")); y += 48
 	toggle(leftScroll, y, L("t_wm_binds"), function(v) ST.WatermarkBindsVisible = v; watermarkBinds.Visible = v end, true, function() return ST.WatermarkBindsVisible end, L("d_wm_binds")); y += 48
@@ -6714,11 +6812,11 @@ rebuildMenuGrid = function()
 		folder.Parent = window
 		menuGridFolder = folder
 
-		local style = ST.MenuBgStyle or "chess"
+		local style = ST.MenuBgStyle or "grid"
 		local col = ST.MenuGridColor or Theme.Accent or Color3.fromRGB(80, 140, 255)
 		local tr = math.clamp(ST.MenuGridTransparency or 0.85, 0.15, 0.98)
 		local rot = tonumber(ST.MenuGridRotation) or 0
-		local cell = 26
+		local cell = 28
 		local t0 = os.clock()
 
 		local function mk(parent, x, y, w, h, c, a)
@@ -6733,22 +6831,24 @@ rebuildMenuGrid = function()
 			return f
 		end
 
+		local holder = Instance.new("Frame")
+		holder.BackgroundTransparency = 1
+		holder.Size = UDim2.fromScale(3, 3)
+		holder.Position = UDim2.fromScale(0.5, 0.5)
+		holder.AnchorPoint = Vector2.new(0.5, 0.5)
+		holder.Rotation = rot
+		holder.ZIndex = 0
+		holder.Parent = folder
+
 		if style == "chess" then
-			local holder = Instance.new("Frame")
-			holder.BackgroundTransparency = 1
-			holder.Size = UDim2.fromScale(1.7, 1.7)
-			holder.Position = UDim2.fromScale(0.5, 0.5)
-			holder.AnchorPoint = Vector2.new(0.5, 0.5)
-			holder.Rotation = rot
-			holder.ZIndex = 0
-			holder.Parent = folder
 			local cells = {}
-			for gy = 0, 24 do
-				for gx = 0, 28 do
+			local dark = Color3.new(col.R * 0.32, col.G * 0.32, col.B * 0.32)
+			for gy = 0, 36 do
+				for gx = 0, 42 do
 					local on = ((gx + gy) % 2 == 0)
-					local c = on and col or Color3.new(col.R * 0.32, col.G * 0.32, col.B * 0.32)
+					local c = on and col or dark
 					local a = on and (tr * 0.5 + 0.3) or (tr * 0.8 + 0.12)
-					cells[#cells + 1] = { f = mk(holder, gx * cell - 40, gy * cell - 40, cell, cell, c, a), on = on }
+					cells[#cells + 1] = { f = mk(holder, gx * cell - 80, gy * cell - 80, cell, cell, c, a), on = on }
 				end
 			end
 			menuGridConn = RunService.RenderStepped:Connect(function()
@@ -6756,70 +6856,66 @@ rebuildMenuGrid = function()
 					if menuGridConn then menuGridConn:Disconnect() end
 					return
 				end
-				local spd = math.clamp(ST.MenuGridSpeed or 1, 0.05, 8)
-				holder.Rotation = (ST.MenuGridRotation or 0) + ((os.clock() - t0) * spd * 5) % 360
+				holder.Rotation = ST.MenuGridRotation or 0
 				local c2 = ST.MenuGridColor or Theme.Accent or col
-				local dark = Color3.new(c2.R * 0.32, c2.G * 0.32, c2.B * 0.32)
+				local dark2 = Color3.new(c2.R * 0.32, c2.G * 0.32, c2.B * 0.32)
 				local tr2 = math.clamp(ST.MenuGridTransparency or tr, 0.15, 0.98)
 				for _, c in ipairs(cells) do
-					c.f.BackgroundColor3 = c.on and c2 or dark
+					c.f.BackgroundColor3 = c.on and c2 or dark2
 					c.f.BackgroundTransparency = c.on and (tr2 * 0.5 + 0.3) or (tr2 * 0.8 + 0.12)
 				end
 			end)
 		elseif style == "waves" then
 			local bars = {}
-			for i = 0, 40 do
-				bars[#bars + 1] = { f = mk(folder, i * 16 - 10, 0, 9, 900, col, tr), i = i }
+			for i = 0, 80 do
+				bars[#bars + 1] = { f = mk(holder, i * 14 - 40, -200, 8, 2000, col, tr), i = i }
 			end
 			menuGridConn = RunService.RenderStepped:Connect(function()
 				if ST.isUnloaded or not ST.MenuGridEnabled or not folder.Parent then
 					if menuGridConn then menuGridConn:Disconnect() end
 					return
 				end
+				holder.Rotation = ST.MenuGridRotation or 0
 				local spd = math.clamp(ST.MenuGridSpeed or 1, 0.05, 8)
 				local t = (os.clock() - t0) * spd
 				local c2 = ST.MenuGridColor or Theme.Accent or col
 				local tr2 = math.clamp(ST.MenuGridTransparency or tr, 0.15, 0.98)
 				for _, b in ipairs(bars) do
-					local y = math.sin(t * 1.5 + b.i * 0.32) * 48 + math.sin(t * 0.6 + b.i * 0.12) * 18
-					b.f.Position = UDim2.fromOffset(b.i * 16 - 10, y - 30)
+					local y = math.sin(t * 1.2 + b.i * 0.28) * 18 + math.sin(t * 0.5 + b.i * 0.1) * 8
+					b.f.Position = UDim2.fromOffset(b.i * 14 - 40, y - 100)
+					b.f.Size = UDim2.fromOffset(7, 2200)
 					b.f.BackgroundColor3 = c2
 					b.f.BackgroundTransparency = tr2
 				end
 			end)
 		else
-			local spacing = 28
-			local holder = Instance.new("Frame")
-			holder.BackgroundTransparency = 1
-			holder.Size = UDim2.fromScale(1.5, 1.5)
-			holder.Position = UDim2.fromScale(0.5, 0.5)
-			holder.AnchorPoint = Vector2.new(0.5, 0.5)
-			holder.Rotation = rot
-			holder.Parent = folder
+			local spacing = 26
 			local lines = {}
-			for i = 0, 40 do
-				lines[#lines + 1] = { ln = mk(holder, i * spacing, -20, 1, 900, col, tr), axis = "v", i = i }
+			for i = 0, 60 do
+				lines[#lines + 1] = { ln = mk(holder, i * spacing - 100, -200, 1, 2500, col, tr), axis = "v", i = i }
 			end
-			for i = 0, 30 do
-				lines[#lines + 1] = { ln = mk(holder, -20, i * spacing, 900, 1, col, tr), axis = "h", i = i }
+			for i = 0, 50 do
+				lines[#lines + 1] = { ln = mk(holder, -200, i * spacing - 100, 2500, 1, col, tr), axis = "h", i = i }
 			end
 			menuGridConn = RunService.RenderStepped:Connect(function()
 				if ST.isUnloaded or not ST.MenuGridEnabled or not folder.Parent then
 					if menuGridConn then menuGridConn:Disconnect() end
 					return
 				end
+				holder.Rotation = ST.MenuGridRotation or 0
 				local spd = math.clamp(ST.MenuGridSpeed or 1, 0.05, 8)
 				local off = ((os.clock() - t0) * spd * 12) % spacing
 				local c2 = ST.MenuGridColor or Theme.Accent or col
 				local tr2 = math.clamp(ST.MenuGridTransparency or tr, 0.15, 0.98)
-				holder.Rotation = ST.MenuGridRotation or 0
 				for _, L in ipairs(lines) do
 					L.ln.BackgroundColor3 = c2
 					L.ln.BackgroundTransparency = tr2
 					if L.axis == "v" then
-						L.ln.Position = UDim2.fromOffset(L.i * spacing - off, -20)
+						L.ln.Position = UDim2.fromOffset(L.i * spacing - 100 - off, -200)
+						L.ln.Size = UDim2.fromOffset(1, 2500)
 					else
-						L.ln.Position = UDim2.fromOffset(-20, L.i * spacing - off)
+						L.ln.Position = UDim2.fromOffset(-200, L.i * spacing - 100 - off)
+						L.ln.Size = UDim2.fromOffset(2500, 1)
 					end
 				end
 			end)
