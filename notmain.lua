@@ -1,6 +1,6 @@
 --[[
     ╔═══════════════════════════════════════════════════════════════╗
-    ║              CLL CHEAT - FULL INTEGRATION v11.76-av (native Q/G grab mirror + VR restore)                ║
+    ║              CLL CHEAT - FULL INTEGRATION v11.77-aw (native Q/G grab mirror + VR restore)                ║
     ╠═══════════════════════════════════════════════════════════════╣
     ║  SUK head-hit, real crosshair, tracers, ESP outline nick,     ║
     ║  ChinaHat/Wings fix, VR hands, anti-flash/shake, antibypass   ║
@@ -375,7 +375,7 @@ local LANG = {
 		d_suk_rps = "Сколько выстрелов SUK делает в секунду.",
 		d_suk_delay = "Минимальная пауза между выстрелами SUK.",
 		d_suk_targets = "Сколько целей обрабатывать за один тик (сейчас фактически 1).",
-		d_heal = "Телепорт в зону лечения при низком HP.",
+		d_heal = "Телепорт в зону хила только пока HP ниже максимума.",
 		d_heal_h = "Высота над зоной хила при автотелепорте.",
 		d_ignore_friends = "SUK не стреляет по игрокам из списка друзей.",
 		d_target_npcs = "SUK также берёт NPC из workspace.Humans.",
@@ -390,6 +390,18 @@ local LANG = {
 		d_grid = "Анимированная сетка на фоне меню.",
 		d_wm = "Оверлей FPS/пинга на экране.",
 		d_killbeam = "Вертикальный столб на месте убитого.",
+		t_vr_target = "VR Target Mode",
+		d_vr_target = "В VR телепортирует к выбранной цели.",
+		t_vr_shake = "Тряска рук",
+		d_vr_shake = "Лёгкое покачивание VR-рук.",
+		t_shake_i = "Сила тряски",
+		d_shake_i = "Насколько сильно качаются руки.",
+		t_wm_binds = "Watermark бинды",
+		d_wm_binds = "Показ текущих клавиш на экране.",
+		t_wm_world = "Watermark мир",
+		d_wm_world = "Доп. инфо о мире на экране.",
+		t_wm_ammo = "Watermark патроны",
+		d_wm_ammo = "Показ патронов у курсора.",
 	},
 	en = {
 		suk_warn = "⚠ For stable hitreg: RPS 6–8 · Delay 0.12–0.15 · Targets/tick = 1.\nToo high firerate → FX only, no damage.",
@@ -431,7 +443,7 @@ local LANG = {
 		d_suk_rps = "How many SUK shots fire per second.",
 		d_suk_delay = "Minimum wait between SUK shots.",
 		d_suk_targets = "Targets handled per tick (effectively 1 now).",
-		d_heal = "Teleports you to a heal zone when HP is low.",
+		d_heal = "Teleports to the heal zone only while HP is below max.",
 		d_heal_h = "Height above the heal zone when auto-porting.",
 		d_ignore_friends = "SUK skips players on your friends list.",
 		d_target_npcs = "SUK also targets NPCs in workspace.Humans.",
@@ -446,6 +458,18 @@ local LANG = {
 		d_grid = "Animated grid behind the menu panel.",
 		d_wm = "On-screen FPS/ping overlay.",
 		d_killbeam = "Vertical pillar at the killed player's body.",
+		t_vr_target = "VR Target Mode",
+		d_vr_target = "In VR, teleports you toward the selected target.",
+		t_vr_shake = "Enable Hand Shake",
+		d_vr_shake = "Subtle VR hand sway animation.",
+		t_shake_i = "Shake Intensity",
+		d_shake_i = "How strong the hand sway is.",
+		t_wm_binds = "Watermark Binds",
+		d_wm_binds = "Shows your keybinds on screen.",
+		t_wm_world = "Watermark World",
+		d_wm_world = "Extra world info overlay.",
+		t_wm_ammo = "Watermark Ammo",
+		d_wm_ammo = "Ammo counter near the cursor.",
 	},
 }
 
@@ -1608,28 +1632,19 @@ function MultiFireAt()
 		if cv and (cv:IsA("NumberValue") or cv:IsA("IntValue")) then cv.Value = cur end
 	end)
 
-	-- NO body blink. Enemy-style: bullet origin on the skull (any range), 8× Hit like v53.
+	-- Head-TP: origin just before skull ALONG (muzzle→head), never random LookVector
 	local pred = hitPos
 	pcall(function()
-		if head.AssemblyLinearVelocity then
+		if head and head.AssemblyLinearVelocity then
 			local dist = (hitPos - muzzle).Magnitude
-			local t = math.clamp(dist / 2000, 0, 0.2)
+			local t = math.clamp(dist / 2000, 0, 0.15)
 			pred = hitPos + head.AssemblyLinearVelocity * t
 		end
 	end)
-
-	-- dir into head (from slightly in front of face)
-	local tpDir = dir
-	if typeof(tpDir) ~= "Vector3" or tpDir.Magnitude < 0.05 then
-		tpDir = Vector3.new(0, 0, -1)
-	else
-		tpDir = tpDir.Unit
-	end
-	pcall(function()
-		local fl = head.CFrame.LookVector
-		if fl.Magnitude > 0.05 then tpDir = (-fl).Unit end
-	end)
-	local tpOrigin = pred - tpDir * 0.45
+	local toHead = pred - muzzle
+	local tpDir = (typeof(toHead) == "Vector3" and toHead.Magnitude > 0.05) and toHead.Unit or Vector3.new(0, 0, -1)
+	-- jam origin on the approach path, 0.5 studs before the skull
+	local tpOrigin = pred - tpDir * 0.5
 	local vel = tpDir * 2000
 	local bcf = CFrame.lookAt(tpOrigin, pred)
 
@@ -1989,13 +2004,18 @@ function StartHealLoop()
 		local char, hum, root = getCharacterParts()
 		if not char or not hum or not root or hum.Health <= 0 then return end
 		local healBrick = workspace:FindFirstChild("Heal100Brick", true)
-		if healBrick then
-			if not hum.PlatformStand then hum.PlatformStand = true end
-			local basePos = healBrick.Position + Vector3.new(0, ST.HealFlyHeight, 0)
-			root.CFrame = ST.isMultiSuk and CFrame.new(basePos) or CFrame.new(basePos + Vector3.new(0, math.sin(os.clock() * 2) * 0.5, 0))
-			root.AssemblyLinearVelocity = Vector3.zero; root.AssemblyAngularVelocity = Vector3.zero
-			for _, p in ipairs(char:GetDescendants()) do if p:IsA("BasePart") then if not savedCollision[p] then savedCollision[p] = p.CanCollide end; p.CanCollide = false end end
+		if not healBrick then return end
+		-- only port when actually hurt (not on toggle alone)
+		local maxH = hum.MaxHealth > 0 and hum.MaxHealth or 100
+		if hum.Health >= maxH - 0.5 then
+			-- full HP: release platform stand if we held it only for heal
+			return
 		end
+		if not hum.PlatformStand then hum.PlatformStand = true end
+		local basePos = healBrick.Position + Vector3.new(0, ST.HealFlyHeight or 3.5, 0)
+		root.CFrame = ST.isMultiSuk and CFrame.new(basePos) or CFrame.new(basePos + Vector3.new(0, math.sin(os.clock() * 2) * 0.5, 0))
+		root.AssemblyLinearVelocity = Vector3.zero; root.AssemblyAngularVelocity = Vector3.zero
+		for _, p in ipairs(char:GetDescendants()) do if p:IsA("BasePart") then if not savedCollision[p] then savedCollision[p] = p.CanCollide end; p.CanCollide = false end end
 	end)
 	table.insert(Connections, healConnection)
 	antiVelocityConnection = RunService.Stepped:Connect(function()
@@ -4235,7 +4255,7 @@ fit(); workspace.CurrentCamera:GetPropertyChangedSignal("ViewportSize"):Connect(
 local header = new("Frame", { Size = UDim2.new(1, 0, 0, 62), BackgroundTransparency = 1, Parent = window })
 local logoLabel = label({ Text = "CLL", Font = Enum.Font.Michroma, TextSize = 26, TextTruncate = Enum.TextTruncate.AtEnd, Size = UDim2.fromOffset(100, 62), Position = UDim2.fromOffset(23, 0), Parent = header })
 logoLabel.TextColor3 = Color3.fromRGB(255, 255, 255) -- Always white
-local verLabel = label({ Text = "v11.76-av", Font = Enum.Font.GothamBold, TextSize = 12, TextColor3 = Theme.Dim, Size = UDim2.fromOffset(50, 62), Position = UDim2.fromOffset(85, 2), Parent = header })
+local verLabel = label({ Text = "v11.77-aw", Font = Enum.Font.GothamBold, TextSize = 12, TextColor3 = Theme.Dim, Size = UDim2.fromOffset(50, 62), Position = UDim2.fromOffset(85, 2), Parent = header })
 local timeLabel = label({ Text = "Session: 00:00", Font = Enum.Font.GothamMedium, TextSize = 13, TextColor3 = Theme.Dim, Size = UDim2.fromOffset(150, 62), Position = UDim2.fromOffset(150, 0), Parent = header })
 task.spawn(function()
 	while not ST.isUnloaded do
@@ -4332,11 +4352,10 @@ local PAD = 20
 function divider(parent, y) return new("Frame", { Size = UDim2.new(1, -PAD * 2, 0, 1), Position = UDim2.fromOffset(PAD, y), BackgroundColor3 = Theme.Stroke, BorderSizePixel = 0, Parent = parent }) end
 
 function toggle(parent, cy, text, cb, initial, getState, desc)
-	-- optional desc: dim line under the title (what it is / what it does)
-	if text ~= "" then label({ Text = text, Size = UDim2.new(1, -90, 0, 22), Position = UDim2.fromOffset(PAD, cy - 14), Parent = parent }) end
-	local descLbl = nil
+	-- title + switch on one row; optional dim desc under title
+	if text ~= "" then label({ Text = text, Size = UDim2.new(1, -90, 0, 20), Position = UDim2.fromOffset(PAD, cy), Parent = parent }) end
 	if type(desc) == "string" and desc ~= "" then
-		descLbl = label({
+		label({
 			Text = desc,
 			Font = Enum.Font.Gotham,
 			TextSize = 11,
@@ -4345,14 +4364,14 @@ function toggle(parent, cy, text, cb, initial, getState, desc)
 			TextYAlignment = Enum.TextYAlignment.Top,
 			TextWrapped = true,
 			Size = UDim2.new(1, -PAD * 2 - 50, 0, 28),
-			Position = UDim2.fromOffset(PAD, cy + 10),
+			Position = UDim2.fromOffset(PAD, cy + 20),
 			Parent = parent,
 		})
 	end
 	local state = (getState and getState() or initial) and true or false
 	local sw = new("TextButton", {
 		Text = "", AutoButtonColor = false, Size = UDim2.fromOffset(42, 24),
-		Position = UDim2.new(1, -PAD - 42, 0, cy - 14), BackgroundColor3 = Theme.Off, Parent = parent
+		Position = UDim2.new(1, -PAD - 42, 0, cy), BackgroundColor3 = Theme.Off, Parent = parent
 	}, { corner(12), stroke() })
 	local knob = new("Frame", {
 		Size = UDim2.fromOffset(18, 18), Position = UDim2.fromOffset(3, 3),
@@ -4405,9 +4424,10 @@ function toggle(parent, cy, text, cb, initial, getState, desc)
 end
 
 function slider(parent, cy, text, min, max, default, step, cb, getValue, desc)
-	label({ Text = text, Size = UDim2.new(1, -90, 0, 18), Position = UDim2.fromOffset(PAD, cy - 22), Parent = parent })
-	local valueLbl = label({ Text = tostring(default), TextXAlignment = Enum.TextXAlignment.Right, Size = UDim2.fromOffset(50, 18), Position = UDim2.new(1, -PAD - 50, 0, cy - 22), Parent = parent })
-	local trackY = cy + 5
+	-- layout: title+value at cy, optional dim desc below, track under that
+	label({ Text = text, Size = UDim2.new(1, -90, 0, 16), Position = UDim2.fromOffset(PAD, cy), Parent = parent })
+	local valueLbl = label({ Text = tostring(default), TextXAlignment = Enum.TextXAlignment.Right, Size = UDim2.fromOffset(50, 16), Position = UDim2.new(1, -PAD - 50, 0, cy), Parent = parent })
+	local trackY = cy + 22
 	if type(desc) == "string" and desc ~= "" then
 		label({
 			Text = desc,
@@ -4416,11 +4436,11 @@ function slider(parent, cy, text, min, max, default, step, cb, getValue, desc)
 			TextColor3 = Theme.Dim,
 			TextXAlignment = Enum.TextXAlignment.Left,
 			TextWrapped = true,
-			Size = UDim2.new(1, -PAD * 2, 0, 16),
-			Position = UDim2.fromOffset(PAD, cy - 4),
+			Size = UDim2.new(1, -PAD * 2, 0, 14),
+			Position = UDim2.fromOffset(PAD, cy + 16),
 			Parent = parent,
 		})
-		trackY = cy + 16
+		trackY = cy + 34
 	end
 	local track = new("Frame", { Size = UDim2.new(1, -PAD * 2, 0, 5), Position = UDim2.fromOffset(PAD, trackY), BackgroundColor3 = Theme.Off, BorderSizePixel = 0, Parent = parent }, { corner(3) })
 	local fill = new("Frame", { Size = UDim2.fromScale(0, 1), BackgroundColor3 = Theme.Accent, BorderSizePixel = 0, Parent = track }, { corner(3) })
@@ -4616,9 +4636,13 @@ function detailColor(parent, order, title, getColor, setColor)
 	channel(2, "B", function() return b end, function(v) b = v; setColor(Color3.new(r, g, b)); preview.BackgroundColor3 = Color3.new(r, g, b) end)
 end
 
-function detailToggle(parent, order, text, initial, cb)
-	local wrap = new("Frame", { Size = UDim2.new(1, -16, 0, 28), BackgroundTransparency = 1, LayoutOrder = order, Parent = parent })
-	label({ Text = text, TextSize = 13, Size = UDim2.new(1, -50, 1, 0), Parent = wrap })
+function detailToggle(parent, order, text, initial, cb, desc)
+	local h = (type(desc) == "string" and desc ~= "") and 44 or 28
+	local wrap = new("Frame", { Size = UDim2.new(1, -16, 0, h), BackgroundTransparency = 1, LayoutOrder = order, Parent = parent })
+	label({ Text = text, TextSize = 13, Size = UDim2.new(1, -50, 0, 18), Position = UDim2.fromOffset(0, 0), Parent = wrap })
+	if type(desc) == "string" and desc ~= "" then
+		label({ Text = desc, Font = Enum.Font.Gotham, TextSize = 11, TextColor3 = Theme.Dim, TextWrapped = true, Size = UDim2.new(1, -50, 0, 20), Position = UDim2.fromOffset(0, 18), Parent = wrap })
+	end
 	makeMiniToggle(wrap, initial, cb)
 end
 
@@ -4863,7 +4887,7 @@ function buildTarget()
 	label({ Text = "COMBAT TARGET", Font = Enum.Font.GothamBold, TextSize = 11, TextColor3 = Theme.Dim, Size = UDim2.fromOffset(200, 18), Position = UDim2.fromOffset(14, 12), Parent = left })
 	local scroll = new("ScrollingFrame", { Size = UDim2.new(1, 0, 1, -38), Position = UDim2.fromOffset(0, 34), BackgroundTransparency = 1, BorderSizePixel = 0, ScrollBarThickness = 3, ScrollBarImageColor3 = Theme.Stroke, CanvasSize = UDim2.fromOffset(0, 980), Parent = left })
 	local y = 18
-	toggle(scroll, y, L("t_suk"), function(v) ST.isMultiSuk = v; if not v then clearSukReloadState() end end, false, function() return ST.isMultiSuk end, L("d_suk")); y += 62
+	toggle(scroll, y, L("t_suk"), function(v) ST.isMultiSuk = v; if not v then clearSukReloadState() end end, false, function() return ST.isMultiSuk end, L("d_suk")); y += 54
 	local sukWarn = label({
 		Text = L("suk_warn"),
 		Font = Enum.Font.Gotham,
@@ -4878,14 +4902,14 @@ function buildTarget()
 		Parent = scroll,
 	})
 	table.insert(UI_LangHooks, function() if sukWarn and sukWarn.Parent then sukWarn.Text = L("suk_warn") end end)
-	y += 50
-	slider(scroll, y, L("t_suk_rps"), 1, 30, ST.SUK_FIRERATE_RPS, 1, function(v) ST.SUK_FIRERATE_RPS = v end, function() return ST.SUK_FIRERATE_RPS end, L("d_suk_rps")); y += 72
-	slider(scroll, y, L("t_suk_delay"), 0.01, 0.5, ST.SUK_FireDelay, 0.01, function(v) ST.SUK_FireDelay = v end, function() return ST.SUK_FireDelay end, L("d_suk_delay")); y += 72
-	slider(scroll, y, L("t_suk_targets"), 1, 16, ST.SUK_MaxPerTick, 1, function(v) ST.SUK_MaxPerTick = v end, function() return ST.SUK_MaxPerTick end, L("d_suk_targets")); y += 72
-	toggle(scroll, y, L("t_heal"), function(v) ST.HealEnabled = v; if v then StartHealLoop() else StopHealLoop() end end, false, function() return ST.HealEnabled end, L("d_heal")); y += 62
-	slider(scroll, y, L("t_heal_h"), -5, 10, ST.HealFlyHeight or 3.5, 0.5, function(v) ST.HealFlyHeight = v end, function() return ST.HealFlyHeight end, L("d_heal_h")); y += 72
-	toggle(scroll, y, L("t_ignore_friends"), function(v) ST.SUK_IgnoreFriends = v end, true, function() return ST.SUK_IgnoreFriends end, L("d_ignore_friends")); y += 62
-	toggle(scroll, y, L("t_target_npcs"), function(v) ST.SUK_TargetNPCs = v end, false, function() return ST.SUK_TargetNPCs end, L("d_target_npcs")); y += 62
+	y += 58
+	slider(scroll, y, L("t_suk_rps"), 1, 30, ST.SUK_FIRERATE_RPS, 1, function(v) ST.SUK_FIRERATE_RPS = v end, function() return ST.SUK_FIRERATE_RPS end, L("d_suk_rps")); y += 58
+	slider(scroll, y, L("t_suk_delay"), 0.01, 0.5, ST.SUK_FireDelay, 0.01, function(v) ST.SUK_FireDelay = v end, function() return ST.SUK_FireDelay end, L("d_suk_delay")); y += 58
+	slider(scroll, y, L("t_suk_targets"), 1, 16, ST.SUK_MaxPerTick, 1, function(v) ST.SUK_MaxPerTick = v end, function() return ST.SUK_MaxPerTick end, L("d_suk_targets")); y += 58
+	toggle(scroll, y, L("t_heal"), function(v) ST.HealEnabled = v; if v then StartHealLoop() else StopHealLoop() end end, false, function() return ST.HealEnabled end, L("d_heal")); y += 54
+	slider(scroll, y, L("t_heal_h"), -5, 10, ST.HealFlyHeight or 3.5, 0.5, function(v) ST.HealFlyHeight = v end, function() return ST.HealFlyHeight end, L("d_heal_h")); y += 58
+	toggle(scroll, y, L("t_ignore_friends"), function(v) ST.SUK_IgnoreFriends = v end, true, function() return ST.SUK_IgnoreFriends end, L("d_ignore_friends")); y += 54
+	toggle(scroll, y, L("t_target_npcs"), function(v) ST.SUK_TargetNPCs = v end, false, function() return ST.SUK_TargetNPCs end, L("d_target_npcs")); y += 54
 	toggle(scroll, y, L("t_equip"), function(v) ST.SUK_EquipRequired = v end, ST.SUK_EquipRequired, function() return ST.SUK_EquipRequired end, L("d_equip"))
 
 	label({ Text = "PLAYERS", Font = Enum.Font.GothamBold, TextSize = 11, TextColor3 = Theme.Dim, Size = UDim2.fromOffset(120, 18), Position = UDim2.fromOffset(14, 12), Parent = right })
@@ -5113,7 +5137,7 @@ function buildProfile()
 		return t, v
 	end
 	local tBuild, vBuild = row("profile_build", 225)
-	vBuild.Text = "v11.76-av"
+	vBuild.Text = "v11.77-aw"
 	local tSess, vSess = row("profile_session", 250)
 	local tStat, vStat = row("profile_status", 275)
 	vStat.Text = L("profile_active")
@@ -5235,11 +5259,11 @@ function buildSettings()
 	end)
 	y += 44
 	-- Menu grid (spaced so nothing overlaps)
-	toggle(leftScroll, y, "Menu Grid BG", function(v)
+	toggle(leftScroll, y, L("t_grid"), function(v)
 		ST.MenuGridEnabled = v
 		if rebuildMenuGrid then pcall(rebuildMenuGrid) end
-	end, false, function() return ST.MenuGridEnabled end)
-	y += 50
+	end, false, function() return ST.MenuGridEnabled end, L("d_grid"))
+	y += 54
 	slider(leftScroll, y, "Grid Speed", 0.1, 5, ST.MenuGridSpeed or 1, 0.1, function(v) ST.MenuGridSpeed = v end, function() return ST.MenuGridSpeed or 1 end)
 	y += 58
 	slider(leftScroll, y, "Grid Transparency", 0.3, 0.98, ST.MenuGridTransparency or 0.85, 0.02, function(v) ST.MenuGridTransparency = v end, function() return ST.MenuGridTransparency or 0.85 end)
@@ -5267,10 +5291,10 @@ function buildSettings()
 		if rebuildMenuGrid and ST.MenuGridEnabled then pcall(rebuildMenuGrid) end
 	end)
 	y += 52
-	toggle(leftScroll, y, "Watermark Main", function(v) ST.WatermarkMainVisible = v; if watermarkMain then watermarkMain.Visible = v end end, true, function() return ST.WatermarkMainVisible end); y += 48
-	toggle(leftScroll, y, "Watermark Binds", function(v) ST.WatermarkBindsVisible = v; watermarkBinds.Visible = v end, true, function() return ST.WatermarkBindsVisible end); y += 48
-	toggle(leftScroll, y, "Watermark World", function(v) ST.WatermarkWorldVisible = v; watermarkWorld.Visible = v end, true); y += 48
-	toggle(leftScroll, y, "Watermark Ammo", function(v) ST.WatermarkAmmoVisible = v; if ammoLbl then ammoLbl.Visible = v end end, true); y += 64
+	toggle(leftScroll, y, L("t_wm"), function(v) ST.WatermarkMainVisible = v; if watermarkMain then watermarkMain.Visible = v end end, true, function() return ST.WatermarkMainVisible end, L("d_wm")); y += 48
+	toggle(leftScroll, y, L("t_wm_binds"), function(v) ST.WatermarkBindsVisible = v; watermarkBinds.Visible = v end, true, function() return ST.WatermarkBindsVisible end, L("d_wm_binds")); y += 48
+	toggle(leftScroll, y, L("t_wm_world"), function(v) ST.WatermarkWorldVisible = v; watermarkWorld.Visible = v end, true, function() return ST.WatermarkWorldVisible end, L("d_wm_world")); y += 54
+	toggle(leftScroll, y, L("t_wm_ammo"), function(v) ST.WatermarkAmmoVisible = v; if ammoLbl then ammoLbl.Visible = v end end, true, function() return ST.WatermarkAmmoVisible end, L("d_wm_ammo")); y += 54
 	
 	local animLbl = label({ Text = "UI Animation: " .. tostring(AnimName), TextSize = 13, Size = UDim2.new(1, -40, 0, 20), Position = UDim2.fromOffset(PAD, y), Parent = leftScroll }); y += 25
 	local animBtn = new("TextButton", { Text = "Cycle preset", Font = Enum.Font.GothamMedium, TextSize = 12, TextColor3 = Theme.Text, Size = UDim2.fromOffset(120, 28), Position = UDim2.fromOffset(PAD, y), BackgroundColor3 = Theme.Row, AutoButtonColor = false, Parent = leftScroll }, { corner(8), stroke() }); y += 48
