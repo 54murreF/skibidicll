@@ -1,6 +1,6 @@
 --[[
     ╔═══════════════════════════════════════════════════════════════╗
-    ║              CLL CHEAT - FULL INTEGRATION v11.92-bn (native Q/G grab mirror + VR restore)                ║
+    ║              CLL CHEAT - FULL INTEGRATION v11.93-bo (native Q/G grab mirror + VR restore)                ║
     ╠═══════════════════════════════════════════════════════════════╣
     ║  SUK head-hit, real crosshair, tracers, ESP outline nick,     ║
     ║  ChinaHat/Wings fix, VR hands, anti-flash/shake, antibypass   ║
@@ -82,6 +82,21 @@ local ST = {
 	KillHighlightFade = 0.65,
 	KillHighlightColor = Color3.fromRGB(40, 160, 255),
 	KillBeamEnabled = true,
+	KillTriangleEnabled = false,
+	KillCrownEnabled = false,
+	KillWreathEnabled = false,
+	FootTrailsEnabled = false,
+	FootTrailStyle = "cross",
+	FootTrailSize = 0.9,
+	FootTrailThickness = 0.1,
+	FootTrailLifetime = 0.85,
+	FootTrailColor = Color3.fromRGB(80, 200, 255),
+	HandTrailsEnabled = false,
+	HandTrailColor = Color3.fromRGB(255, 120, 200),
+	HandTrailWidth = 0.2,
+	HandTrailLifetime = 0.35,
+	RockTrajectoryEnabled = false,
+	FullbrightBrightness = 2,
 	AntiCamShakeEnabled = false,
 	CustomKillSoundEnabled = false, -- REMOVED
 	CustomGunSoundsEnabled = false, -- REMOVED
@@ -4746,7 +4761,7 @@ fit(); workspace.CurrentCamera:GetPropertyChangedSignal("ViewportSize"):Connect(
 local header = new("Frame", { Size = UDim2.new(1, 0, 0, 62), BackgroundTransparency = 1, Parent = window })
 local logoLabel = label({ Text = "CLL", Font = Enum.Font.Michroma, TextSize = 26, TextTruncate = Enum.TextTruncate.AtEnd, Size = UDim2.fromOffset(100, 62), Position = UDim2.fromOffset(23, 0), Parent = header })
 logoLabel.TextColor3 = Color3.fromRGB(255, 255, 255) -- Always white
-local verLabel = label({ Text = "v11.92-bn", Font = Enum.Font.GothamBold, TextSize = 12, TextColor3 = Theme.Dim, Size = UDim2.fromOffset(50, 62), Position = UDim2.fromOffset(85, 2), Parent = header })
+local verLabel = label({ Text = "v11.93-bo", Font = Enum.Font.GothamBold, TextSize = 12, TextColor3 = Theme.Dim, Size = UDim2.fromOffset(50, 62), Position = UDim2.fromOffset(85, 2), Parent = header })
 local timeLabel = label({ Text = "Session: 00:00", Font = Enum.Font.GothamMedium, TextSize = 13, TextColor3 = Theme.Dim, Size = UDim2.fromOffset(150, 62), Position = UDim2.fromOffset(150, 0), Parent = header })
 task.spawn(function()
 	while not ST.isUnloaded do
@@ -5656,7 +5671,7 @@ function buildProfile()
 		return t, v
 	end
 	local tBuild, vBuild = row("profile_build", 225)
-	vBuild.Text = "v11.92-bn"
+	vBuild.Text = "v11.93-bo"
 	local tSess, vSess = row("profile_session", 250)
 	local tStat, vStat = row("profile_status", 275)
 	vStat.Text = L("profile_active")
@@ -6301,11 +6316,16 @@ function applyConfig(data)
 		-- full ST table (v3)
 		if type(data.st) == "table" then
 			for k, v in pairs(data.st) do
-				if ST[k] ~= nil and k ~= "isUnloaded" and k ~= "isBinding" and k ~= "reloadInProgress" then
-					if type(v) == "table" and v[1] and typeof(ST[k]) == "Color3" then
+				if k == "isUnloaded" or k == "isBinding" or k == "reloadInProgress" or k == "isBlockActive"
+					or k == "_reloadRunning" or k == "_sukChamber" or k == "VREnabled" then
+					-- skip runtime-only
+				elseif ST[k] ~= nil or type(v) == "boolean" or type(v) == "number" or type(v) == "string" or type(v) == "table" then
+					if type(v) == "table" and (v[1] ~= nil) and (ST[k] == nil or typeof(ST[k]) == "Color3") then
 						local c = arrToColor(v)
 						if c then ST[k] = c end
-					else
+					elseif type(v) == "boolean" or type(v) == "number" or type(v) == "string" then
+						ST[k] = v
+					elseif ST[k] ~= nil then
 						ST[k] = v
 					end
 				end
@@ -6395,6 +6415,22 @@ function applyConfig(data)
 		-- never auto-enable VR from config
 		ST.VREnabled = false
 		VRWantEnabled = false
+		-- re-apply visual side effects for newly saved features
+		pcall(function()
+			if ST.HandTrailsEnabled and LocalPlayer.Character then
+				attachHandTrails(LocalPlayer.Character)
+			else
+				for _, t in pairs(HandTrailParts or {}) do pcall(function() t:Destroy() end) end
+				HandTrailParts = {}
+			end
+		end)
+		pcall(function() if rebuildMenuGrid then rebuildMenuGrid() end end)
+		pcall(function()
+			for _, fn in ipairs(UI_SyncHooks or {}) do pcall(fn) end
+		end)
+		pcall(function()
+			for _, fn in ipairs(UI_SliderHooks or {}) do pcall(fn) end
+		end)
 		ST.HitSoundEnabled = false
 		ST.CustomKillSoundEnabled = false
 		ST.CustomGunSoundsEnabled = false
