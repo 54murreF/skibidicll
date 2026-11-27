@@ -1,6 +1,6 @@
 --[[
     ╔═══════════════════════════════════════════════════════════════╗
-    ║              CLL CHEAT - FULL INTEGRATION v11.97-bs (native Q/G grab mirror + VR restore)                ║
+    ║              CLL CHEAT - FULL INTEGRATION v11.98-bt (native Q/G grab mirror + VR restore)                ║
     ╠═══════════════════════════════════════════════════════════════╣
     ║  SUK head-hit, real crosshair, tracers, ESP outline nick,     ║
     ║  ChinaHat/Wings fix, VR hands, anti-flash/shake, antibypass   ║
@@ -1808,45 +1808,41 @@ function MultiFireAt()
 		end
 	end
 
+	-- Expand head FIRST (invisible), then Fire + Hit — same idea as enemy scripts
+	local expandOn = ST.SUK_HeadExpand ~= false
+	local expandSz = math.clamp(tonumber(ST.SUK_HeadExpandSize) or 4.5, 1.5, 12)
+	local headBak = nil
+	if expandOn and head and head.Parent then
+		pcall(function()
+			-- always backup current (even under hitbox) so we can restore SUK-only grow
+			headBak = {
+				Size = head.Size,
+				Transparency = head.Transparency,
+				CanCollide = head.CanCollide,
+				Material = head.Material,
+			}
+			head.Size = Vector3.new(expandSz, expandSz, expandSz)
+			head.Transparency = 1
+			head.CanCollide = false
+			pcall(function() head.CanQuery = true end)
+			head:SetAttribute("CLL_SUK_HEAD_EXP", true)
+		end)
+	end
+
 	firePayload(muzzle)
 	firePayload(nearHead)
 	markLocalShot(nearHead)
 
 	if head and head.Parent then
-		-- Invisible head expand (enemy-style): bigger local Head so Hit/ray
-		-- still "touches" the part even with small aim error. Not visible (T=1).
-		local expandOn = ST.SUK_HeadExpand ~= false
-		local expandSz = math.clamp(tonumber(ST.SUK_HeadExpandSize) or 4.5, 1.5, 12)
-		local cached = nil
-		if expandOn then
-			pcall(function()
-				if not Hitbox_Cache[head.Parent] then
-					cached = {
-						Size = head.Size,
-						Transparency = head.Transparency,
-						CanCollide = head.CanCollide,
-						CanQuery = head.CanQuery,
-						Massless = head.Massless,
-					}
-					head:SetAttribute("CLL_SUK_HEAD_BAK", true)
-				end
-				head.Size = Vector3.new(expandSz, expandSz, expandSz)
-				head.Transparency = 1
-				head.CanCollide = false
-				pcall(function() head.CanQuery = true end)
-				pcall(function() head.Massless = true end)
-			end)
-		end
-
 		local headPos = head.Position
-		-- several points inside the (expanded) head volume — not only center
 		local offsets = {
 			Vector3.zero,
-			tpDir * 0.2,
-			-tpDir * 0.15,
-			Vector3.new(0.25, 0.1, 0),
-			Vector3.new(-0.25, 0.1, 0),
-			Vector3.new(0, 0.35, 0),
+			tpDir * 0.25,
+			-tpDir * 0.2,
+			Vector3.new(0.3, 0.15, 0),
+			Vector3.new(-0.3, 0.15, 0),
+			Vector3.new(0, 0.4, 0),
+			Vector3.new(0, -0.15, 0),
 		}
 		for _, off in ipairs(offsets) do
 			local pos = headPos + off
@@ -1873,21 +1869,25 @@ function MultiFireAt()
 				onVictimDied(m2)
 			end
 		end)
+	end
 
-		-- restore only if we expanded and Hitbox expander is not owning this char
-		if expandOn and cached and head and head.Parent then
+	-- restore after a short delay so Hit packets land while head is still big
+	if headBak and head then
+		task.delay(0.12, function()
 			pcall(function()
+				if not head or not head.Parent then return end
 				if Hitbox_Config.Enabled and Hitbox_Cache[head.Parent] then
-					return -- hitbox system keeps its size
+					-- leave expanded size to hitbox loop; it will re-apply next tick
+					head:SetAttribute("CLL_SUK_HEAD_EXP", nil)
+					return
 				end
-				head.Size = cached.Size
-				head.Transparency = cached.Transparency
-				head.CanCollide = cached.CanCollide
-				if cached.CanQuery ~= nil then head.CanQuery = cached.CanQuery end
-				if cached.Massless ~= nil then head.Massless = cached.Massless end
-				head:SetAttribute("CLL_SUK_HEAD_BAK", nil)
+				head.Size = headBak.Size
+				head.Transparency = headBak.Transparency
+				head.CanCollide = headBak.CanCollide
+				if headBak.Material then head.Material = headBak.Material end
+				head:SetAttribute("CLL_SUK_HEAD_EXP", nil)
 			end)
-		end
+		end)
 	end
 
 	for i = 0, 7 do
@@ -4854,7 +4854,7 @@ fit(); workspace.CurrentCamera:GetPropertyChangedSignal("ViewportSize"):Connect(
 local header = new("Frame", { Size = UDim2.new(1, 0, 0, 62), BackgroundTransparency = 1, Parent = window })
 local logoLabel = label({ Text = "CLL", Font = Enum.Font.Michroma, TextSize = 26, TextTruncate = Enum.TextTruncate.AtEnd, Size = UDim2.fromOffset(100, 62), Position = UDim2.fromOffset(23, 0), Parent = header })
 logoLabel.TextColor3 = Color3.fromRGB(255, 255, 255) -- Always white
-local verLabel = label({ Text = "v11.97-bs", Font = Enum.Font.GothamBold, TextSize = 12, TextColor3 = Theme.Dim, Size = UDim2.fromOffset(50, 62), Position = UDim2.fromOffset(85, 2), Parent = header })
+local verLabel = label({ Text = "v11.98-bt", Font = Enum.Font.GothamBold, TextSize = 12, TextColor3 = Theme.Dim, Size = UDim2.fromOffset(50, 62), Position = UDim2.fromOffset(85, 2), Parent = header })
 local timeLabel = label({ Text = "Session: 00:00", Font = Enum.Font.GothamMedium, TextSize = 13, TextColor3 = Theme.Dim, Size = UDim2.fromOffset(150, 62), Position = UDim2.fromOffset(150, 0), Parent = header })
 task.spawn(function()
 	while not ST.isUnloaded do
@@ -5542,7 +5542,7 @@ function buildTarget()
 	slider(scroll, y, L("t_suk_delay"), 0.01, 0.5, ST.SUK_FireDelay, 0.01, function(v) ST.SUK_FireDelay = v end, function() return ST.SUK_FireDelay end, L("d_suk_delay")); y += 58
 	slider(scroll, y, L("t_suk_targets"), 1, 16, ST.SUK_MaxPerTick, 1, function(v) ST.SUK_MaxPerTick = v end, function() return ST.SUK_MaxPerTick end, L("d_suk_targets")); y += 58
 	toggle(scroll, y, "SUK Head Expand", function(v) ST.SUK_HeadExpand = v end, true, function() return ST.SUK_HeadExpand ~= false end, "Invisible local head enlarge on targets so Hit registers more reliably."); y += 54
-	slider(scroll, y, "Head Expand Size", 1.5, 10, ST.SUK_HeadExpandSize or 4.5, 0.5, function(v) ST.SUK_HeadExpandSize = v end, function() return ST.SUK_HeadExpandSize or 4.5 end, "Local head cube size while SUK fires (Transparency 1)."); y += 58
+	slider(scroll, y, "Head Expand Size", 1.5, 10, ST.SUK_HeadExpandSize or 4.5, 0.5, function(v) ST.SUK_HeadExpandSize = v end, function() return ST.SUK_HeadExpandSize or 4.5 end, "Local head cube size while SUK fires."); y += 58
 	toggle(scroll, y, L("t_heal"), function(v) ST.HealEnabled = v; if v then StartHealLoop() else StopHealLoop() end end, false, function() return ST.HealEnabled end, L("d_heal")); y += 54
 	slider(scroll, y, L("t_heal_h"), -5, 10, ST.HealFlyHeight or 3.5, 0.5, function(v) ST.HealFlyHeight = v end, function() return ST.HealFlyHeight end, L("d_heal_h")); y += 58
 	toggle(scroll, y, L("t_ignore_friends"), function(v) ST.SUK_IgnoreFriends = v end, true, function() return ST.SUK_IgnoreFriends end, L("d_ignore_friends")); y += 54
@@ -5766,7 +5766,7 @@ function buildVR()
 end
 
 function buildProfile()
-	local panel = new("Frame", { Size = UDim2.new(1, -40, 1, -40), Position = UDim2.fromOffset(20, 20), BackgroundColor3 = Theme.Panel, Parent = pages.Profile }, { corner(16), stroke() })
+	local panel = new("Frame", { Size = UDim2.new(1, -40, 1, -40), Position = UDim2.fromOffset(20, 20), BackgroundColor3 = Theme.Panel, ClipsDescendants = true, Parent = pages.Profile }, { corner(16), stroke() })
 	local title = label({ Text = L("profile_title"), Font = Enum.Font.GothamMedium, TextSize = 20, Size = UDim2.fromOffset(250, 30), Position = UDim2.fromOffset(PAD, 20), Parent = panel })
 	divider(panel, 61)
 	local avatar = new("ImageLabel", { Size = UDim2.fromOffset(80, 80), Position = UDim2.fromOffset(PAD, 80), BackgroundColor3 = Theme.Row, Parent = panel }, { round(), stroke() })
@@ -5780,11 +5780,11 @@ function buildProfile()
 
 	local function row(titleKey, y)
 		local t = label({ Text = L(titleKey), TextSize = 13, TextColor3 = Theme.Dim, Size = UDim2.fromOffset(110, 18), Position = UDim2.fromOffset(PAD, y), Parent = panel })
-		local v = label({ Text = "—", Font = Enum.Font.GothamMedium, TextSize = 13, Size = UDim2.fromOffset(200, 18), Position = UDim2.fromOffset(PAD + 120, y), Parent = panel })
+		local v = label({ Text = "—", Font = Enum.Font.GothamMedium, TextSize = 13, Size = UDim2.new(1, -240, 0, 18), Position = UDim2.fromOffset(PAD + 120, y), Parent = panel })
 		return t, v
 	end
 	local tBuild, vBuild = row("profile_build", 225)
-	vBuild.Text = "v11.97-bs"
+	vBuild.Text = "v11.98-bt"
 	local tSess, vSess = row("profile_session", 250)
 	local tStat, vStat = row("profile_status", 275)
 	vStat.Text = L("profile_active")
@@ -5822,7 +5822,7 @@ function buildProfile()
 		BackgroundColor3 = Theme.Row,
 		BackgroundTransparency = 0.15,
 		Size = UDim2.fromOffset(96, 24),
-		Position = UDim2.fromOffset(PAD + 290, 397),
+		Position = UDim2.new(1, -108, 0, 397),
 		AutoButtonColor = false,
 		Parent = panel,
 	}, { corner(7), stroke(Theme.Accent, 1) })
@@ -5857,7 +5857,7 @@ function buildProfile()
 		BackgroundColor3 = Theme.Row,
 		BackgroundTransparency = 0.15,
 		Size = UDim2.fromOffset(96, 24),
-		Position = UDim2.fromOffset(PAD + 290, 422),
+		Position = UDim2.new(1, -108, 0, 422),
 		AutoButtonColor = false,
 		Parent = panel,
 	}, { corner(7), stroke(Theme.Accent, 1) })
@@ -5873,20 +5873,6 @@ function buildProfile()
 		end
 	end)
 
-	divider(panel, 460)
-	local tipTitle = label({ Text = L("profile_tip"), Font = Enum.Font.GothamMedium, TextSize = 13, TextColor3 = Theme.Dim, Size = UDim2.fromOffset(120, 18), Position = UDim2.fromOffset(PAD, 475), Parent = panel })
-	local tipBody = label({
-		Text = L("profile_tip_body"),
-		Font = Enum.Font.Gotham,
-		TextSize = 12,
-		TextColor3 = Theme.Text,
-		TextWrapped = true,
-		TextXAlignment = Enum.TextXAlignment.Left,
-		TextYAlignment = Enum.TextYAlignment.Top,
-		Size = UDim2.new(1, -PAD * 2, 0, 70),
-		Position = UDim2.fromOffset(PAD, 498),
-		Parent = panel,
-	})
 
 	table.insert(UI_LangHooks, function()
 		if title and title.Parent then title.Text = L("profile_title") end
@@ -5901,9 +5887,7 @@ function buildProfile()
 		if tFeat then tFeat.Text = L("profile_feat") end
 		if tUid then tUid.Text = L("profile_uid") end
 		if tSrv then tSrv.Text = L("profile_server") end
-		if tipTitle then tipTitle.Text = L("profile_tip") end
-		if tipBody then tipBody.Text = L("profile_tip_body") end
-	end)
+			end)
 
 	task.spawn(function()
 		while panel.Parent and not ST.isUnloaded do
@@ -6122,25 +6106,34 @@ function buildSettings()
 	leftScroll.CanvasSize = UDim2.fromOffset(0, math.max(y + 40, 900))
 	unhookBtn.MouseButton1Click:Connect(function()
 		ST.isUnloaded = true
-		ST.VREnabled = false
-		ST.isMultiSuk = false
-		ST.SilentAimEnabled = false
+		-- kill every feature flag
+		for k, v in pairs(ST) do
+			if type(v) == "boolean" and k ~= "isUnloaded" then
+				ST[k] = false
+			end
+		end
+		ST.isUnloaded = true
 		for k, _ in pairs(Keys) do Keys[k] = Enum.KeyCode.Unknown end
 		VRWantEnabled = false
-		ST.TracersEnabled = false
-		ST.LocalInvisEnabled = false
-		ST.FootTrailsEnabled = false
-		ST.HandTrailsEnabled = false
-		ST.RockTrajectoryEnabled = false
-		ST.KillHighlightEnabled = false
-		ST.KillBeamEnabled = false
-		ST.KillTriangleEnabled = false
-		ST.KillCrownEnabled = false
-		ST.KillWreathEnabled = false
-		ST.TrueCrosshairEnabled = false
-		ST.MenuGridEnabled = false
 		ESP_Config.Enabled = false
 		Hitbox_Config.Enabled = false
+		pcall(function() table.clear(HitboxSelectedTargets) end)
+		pcall(function()
+			if ESP_Cache then
+				for char, data in pairs(ESP_Cache) do
+					pcall(function()
+						if type(data) == "table" then
+							for _, o in pairs(data) do
+								if typeof(o) == "Instance" then o:Destroy() end
+							end
+						elseif typeof(data) == "Instance" then
+							data:Destroy()
+						end
+					end)
+				end
+				table.clear(ESP_Cache)
+			end
+		end)
 		-- wipe visual folders / trails
 		pcall(function()
 			local f = workspace:FindFirstChild("CLL_Trails")
@@ -6202,11 +6195,31 @@ function buildSettings()
 				restoreHitbox(char, char:FindFirstChild("Head"), char:FindFirstChild("HumanoidRootPart"))
 			end)
 		end
-		-- destroy ALL CLL visuals / guis
+		-- destroy ALL CLL visuals / guis / effects
+		pcall(function() if fovCircle then fovCircle:Destroy() end end)
 		pcall(function() if trueAimGui then trueAimGui:Destroy() end end)
 		pcall(function() if realCrossGui then realCrossGui:Destroy() end end)
 		pcall(function() if ESPGui then ESPGui:Destroy() end end)
 		pcall(function() if tracerFolder then tracerFolder:Destroy() end end)
+		pcall(function()
+			for _, name in ipairs({"CLL_Trails", "CLL_RockArc", "CLL_FX", "CLL_Tracers", "CLL_Beams"}) do
+				local f = workspace:FindFirstChild(name)
+				if f then f:Destroy() end
+			end
+		end)
+		pcall(function()
+			for _, pl in ipairs(Players:GetPlayers()) do
+				local ch = pl.Character
+				if ch then
+				for _, c in ipairs(ch:GetDescendants()) do
+					if c.Name:find("CLL") or (c:IsA("Highlight") and c.Name:find("CLL")) then
+						pcall(function() c:Destroy() end)
+					end
+				end
+				end
+			end
+		end)
+		pcall(function() table.clear(Hitbox_Cache) end)
 		pcall(function() if ammoGui then ammoGui:Destroy() end end)
 		pcall(function() if ammoLbl then ammoLbl:Destroy() end end)
 		pcall(function() if menuGridConn then menuGridConn:Disconnect() end end)
@@ -7337,19 +7350,19 @@ rebuildMenuGrid = function()
 			-- orthogonal grid: tilt via holder only (chess keeps its own cell rotation)
 			local holder = Instance.new("Frame")
 			holder.BackgroundTransparency = 1
-			holder.Size = UDim2.fromScale(3.2, 3.2)
+			holder.Size = UDim2.fromScale(4.5, 4.5)
 			holder.Position = UDim2.fromScale(0.5, 0.5)
 			holder.AnchorPoint = Vector2.new(0.5, 0.5)
 			holder.Rotation = tonumber(ST.MenuGridRotation) or 0
 			holder.ZIndex = 0
 			holder.Parent = folder
 			local lines = {}
-			local extent = 100
+			local extent = 140
 			for i = 0, extent do
-				lines[#lines + 1] = { ln = mk(holder, i * spacing - spacing * 10, -spacing * 10, 2, spacing * (extent + 24), col, tr), axis = "v", i = i }
+				lines[#lines + 1] = { ln = mk(holder, i * spacing - spacing * 14, -spacing * 14, 2, spacing * (extent + 36), col, tr), axis = "v", i = i }
 			end
 			for i = 0, extent do
-				lines[#lines + 1] = { ln = mk(holder, -spacing * 10, i * spacing - spacing * 10, spacing * (extent + 24), 2, col, tr), axis = "h", i = i }
+				lines[#lines + 1] = { ln = mk(holder, -spacing * 14, i * spacing - spacing * 14, spacing * (extent + 36), 2, col, tr), axis = "h", i = i }
 			end
 			local scrollOff = 0
 			menuGridConn = RunService.RenderStepped:Connect(function(dt)
@@ -7368,11 +7381,11 @@ rebuildMenuGrid = function()
 					L.ln.BackgroundTransparency = tr2
 					L.ln.Rotation = 0
 					if L.axis == "v" then
-						L.ln.Position = UDim2.fromOffset(L.i * spacing - spacing * 10 - off, -spacing * 10)
-						L.ln.Size = UDim2.fromOffset(2, spacing * 120)
+						L.ln.Position = UDim2.fromOffset(L.i * spacing - spacing * 14 - off, -spacing * 14)
+						L.ln.Size = UDim2.fromOffset(2, spacing * 160)
 					else
-						L.ln.Position = UDim2.fromOffset(-spacing * 10, L.i * spacing - spacing * 10 - off)
-						L.ln.Size = UDim2.fromOffset(spacing * 120, 2)
+						L.ln.Position = UDim2.fromOffset(-spacing * 14, L.i * spacing - spacing * 14 - off)
+						L.ln.Size = UDim2.fromOffset(spacing * 160, 2)
 					end
 				end
 			end)
