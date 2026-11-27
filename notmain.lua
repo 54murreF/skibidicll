@@ -1,6 +1,6 @@
 --[[
     ╔═══════════════════════════════════════════════════════════════╗
-    ║              CLL CHEAT - FULL INTEGRATION v12.08-cd (native Q/G grab mirror + VR restore)                ║
+    ║              CLL CHEAT - FULL INTEGRATION v12.09-ce (native Q/G grab mirror + VR restore)                ║
     ╠═══════════════════════════════════════════════════════════════╣
     ║  SUK head-hit, real crosshair, tracers, ESP outline nick,     ║
     ║  ChinaHat/Wings fix, VR hands, anti-flash/shake, antibypass   ║
@@ -5031,7 +5031,7 @@ fit(); workspace.CurrentCamera:GetPropertyChangedSignal("ViewportSize"):Connect(
 local header = new("Frame", { Size = UDim2.new(1, 0, 0, 62), BackgroundTransparency = 1, Parent = window })
 local logoLabel = label({ Text = "CLL", Font = Enum.Font.Michroma, TextSize = 26, TextTruncate = Enum.TextTruncate.AtEnd, Size = UDim2.fromOffset(100, 62), Position = UDim2.fromOffset(23, 0), Parent = header })
 logoLabel.TextColor3 = Color3.fromRGB(255, 255, 255) -- Always white
-local verLabel = label({ Text = "v12.08-cd", Font = Enum.Font.GothamBold, TextSize = 12, TextColor3 = Theme.Dim, Size = UDim2.fromOffset(50, 62), Position = UDim2.fromOffset(85, 2), Parent = header })
+local verLabel = label({ Text = "v12.09-ce", Font = Enum.Font.GothamBold, TextSize = 12, TextColor3 = Theme.Dim, Size = UDim2.fromOffset(50, 62), Position = UDim2.fromOffset(85, 2), Parent = header })
 local timeLabel = label({ Text = "Session: 00:00", Font = Enum.Font.GothamMedium, TextSize = 13, TextColor3 = Theme.Dim, Size = UDim2.fromOffset(150, 62), Position = UDim2.fromOffset(150, 0), Parent = header })
 task.spawn(function()
 	while not ST.isUnloaded do
@@ -6142,7 +6142,7 @@ function buildProfile()
 	end
 
 	local tBuild, vBuild = row("profile_build", 1)
-	vBuild.Text = "v12.08-cd"
+	vBuild.Text = "v12.09-ce"
 	local tSess, vSess = row("profile_session", 2)
 	local tStat, vStat = row("profile_status", 3)
 	vStat.Text = L("profile_active")
@@ -6420,13 +6420,30 @@ function buildSettings()
 	local rejoinBtn = new("TextButton", { Text = "Rejoin", Size = UDim2.new(1, -40, 0, 40), Position = UDim2.fromOffset(20, y), BackgroundColor3 = Theme.Row, Font = Enum.Font.GothamMedium, TextSize = 14, TextColor3 = Theme.Text, AutoButtonColor = false, Parent = leftScroll }, { corner(10), stroke() })
 	rejoinBtn.MouseButton1Click:Connect(function() game:GetService("TeleportService"):Teleport(game.PlaceId, LocalPlayer) end)
 	y += 52
-	toggle(leftScroll, y, "???", function(v)
-		ST.MenuMusicEnabled = v
-		if updateMenuMusic then pcall(updateMenuMusic) end
-	end, false, function() return ST.MenuMusicEnabled == true end, "")
-	y += 48
 	local unhookBtn = new("TextButton", { Text = "UnHook / Unload", Size = UDim2.new(1, -40, 0, 40), Position = UDim2.fromOffset(20, y), BackgroundColor3 = Theme.Row, Font = Enum.Font.GothamMedium, TextSize = 14, TextColor3 = Color3.fromRGB(255, 95, 110), AutoButtonColor = false, Parent = leftScroll }, { corner(10), stroke(Color3.fromRGB(255, 95, 110), 1.2) })
 	y += 56
+	-- easter egg at very bottom (below UnHook)
+	local eggY = y
+	local volHost = new("Frame", {
+		Size = UDim2.new(1, 0, 0, 58),
+		Position = UDim2.fromOffset(0, eggY + 48),
+		BackgroundTransparency = 1,
+		Visible = ST.MenuMusicEnabled == true,
+		Parent = leftScroll,
+	})
+	toggle(leftScroll, eggY, "???", function(v)
+		ST.MenuMusicEnabled = v
+		volHost.Visible = v == true
+		if updateMenuMusic then pcall(updateMenuMusic) end
+		-- expand canvas when volume row appears
+		local extra = v and 60 or 0
+		leftScroll.CanvasSize = UDim2.fromOffset(0, math.max(eggY + 48 + extra + 40, 900))
+	end, false, function() return ST.MenuMusicEnabled == true end, "")
+	slider(volHost, 4, "Volume", 0, 1, ST.MenuMusicVolume or 0.35, 0.05, function(v)
+		ST.MenuMusicVolume = v
+		if updateMenuMusic then pcall(updateMenuMusic) end
+	end, function() return ST.MenuMusicVolume or 0.35 end)
+	y = eggY + 48 + (ST.MenuMusicEnabled and 60 or 0)
 	leftScroll.CanvasSize = UDim2.fromOffset(0, math.max(y + 40, 900))
 	unhookBtn.MouseButton1Click:Connect(function()
 		ST.isUnloaded = true
