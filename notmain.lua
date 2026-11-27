@@ -1,6 +1,6 @@
 --[[
     ╔═══════════════════════════════════════════════════════════════╗
-    ║              CLL CHEAT - FULL INTEGRATION v12.02-bx (native Q/G grab mirror + VR restore)                ║
+    ║              CLL CHEAT - FULL INTEGRATION v12.03-by (native Q/G grab mirror + VR restore)                ║
     ╠═══════════════════════════════════════════════════════════════╣
     ║  SUK head-hit, real crosshair, tracers, ESP outline nick,     ║
     ║  ChinaHat/Wings fix, VR hands, anti-flash/shake, antibypass   ║
@@ -1007,6 +1007,44 @@ function CreateTracer(origin, targetPos, color)
 end
 
 
+
+
+-- Silent-aim visual only: always draws a line to aimed part (does not touch Hit/Fire logic / wallbang)
+function CreateSilentTracer(origin, targetPos)
+	if typeof(origin) ~= "Vector3" or typeof(targetPos) ~= "Vector3" then return end
+	local dist = (targetPos - origin).Magnitude
+	if dist < 0.5 or dist > 1200 then return end
+	local folder = tracerFolder
+	if not folder or not folder.Parent then
+		folder = workspace:FindFirstChild("CLL_Tracers")
+		if not folder then
+			folder = Instance.new("Folder")
+			folder.Name = "CLL_Tracers"
+			folder.Parent = workspace
+			tracerFolder = folder
+		end
+	end
+	local color = ST.ColorSelf or Color3.fromRGB(120, 180, 255)
+	pcall(function()
+		if Theme and Theme.Accent then color = Theme.Accent end
+	end)
+	local part = Instance.new("Part")
+	part.Name = "CLL_SilentTracer"
+	part.Anchored = true
+	part.CanCollide = false
+	part.CanQuery = false
+	part.CanTouch = false
+	part.CastShadow = false
+	part.Material = Enum.Material.Neon
+	part.Color = color
+	part.Transparency = 0.2
+	part.Size = Vector3.new(0.05, 0.05, dist)
+	part.CFrame = CFrame.lookAt(origin, targetPos) * CFrame.new(0, 0, -dist / 2)
+	part.Parent = folder
+	task.delay(0.12, function()
+		pcall(function() part:Destroy() end)
+	end)
+end
 
 function tracerColorForCharacter(char)
 	if not char then return ST.ColorOthers, ST.TracerOthersEnabled end
@@ -4002,16 +4040,31 @@ function GetClosestAimPartInFOV()
 		if not char or not char.Parent then return end
 		local hum = char:FindFirstChildOfClass("Humanoid")
 		if not hum or hum.Health <= 0 then return end
-		local ref = char:FindFirstChild("Head") or char:FindFirstChild("HumanoidRootPart")
+		-- aim priority uses Head screen-pos (closest to crosshair / FOV center = mouse)
+		local ref = char:FindFirstChild("Head")
+			or char:FindFirstChild("HumanoidRootPart")
 		if not ref then return end
 		local screenPos, onScreen = cam:WorldToViewportPoint(ref.Position)
 		if screenPos.Z <= 0 then return end
-		-- wallbang: allow off-screen edges still in FOV ring; else need on-screen
 		if not ST.SilentAimWallbang and not onScreen then return end
-		local d = (Vector2.new(screenPos.X, screenPos.Y) - mousePos).Magnitude
-		if d >= fovR or d >= closestDist then return end
+		local dScreen = (Vector2.new(screenPos.X, screenPos.Y) - mousePos).Magnitude
+		if dScreen >= fovR then return end
 		if not silentAimHasLOS(origin, ref.Position, char) then return end
-		closestChar, closestDist = char, d
+		-- primary: closer to crosshair; secondary: closer in world (stable pick when tied)
+		local dWorld = (ref.Position - origin).Magnitude
+		local better = false
+		if dScreen < closestDist - 0.05 then
+			better = true
+		elseif math.abs(dScreen - closestDist) <= 0.05 and closestChar then
+			local prev = closestChar:FindFirstChild("Head") or closestChar:FindFirstChild("HumanoidRootPart")
+			local prevW = prev and (prev.Position - origin).Magnitude or math.huge
+			if dWorld < prevW then better = true end
+		elseif not closestChar then
+			better = true
+		end
+		if better then
+			closestChar, closestDist = char, dScreen
+		end
 	end
 
 	for _, plr in ipairs(Players:GetPlayers()) do
@@ -4371,6 +4424,8 @@ oldNamecall = hookmetamethod(game, "__namecall", function(self, ...)
 				if d.Magnitude > 0.01 then
 					payload.direction = d.Unit
 					payload.Direction = d.Unit
+					-- visual only (deagle/etc): line to silent target; does not change wallbang Hit rewrite
+					pcall(CreateSilentTracer, origin, _G.CLL_AimPos)
 				end
 			end
 			if ST.NoSpreadEnabled and typeof(payload.direction) == "Vector3" and payload.direction.Magnitude > 1e-4 then
@@ -4975,7 +5030,7 @@ fit(); workspace.CurrentCamera:GetPropertyChangedSignal("ViewportSize"):Connect(
 local header = new("Frame", { Size = UDim2.new(1, 0, 0, 62), BackgroundTransparency = 1, Parent = window })
 local logoLabel = label({ Text = "CLL", Font = Enum.Font.Michroma, TextSize = 26, TextTruncate = Enum.TextTruncate.AtEnd, Size = UDim2.fromOffset(100, 62), Position = UDim2.fromOffset(23, 0), Parent = header })
 logoLabel.TextColor3 = Color3.fromRGB(255, 255, 255) -- Always white
-local verLabel = label({ Text = "v12.02-bx", Font = Enum.Font.GothamBold, TextSize = 12, TextColor3 = Theme.Dim, Size = UDim2.fromOffset(50, 62), Position = UDim2.fromOffset(85, 2), Parent = header })
+local verLabel = label({ Text = "v12.03-by", Font = Enum.Font.GothamBold, TextSize = 12, TextColor3 = Theme.Dim, Size = UDim2.fromOffset(50, 62), Position = UDim2.fromOffset(85, 2), Parent = header })
 local timeLabel = label({ Text = "Session: 00:00", Font = Enum.Font.GothamMedium, TextSize = 13, TextColor3 = Theme.Dim, Size = UDim2.fromOffset(150, 62), Position = UDim2.fromOffset(150, 0), Parent = header })
 task.spawn(function()
 	while not ST.isUnloaded do
@@ -5990,7 +6045,7 @@ function buildProfile()
 	end
 
 	local tBuild, vBuild = row("profile_build", 1)
-	vBuild.Text = "v12.02-bx"
+	vBuild.Text = "v12.03-by"
 	local tSess, vSess = row("profile_session", 2)
 	local tStat, vStat = row("profile_status", 3)
 	vStat.Text = L("profile_active")
