@@ -1,6 +1,6 @@
 --[[
     ╔═══════════════════════════════════════════════════════════════╗
-    ║              CLL CHEAT - FULL INTEGRATION v12.00-bv (native Q/G grab mirror + VR restore)                ║
+    ║              CLL CHEAT - FULL INTEGRATION v12.01-bw (native Q/G grab mirror + VR restore)                ║
     ╠═══════════════════════════════════════════════════════════════╣
     ║  SUK head-hit, real crosshair, tracers, ESP outline nick,     ║
     ║  ChinaHat/Wings fix, VR hands, anti-flash/shake, antibypass   ║
@@ -189,6 +189,8 @@ local ST = {
 	SilentAimEnabled = false,
 	SilentAimFOV = 90,
 	SilentAimWallbang = false,
+	SilentAimMissEnabled = false,
+	SilentAimMissPct = 15,
 	SilentAimNPCs = false,
 	RealCrosshairEnabled = true,
 	TrueCrosshairEnabled = true,
@@ -3965,16 +3967,22 @@ function GetMouseScreenPos()
 end
 
 function silentAimHasLOS(fromPos, toPos, targetChar)
+	-- Wallbang: never block by world geometry
 	if ST.SilentAimWallbang then return true end
 	local ok, hit = pcall(function()
 		local rp = RaycastParams.new()
 		rp.FilterType = Enum.RaycastFilterType.Exclude
-		rp.FilterDescendantsInstances = { LocalPlayer.Character }
+		local excl = { LocalPlayer.Character }
+		if targetChar then table.insert(excl, targetChar) end
+		rp.FilterDescendantsInstances = excl
 		rp.IgnoreWater = true
-		return workspace:Raycast(fromPos, toPos - fromPos, rp)
+		local delta = toPos - fromPos
+		if delta.Magnitude < 0.05 then return nil end
+		return workspace:Raycast(fromPos, delta, rp)
 	end)
-	if not ok or not hit then return true end
-	if targetChar and hit.Instance and hit.Instance:IsDescendantOf(targetChar) then return true end
+	-- no hit → clear path; hit something that isn't target → blocked
+	if not ok then return true end
+	if not hit then return true end
 	return false
 end
 
@@ -3994,7 +4002,9 @@ function GetClosestAimPartInFOV()
 		local ref = char:FindFirstChild("Head") or char:FindFirstChild("HumanoidRootPart")
 		if not ref then return end
 		local screenPos, onScreen = cam:WorldToViewportPoint(ref.Position)
-		if not (onScreen and screenPos.Z > 0) then return end
+		if screenPos.Z <= 0 then return end
+		-- wallbang: allow off-screen edges still in FOV ring; else need on-screen
+		if not ST.SilentAimWallbang and not onScreen then return end
 		local d = (Vector2.new(screenPos.X, screenPos.Y) - mousePos).Magnitude
 		if d >= fovR or d >= closestDist then return end
 		if not silentAimHasLOS(origin, ref.Position, char) then return end
@@ -4019,6 +4029,13 @@ function GetClosestAimPartInFOV()
 	end
 
 	if not closestChar then return nil end
+	-- optional intentional miss
+	if ST.SilentAimMissEnabled then
+		local mp = math.clamp(tonumber(ST.SilentAimMissPct) or 15, 0, 100)
+		if math.random() * 100 < mp then
+			return nil -- fall back to real mouse aim = miss
+		end
+	end
 	return pickSilentAimPart(closestChar)
 end
 
@@ -4819,6 +4836,12 @@ pcall(function()
 			if panel then
 				panel.Size = UDim2.new(1, -40, 1, -40)
 				panel.Position = UDim2.fromOffset(20, 20)
+				-- keep stats area filling remaining height so content scrolls when short
+				for _, ch in ipairs(panel:GetChildren()) do
+					if ch:IsA("ScrollingFrame") then
+						ch.Size = UDim2.new(1, -40, 1, -210)
+					end
+				end
 			end
 		end
 	end
@@ -4900,7 +4923,7 @@ fit(); workspace.CurrentCamera:GetPropertyChangedSignal("ViewportSize"):Connect(
 local header = new("Frame", { Size = UDim2.new(1, 0, 0, 62), BackgroundTransparency = 1, Parent = window })
 local logoLabel = label({ Text = "CLL", Font = Enum.Font.Michroma, TextSize = 26, TextTruncate = Enum.TextTruncate.AtEnd, Size = UDim2.fromOffset(100, 62), Position = UDim2.fromOffset(23, 0), Parent = header })
 logoLabel.TextColor3 = Color3.fromRGB(255, 255, 255) -- Always white
-local verLabel = label({ Text = "v12.00-bv", Font = Enum.Font.GothamBold, TextSize = 12, TextColor3 = Theme.Dim, Size = UDim2.fromOffset(50, 62), Position = UDim2.fromOffset(85, 2), Parent = header })
+local verLabel = label({ Text = "v12.01-bw", Font = Enum.Font.GothamBold, TextSize = 12, TextColor3 = Theme.Dim, Size = UDim2.fromOffset(50, 62), Position = UDim2.fromOffset(85, 2), Parent = header })
 local timeLabel = label({ Text = "Session: 00:00", Font = Enum.Font.GothamMedium, TextSize = 13, TextColor3 = Theme.Dim, Size = UDim2.fromOffset(150, 62), Position = UDim2.fromOffset(150, 0), Parent = header })
 task.spawn(function()
 	while not ST.isUnloaded do
@@ -5405,7 +5428,7 @@ end
 function buildCombat()
 	buildFeaturePage(pages.Combat, "ATTACK", {
 		{ name = "Silent Aim", nameKey = "t_silent", descKey = "d_silent", initial = false, getState = function() return ST.SilentAimEnabled end, onToggle = function(v) ST.SilentAimEnabled = v; updateFOVCircle() end, buildDetail = function(d)
-			detailSlider(d, 1, "FOV", 20, 360, ST.SilentAimFOV or 90, 1, function(v) ST.SilentAimFOV = v; updateFOVCircle() end)
+			detailSlider(d, 1, "FOV", 10, 360, ST.SilentAimFOV or 90, 1, function(v) ST.SilentAimFOV = v; updateFOVCircle() end)
 			detailToggle(d, 2, "Show FOV circle", ST.SilentAimShowFOV ~= false, function(v) ST.SilentAimShowFOV = v; updateFOVCircle() end)
 			detailToggle(d, 3, "Target NPCs", ST.SilentAimNPCs == true, function(v)
 				ST.SilentAimNPCs = v
@@ -5414,9 +5437,13 @@ function buildCombat()
 			detailToggle(d, 4, "Wallbang", ST.SilentAimWallbang == true, function(v)
 				ST.SilentAimWallbang = v
 			end)
-			detailSlider(d, 5, "Head %", 0, 100, ST.SilentAimHeadPct or 80, 1, function(v) ST.SilentAimHeadPct = v end)
-			detailSlider(d, 6, "Torso %", 0, 100, ST.SilentAimTorsoPct or 15, 1, function(v) ST.SilentAimTorsoPct = v end)
-			detailSlider(d, 7, "Legs %", 0, 100, ST.SilentAimLegsPct or 5, 1, function(v) ST.SilentAimLegsPct = v end)
+			detailToggle(d, 5, "Miss chance", ST.SilentAimMissEnabled == true, function(v)
+				ST.SilentAimMissEnabled = v
+			end)
+			detailSlider(d, 6, "Miss %", 0, 80, ST.SilentAimMissPct or 15, 1, function(v) ST.SilentAimMissPct = v end)
+			detailSlider(d, 7, "Head %", 0, 100, ST.SilentAimHeadPct or 80, 1, function(v) ST.SilentAimHeadPct = v end)
+			detailSlider(d, 8, "Torso %", 0, 100, ST.SilentAimTorsoPct or 15, 1, function(v) ST.SilentAimTorsoPct = v end)
+			detailSlider(d, 9, "Legs %", 0, 100, ST.SilentAimLegsPct or 5, 1, function(v) ST.SilentAimLegsPct = v end)
 			local hint = new("TextLabel", {
 				Text = "LMB: real shot into FOV target. Wallbang = through walls. NPCs = include NPC list.",
 				Font = Enum.Font.Gotham, TextSize = 11, TextColor3 = Theme.Dim,
@@ -5831,16 +5858,28 @@ function buildProfile()
 
 	local statsTitle = label({ Text = L("profile_stats"), Font = Enum.Font.GothamMedium, TextSize = 14, TextColor3 = Theme.Dim, Size = UDim2.fromOffset(220, 22), Position = UDim2.fromOffset(PAD, 195), Parent = panel })
 
-	local statsBox = new("Frame", {
-		Size = UDim2.new(1, -PAD * 2, 0, 280),
+	local statsBox = new("ScrollingFrame", {
+		Size = UDim2.new(1, -PAD * 2, 1, -210),
 		Position = UDim2.fromOffset(PAD, 195),
 		BackgroundTransparency = 1,
+		BorderSizePixel = 0,
+		ScrollBarThickness = 5,
+		ScrollBarImageColor3 = Theme.Accent,
+		ScrollingDirection = Enum.ScrollingDirection.Y,
+		CanvasSize = UDim2.new(0, 0, 0, 0),
+		AutomaticCanvasSize = Enum.AutomaticSize.Y,
+		ClipsDescendants = true,
 		Parent = panel,
 	}, {
 		new("UIListLayout", {
 			Padding = UDim.new(0, 6),
 			SortOrder = Enum.SortOrder.LayoutOrder,
 			FillDirection = Enum.FillDirection.Vertical,
+		}),
+		new("UIPadding", {
+			PaddingTop = UDim.new(0, 2),
+			PaddingBottom = UDim.new(0, 8),
+			PaddingRight = UDim.new(0, 6),
 		}),
 	})
 	statsTitle.Parent = statsBox
@@ -5899,7 +5938,7 @@ function buildProfile()
 	end
 
 	local tBuild, vBuild = row("profile_build", 1)
-	vBuild.Text = "v12.00-bv"
+	vBuild.Text = "v12.01-bw"
 	local tSess, vSess = row("profile_session", 2)
 	local tStat, vStat = row("profile_status", 3)
 	vStat.Text = L("profile_active")
