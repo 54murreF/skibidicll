@@ -1,6 +1,6 @@
 --[[
     ╔═══════════════════════════════════════════════════════════════╗
-    ║              CLL CHEAT - FULL INTEGRATION v11.98-bt (native Q/G grab mirror + VR restore)                ║
+    ║              CLL CHEAT - FULL INTEGRATION v11.99-bu (native Q/G grab mirror + VR restore)                ║
     ╠═══════════════════════════════════════════════════════════════╣
     ║  SUK head-hit, real crosshair, tracers, ESP outline nick,     ║
     ║  ChinaHat/Wings fix, VR hands, anti-flash/shake, antibypass   ║
@@ -330,6 +330,7 @@ local savedHealPosition = nil
 local ESP_Config = {
     Enabled = false, Box = true, Name = true, Health = true, Distance = true, MaxDist = 1000,
     ShowTool = true, ShowReload = true, ShowRagdoll = true,
+    BoxTrans = 0, NameTrans = 0, HealthTrans = 0, DistTrans = 0, StatusTrans = 0,
     ChamsColor = Color3.fromRGB(255, 92, 122), FriendColor = Color3.fromRGB(85, 255, 127),
     ChamsFillTrans = 0.5, ChamsOutlineTrans = 0
 }
@@ -2676,7 +2677,11 @@ RunService.RenderStepped:Connect(function()
 							data.Box.Visible = ESP_Config.Enabled and ESP_Config.Box
 							if data.Box.Visible then data.Box.Size = UDim2.fromOffset(math.max(2, w), math.max(2, h)); data.Box.Position = UDim2.fromOffset(x, y); data.Box:FindFirstChildOfClass("UIStroke").Color = color end
 							data.Name.Visible = ESP_Config.Enabled and ESP_Config.Name
-							if data.Name.Visible then data.Name.Text = (IsFriend(v) and "[F] " or "") .. v.DisplayName; data.Name.TextColor3 = Color3.new(1,1,1); data.Name.Position = UDim2.new(0, sp.X, 0, y - 16); data.Name.Size = UDim2.new(0, 200, 0, 16); data.Name.TextColor3 = color; data.Name.AnchorPoint = Vector2.new(0.5, 0) end
+							if data.Name.Visible then data.Name.Text = (IsFriend(v) and "[F] " or "") .. v.DisplayName; data.Name.TextColor3 = Color3.new(1,1,1); data.Name.Position = UDim2.new(0, sp.X, 0, y - 16); data.Name.Size = UDim2.new(0, 200, 0, 16); data.Name.TextColor3 = color; data.Name.AnchorPoint = Vector2.new(0.5, 0)
+								data.Name.TextTransparency = ESP_Config.NameTrans or 0
+								local ns = data.Name:FindFirstChildOfClass("UIStroke")
+								if ns then ns.Transparency = ESP_Config.NameTrans or 0 end
+							end
 							data.HealthBg.Visible = ESP_Config.Enabled and ESP_Config.Health; data.HealthFill.Visible = data.HealthBg.Visible
 							if data.HealthText then data.HealthText.Visible = data.HealthBg.Visible end
 							if data.HealthBg.Visible then
@@ -2684,6 +2689,10 @@ RunService.RenderStepped:Connect(function()
 								data.HealthBg.Size = UDim2.new(0, 3, 0, h); data.HealthBg.Position = UDim2.new(0, x - 6, 0, y)
 								data.HealthFill.Size = UDim2.new(0, 3, 0, h * hp); data.HealthFill.Position = UDim2.new(0, x - 6, 0, y + (h - h * hp))
 								data.HealthFill.BackgroundColor3 = Color3.fromRGB(255, 0, 0):Lerp(Color3.fromRGB(0, 255, 0), hp)
+								local ht = ESP_Config.HealthTrans or 0
+								data.HealthBg.BackgroundTransparency = math.clamp(0.35 + ht * 0.65, 0, 1)
+								data.HealthFill.BackgroundTransparency = ht
+								if data.HealthText then data.HealthText.TextTransparency = ht end
 								if data.HealthText then
 									data.HealthText.Text = tostring(math.floor(hum.Health + 0.5))
 									-- beside HP bar (left of bar), not above
@@ -2694,7 +2703,13 @@ RunService.RenderStepped:Connect(function()
 								end
 							end
 							data.Distance.Visible = ESP_Config.Enabled and ESP_Config.Distance
-							if data.Distance.Visible then data.Distance.Text = string.format("[%d m]", math.floor(dist * 0.28)); data.Distance.Position = UDim2.new(0, sp.X, 0, y + h + 2); data.Distance.Size = UDim2.new(0, 100, 0, 14); data.Distance.AnchorPoint = Vector2.new(0.5, 0) end
+							if data.Distance.Visible then
+								data.Distance.Text = string.format("[%d m]", math.floor(dist * 0.28))
+								data.Distance.Position = UDim2.new(0, sp.X, 0, y + h + 2)
+								data.Distance.Size = UDim2.new(0, 100, 0, 14)
+								data.Distance.AnchorPoint = Vector2.new(0.5, 0)
+								data.Distance.TextTransparency = ESP_Config.DistTrans or 0
+							end
 							-- tool / reload / ragdoll timer
 							if data.Status then
 								local bits = {}
@@ -2717,7 +2732,7 @@ RunService.RenderStepped:Connect(function()
 								end
 								if ESP_Config.Enabled and #bits > 0 then
 									data.Status.Visible = true
-									data.Status.Text = table.concat(bits, " · ")
+									data.Status.Text = table.concat(bits, " · "); data.Status.TextTransparency = ESP_Config.StatusTrans or 0
 									data.Status.AnchorPoint = Vector2.new(0.5, 0)
 									local sy = y + h + (data.Distance.Visible and 16 or 2)
 									data.Status.Position = UDim2.new(0, sp.X, 0, sy)
@@ -3947,35 +3962,64 @@ function GetMouseScreenPos()
 	return Vector2.new(m.X, m.Y + 36) -- inset compensation approx
 end
 
+function silentAimHasLOS(fromPos, toPos, targetChar)
+	if ST.SilentAimWallbang then return true end
+	local ok, hit = pcall(function()
+		local rp = RaycastParams.new()
+		rp.FilterType = Enum.RaycastFilterType.Exclude
+		rp.FilterDescendantsInstances = { LocalPlayer.Character }
+		rp.IgnoreWater = true
+		return workspace:Raycast(fromPos, toPos - fromPos, rp)
+	end)
+	if not ok or not hit then return true end
+	if targetChar and hit.Instance and hit.Instance:IsDescendantOf(targetChar) then return true end
+	return false
+end
+
 function GetClosestAimPartInFOV()
 	if not ST.SilentAimEnabled then return nil end
 	local cam = workspace.CurrentCamera
 	if not cam then return nil end
 	local mousePos = GetMouseScreenPos()
-	-- FOV radius in pixels from degrees-like slider (same formula as before, but about cursor)
 	local fovR = (cam.ViewportSize.Y / 2) * ((ST.SilentAimFOV or 90) / math.max(cam.FieldOfView, 1))
+	local origin = cam.CFrame.Position
 	local closestChar, closestDist = nil, math.huge
+
+	local function considerChar(char)
+		if not char or not char.Parent then return end
+		local hum = char:FindFirstChildOfClass("Humanoid")
+		if not hum or hum.Health <= 0 then return end
+		local ref = char:FindFirstChild("Head") or char:FindFirstChild("HumanoidRootPart")
+		if not ref then return end
+		local screenPos, onScreen = cam:WorldToViewportPoint(ref.Position)
+		if not (onScreen and screenPos.Z > 0) then return end
+		local d = (Vector2.new(screenPos.X, screenPos.Y) - mousePos).Magnitude
+		if d >= fovR or d >= closestDist then return end
+		if not silentAimHasLOS(origin, ref.Position, char) then return end
+		closestChar, closestDist = char, d
+	end
+
 	for _, plr in ipairs(Players:GetPlayers()) do
-		if plr ~= LocalPlayer and plr.Character and not (ST.SUK_IgnoreFriends and FriendsList[plr.UserId]) then
-			local hum = plr.Character:FindFirstChildOfClass("Humanoid")
-			if hum and hum.Health > 0 then
-				local ref = plr.Character:FindFirstChild("Head")
-					or plr.Character:FindFirstChild("HumanoidRootPart")
-				if ref then
-					local screenPos, onScreen = cam:WorldToViewportPoint(ref.Position)
-					if onScreen and screenPos.Z > 0 then
-						local d = (Vector2.new(screenPos.X, screenPos.Y) - mousePos).Magnitude
-						if d < fovR and d < closestDist then
-							closestChar, closestDist = plr.Character, d
-						end
-					end
-				end
+		if plr ~= LocalPlayer and plr.Character then
+			if not (ST.SUK_IgnoreFriends and FriendsList[plr.UserId]) then
+				considerChar(plr.Character)
 			end
 		end
 	end
+
+	if ST.SilentAimNPCs then
+		if #NPC_List == 0 or (os.clock() - (last_npc_scan or 0)) > 2 then
+			pcall(refreshNPCList)
+		end
+		for _, char in ipairs(NPC_List) do
+			considerChar(char)
+		end
+	end
+
 	if not closestChar then return nil end
 	return pickSilentAimPart(closestChar)
 end
+
 
 
 
@@ -4854,7 +4898,7 @@ fit(); workspace.CurrentCamera:GetPropertyChangedSignal("ViewportSize"):Connect(
 local header = new("Frame", { Size = UDim2.new(1, 0, 0, 62), BackgroundTransparency = 1, Parent = window })
 local logoLabel = label({ Text = "CLL", Font = Enum.Font.Michroma, TextSize = 26, TextTruncate = Enum.TextTruncate.AtEnd, Size = UDim2.fromOffset(100, 62), Position = UDim2.fromOffset(23, 0), Parent = header })
 logoLabel.TextColor3 = Color3.fromRGB(255, 255, 255) -- Always white
-local verLabel = label({ Text = "v11.98-bt", Font = Enum.Font.GothamBold, TextSize = 12, TextColor3 = Theme.Dim, Size = UDim2.fromOffset(50, 62), Position = UDim2.fromOffset(85, 2), Parent = header })
+local verLabel = label({ Text = "v11.99-bu", Font = Enum.Font.GothamBold, TextSize = 12, TextColor3 = Theme.Dim, Size = UDim2.fromOffset(50, 62), Position = UDim2.fromOffset(85, 2), Parent = header })
 local timeLabel = label({ Text = "Session: 00:00", Font = Enum.Font.GothamMedium, TextSize = 13, TextColor3 = Theme.Dim, Size = UDim2.fromOffset(150, 62), Position = UDim2.fromOffset(150, 0), Parent = header })
 task.spawn(function()
 	while not ST.isUnloaded do
@@ -5784,7 +5828,7 @@ function buildProfile()
 		return t, v
 	end
 	local tBuild, vBuild = row("profile_build", 225)
-	vBuild.Text = "v11.98-bt"
+	vBuild.Text = "v11.99-bu"
 	local tSess, vSess = row("profile_session", 250)
 	local tStat, vStat = row("profile_status", 275)
 	vStat.Text = L("profile_active")
@@ -7089,6 +7133,11 @@ buildFeaturePage(pages.Visual, "VISUAL", {
 		detailToggle(d, 7, "Reload status", ESP_Config.ShowReload ~= false, function(v) ESP_Config.ShowReload = v end)
 		detailColor(d, 9, "ESP Color", function() return ESP_Config.ChamsColor end, function(c) ESP_Config.ChamsColor = c end)
 		detailColor(d, 10, "Friend Color", function() return ESP_Config.FriendColor end, function(c) ESP_Config.FriendColor = c end)
+		detailSlider(d, 11, "Box Transparency", 0, 1, ESP_Config.BoxTrans or 0, 0.05, function(v) ESP_Config.BoxTrans = v end)
+		detailSlider(d, 12, "Name Transparency", 0, 1, ESP_Config.NameTrans or 0, 0.05, function(v) ESP_Config.NameTrans = v end)
+		detailSlider(d, 13, "Health Transparency", 0, 1, ESP_Config.HealthTrans or 0, 0.05, function(v) ESP_Config.HealthTrans = v end)
+		detailSlider(d, 14, "Distance Transparency", 0, 1, ESP_Config.DistTrans or 0, 0.05, function(v) ESP_Config.DistTrans = v end)
+		detailSlider(d, 15, "Status Transparency", 0, 1, ESP_Config.StatusTrans or 0, 0.05, function(v) ESP_Config.StatusTrans = v end)
 	end },
 	{ name = "Highlight Chams", nameKey = "t_chams", descKey = "d_chams", initial = false, onToggle = function(v) ST.HighlightChamsEnabled = v end, buildDetail = function(d)
 		detailSlider(d, 1, "Fill Transparency", 0, 1, ESP_Config.ChamsFillTrans, 0.05, function(v) ESP_Config.ChamsFillTrans = v end)
