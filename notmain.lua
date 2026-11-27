@@ -1,6 +1,6 @@
 --[[
     ╔═══════════════════════════════════════════════════════════════╗
-    ║              CLL CHEAT - FULL INTEGRATION v11.99-bu (native Q/G grab mirror + VR restore)                ║
+    ║              CLL CHEAT - FULL INTEGRATION v12.00-bv (native Q/G grab mirror + VR restore)                ║
     ╠═══════════════════════════════════════════════════════════════╣
     ║  SUK head-hit, real crosshair, tracers, ESP outline nick,     ║
     ║  ChinaHat/Wings fix, VR hands, anti-flash/shake, antibypass   ║
@@ -188,6 +188,8 @@ local ST = {
 	isUnloaded = false,
 	SilentAimEnabled = false,
 	SilentAimFOV = 90,
+	SilentAimWallbang = false,
+	SilentAimNPCs = false,
 	RealCrosshairEnabled = true,
 	TrueCrosshairEnabled = true,
 	LocalInvisEnabled = false,
@@ -4898,7 +4900,7 @@ fit(); workspace.CurrentCamera:GetPropertyChangedSignal("ViewportSize"):Connect(
 local header = new("Frame", { Size = UDim2.new(1, 0, 0, 62), BackgroundTransparency = 1, Parent = window })
 local logoLabel = label({ Text = "CLL", Font = Enum.Font.Michroma, TextSize = 26, TextTruncate = Enum.TextTruncate.AtEnd, Size = UDim2.fromOffset(100, 62), Position = UDim2.fromOffset(23, 0), Parent = header })
 logoLabel.TextColor3 = Color3.fromRGB(255, 255, 255) -- Always white
-local verLabel = label({ Text = "v11.99-bu", Font = Enum.Font.GothamBold, TextSize = 12, TextColor3 = Theme.Dim, Size = UDim2.fromOffset(50, 62), Position = UDim2.fromOffset(85, 2), Parent = header })
+local verLabel = label({ Text = "v12.00-bv", Font = Enum.Font.GothamBold, TextSize = 12, TextColor3 = Theme.Dim, Size = UDim2.fromOffset(50, 62), Position = UDim2.fromOffset(85, 2), Parent = header })
 local timeLabel = label({ Text = "Session: 00:00", Font = Enum.Font.GothamMedium, TextSize = 13, TextColor3 = Theme.Dim, Size = UDim2.fromOffset(150, 62), Position = UDim2.fromOffset(150, 0), Parent = header })
 task.spawn(function()
 	while not ST.isUnloaded do
@@ -5405,14 +5407,21 @@ function buildCombat()
 		{ name = "Silent Aim", nameKey = "t_silent", descKey = "d_silent", initial = false, getState = function() return ST.SilentAimEnabled end, onToggle = function(v) ST.SilentAimEnabled = v; updateFOVCircle() end, buildDetail = function(d)
 			detailSlider(d, 1, "FOV", 20, 360, ST.SilentAimFOV or 90, 1, function(v) ST.SilentAimFOV = v; updateFOVCircle() end)
 			detailToggle(d, 2, "Show FOV circle", ST.SilentAimShowFOV ~= false, function(v) ST.SilentAimShowFOV = v; updateFOVCircle() end)
-			detailSlider(d, 3, "Head %", 0, 100, ST.SilentAimHeadPct or 80, 1, function(v) ST.SilentAimHeadPct = v end)
-			detailSlider(d, 4, "Torso %", 0, 100, ST.SilentAimTorsoPct or 15, 1, function(v) ST.SilentAimTorsoPct = v end)
-			detailSlider(d, 5, "Legs %", 0, 100, ST.SilentAimLegsPct or 5, 1, function(v) ST.SilentAimLegsPct = v end)
+			detailToggle(d, 3, "Target NPCs", ST.SilentAimNPCs == true, function(v)
+				ST.SilentAimNPCs = v
+				if v then pcall(refreshNPCList) end
+			end)
+			detailToggle(d, 4, "Wallbang", ST.SilentAimWallbang == true, function(v)
+				ST.SilentAimWallbang = v
+			end)
+			detailSlider(d, 5, "Head %", 0, 100, ST.SilentAimHeadPct or 80, 1, function(v) ST.SilentAimHeadPct = v end)
+			detailSlider(d, 6, "Torso %", 0, 100, ST.SilentAimTorsoPct or 15, 1, function(v) ST.SilentAimTorsoPct = v end)
+			detailSlider(d, 7, "Legs %", 0, 100, ST.SilentAimLegsPct or 5, 1, function(v) ST.SilentAimLegsPct = v end)
 			local hint = new("TextLabel", {
-				Text = "On LMB: real shot toward target in FOV (no bullet TP). Hit bone rolled by %.",
+				Text = "LMB: real shot into FOV target. Wallbang = through walls. NPCs = include NPC list.",
 				Font = Enum.Font.Gotham, TextSize = 11, TextColor3 = Theme.Dim,
 				TextWrapped = true, BackgroundTransparency = 1,
-				Size = UDim2.new(1, -16, 0, 36), LayoutOrder = 6, Parent = d,
+				Size = UDim2.new(1, -16, 0, 36), LayoutOrder = 8, Parent = d,
 			})
 		end },
 		{ name = "Hitbox Expander", initial = false, getState = function() return Hitbox_Config.Enabled end, onToggle = function(v)
@@ -5822,28 +5831,22 @@ function buildProfile()
 
 	local statsTitle = label({ Text = L("profile_stats"), Font = Enum.Font.GothamMedium, TextSize = 14, TextColor3 = Theme.Dim, Size = UDim2.fromOffset(220, 22), Position = UDim2.fromOffset(PAD, 195), Parent = panel })
 
-	local function row(titleKey, y)
-		local t = label({ Text = L(titleKey), TextSize = 13, TextColor3 = Theme.Dim, Size = UDim2.fromOffset(110, 18), Position = UDim2.fromOffset(PAD, y), Parent = panel })
-		local v = label({ Text = "—", Font = Enum.Font.GothamMedium, TextSize = 13, Size = UDim2.new(1, -240, 0, 18), Position = UDim2.fromOffset(PAD + 120, y), Parent = panel })
-		return t, v
-	end
-	local tBuild, vBuild = row("profile_build", 225)
-	vBuild.Text = "v11.99-bu"
-	local tSess, vSess = row("profile_session", 250)
-	local tStat, vStat = row("profile_status", 275)
-	vStat.Text = L("profile_active")
-	vStat.TextColor3 = Color3.fromRGB(90, 220, 140)
-	local tPing, vPing = row("profile_ping", 300)
-	local tFps, vFps = row("profile_fps", 325)
-	local tFeat, vFeat = row("profile_feat", 350)
-	local tUid, vUid = row("profile_uid", 375)
-	vUid.Text = tostring(LocalPlayer.UserId)
-	local tSrv, vSrv = row("profile_server", 400)
-	local fullJob = ""
-	pcall(function() fullJob = tostring(game.JobId or "") end)
-	vSrv.Text = (#fullJob > 14) and (fullJob:sub(1, 12) .. "…") or (fullJob ~= "" and fullJob or "—")
-	vSrv.TextTruncate = Enum.TextTruncate.AtEnd
-	vSrv.Size = UDim2.fromOffset(160, 18)
+	local statsBox = new("Frame", {
+		Size = UDim2.new(1, -PAD * 2, 0, 280),
+		Position = UDim2.fromOffset(PAD, 195),
+		BackgroundTransparency = 1,
+		Parent = panel,
+	}, {
+		new("UIListLayout", {
+			Padding = UDim.new(0, 6),
+			SortOrder = Enum.SortOrder.LayoutOrder,
+			FillDirection = Enum.FillDirection.Vertical,
+		}),
+	})
+	statsTitle.Parent = statsBox
+	statsTitle.Position = UDim2.fromOffset(0, 0)
+	statsTitle.Size = UDim2.new(1, 0, 0, 20)
+	statsTitle.LayoutOrder = 0
 
 	local function copyToClipboard(text)
 		text = tostring(text or "")
@@ -5858,65 +5861,90 @@ function buildProfile()
 		return ok
 	end
 
-	local copyJobBtn = new("TextButton", {
-		Text = "Copy JobId",
-		Font = Enum.Font.GothamMedium,
-		TextSize = 11,
-		TextColor3 = Theme.Accent,
-		BackgroundColor3 = Theme.Row,
-		BackgroundTransparency = 0.15,
-		Size = UDim2.fromOffset(96, 24),
-		Position = UDim2.new(1, -108, 0, 397),
-		AutoButtonColor = false,
-		Parent = panel,
-	}, { corner(7), stroke(Theme.Accent, 1) })
-	copyJobBtn.MouseButton1Click:Connect(function()
-		local jid = ""
-		pcall(function() jid = tostring(game.JobId or "") end)
-		if jid == "" then
-			if CLL_Notify then CLL_Notify("JobId", "empty") end
-			return
+	local function row(titleKey, order, opts)
+		opts = opts or {}
+		local r = new("Frame", {
+			Size = UDim2.new(1, 0, 0, 24),
+			BackgroundTransparency = 1,
+			LayoutOrder = order,
+			Parent = statsBox,
+		})
+		local t = label({
+			Text = L(titleKey), TextSize = 13, TextColor3 = Theme.Dim,
+			Size = UDim2.new(0.32, 0, 1, 0), Position = UDim2.fromOffset(0, 0),
+			Parent = r,
+		})
+		local v = label({
+			Text = "—", Font = Enum.Font.GothamMedium, TextSize = 13,
+			Size = UDim2.new(opts.copy and 0.38 or 0.65, 0, 1, 0),
+			Position = UDim2.new(0.32, 0, 0, 0),
+			Parent = r,
+		})
+		local btn = nil
+		if opts.copy then
+			btn = new("TextButton", {
+				Text = opts.copyText or "Copy",
+				Font = Enum.Font.GothamMedium,
+				TextSize = 11,
+				TextColor3 = Theme.Accent,
+				BackgroundColor3 = Theme.Row,
+				BackgroundTransparency = 0.15,
+				Size = UDim2.new(0.28, -4, 0, 22),
+				Position = UDim2.new(0.72, 0, 0.5, -11),
+				AutoButtonColor = false,
+				Parent = r,
+			}, { corner(7), stroke(Theme.Accent, 1) })
 		end
-		if copyToClipboard(jid) then
-			copyJobBtn.Text = "Copied!"
-			if CLL_Notify then CLL_Notify("JobId", "copied") end
-			task.delay(1.2, function()
-				if copyJobBtn and copyJobBtn.Parent then copyJobBtn.Text = "Copy JobId" end
-			end)
-		else
-			-- fallback: put full id in the label so user can select
-			vSrv.Text = jid
-			if CLL_Notify then CLL_Notify("JobId", jid) end
-		end
-	end)
+		return t, v, btn
+	end
 
-	-- also show place id row
-	local tPlace, vPlace = row("profile_place", 425)
+	local tBuild, vBuild = row("profile_build", 1)
+	vBuild.Text = "v12.00-bv"
+	local tSess, vSess = row("profile_session", 2)
+	local tStat, vStat = row("profile_status", 3)
+	vStat.Text = L("profile_active")
+	vStat.TextColor3 = Color3.fromRGB(90, 220, 140)
+	local tPing, vPing = row("profile_ping", 4)
+	local tFps, vFps = row("profile_fps", 5)
+	local tFeat, vFeat = row("profile_feat", 6)
+	local tUid, vUid = row("profile_uid", 7)
+	vUid.Text = tostring(LocalPlayer.UserId)
+
+	local tSrv, vSrv, copyJobBtn = row("profile_server", 8, { copy = true, copyText = "Copy JobId" })
+	local fullJob = ""
+	pcall(function() fullJob = tostring(game.JobId or "") end)
+	vSrv.Text = (#fullJob > 18) and (fullJob:sub(1, 16) .. "…") or (fullJob ~= "" and fullJob or "—")
+	if copyJobBtn then
+		copyJobBtn.MouseButton1Click:Connect(function()
+			local jid = ""
+			pcall(function() jid = tostring(game.JobId or "") end)
+			if jid == "" then return end
+			if copyToClipboard(jid) then
+				copyJobBtn.Text = "Copied!"
+				task.delay(1.2, function()
+					if copyJobBtn and copyJobBtn.Parent then copyJobBtn.Text = "Copy JobId" end
+				end)
+			else
+				vSrv.Text = jid
+			end
+		end)
+	end
+
+	local tPlace, vPlace, copyPlaceBtn = row("profile_place", 9, { copy = true, copyText = "Copy PlaceId" })
 	pcall(function() vPlace.Text = tostring(game.PlaceId or "") end)
-	local copyPlaceBtn = new("TextButton", {
-		Text = "Copy PlaceId",
-		Font = Enum.Font.GothamMedium,
-		TextSize = 11,
-		TextColor3 = Theme.Accent,
-		BackgroundColor3 = Theme.Row,
-		BackgroundTransparency = 0.15,
-		Size = UDim2.fromOffset(96, 24),
-		Position = UDim2.new(1, -108, 0, 422),
-		AutoButtonColor = false,
-		Parent = panel,
-	}, { corner(7), stroke(Theme.Accent, 1) })
-	copyPlaceBtn.MouseButton1Click:Connect(function()
-		local pid = tostring(game.PlaceId or "")
-		if copyToClipboard(pid) then
-			copyPlaceBtn.Text = "Copied!"
-			task.delay(1.2, function()
-				if copyPlaceBtn and copyPlaceBtn.Parent then copyPlaceBtn.Text = "Copy PlaceId" end
-			end)
-		else
-			vPlace.Text = pid
-		end
-	end)
-
+	if copyPlaceBtn then
+		copyPlaceBtn.MouseButton1Click:Connect(function()
+			local pid = tostring(game.PlaceId or "")
+			if copyToClipboard(pid) then
+				copyPlaceBtn.Text = "Copied!"
+				task.delay(1.2, function()
+					if copyPlaceBtn and copyPlaceBtn.Parent then copyPlaceBtn.Text = "Copy PlaceId" end
+				end)
+			else
+				vPlace.Text = pid
+			end
+		end)
+	end
 
 	table.insert(UI_LangHooks, function()
 		if title and title.Parent then title.Text = L("profile_title") end
