@@ -1,6 +1,6 @@
 --[[
     ╔═══════════════════════════════════════════════════════════════╗
-    ║              CLL CHEAT - FULL INTEGRATION v12.15-ck (silent guns-only, SUK faster, invis fix)                ║
+    ║              CLL CHEAT - FULL INTEGRATION v12.16-cl (SKY: void-target isolator)                ║
     ╠═══════════════════════════════════════════════════════════════╣
     ║  SUK head-hit, real crosshair, tracers, ESP outline nick,     ║
     ║  ChinaHat/Wings fix, VR hands, anti-flash/shake, antibypass   ║
@@ -200,6 +200,10 @@ local ST = {
 	RealCrosshairEnabled = true,
 	TrueCrosshairEnabled = true,
 	LocalInvisEnabled = false,
+	SkyEnabled = false,
+	SkyHeight = 300000,
+	SkyFrontDist = 14,
+	SkyAutoSuk = true,
 	NoSpreadEnabled = false,
 	HitSoundEnabled = false,
 	HitSoundVolume = 0.9,
@@ -325,6 +329,7 @@ local Keys = {
 	Menu = Enum.KeyCode.RightShift, TeleportHeal = Enum.KeyCode.Unknown,
 	ReloadSpas = Enum.KeyCode.Unknown, TeleportCursor = Enum.KeyCode.Unknown,
 	MenuMusic = Enum.KeyCode.Unknown,
+	Sky = Enum.KeyCode.Unknown,
 }
 
 
@@ -2358,6 +2363,289 @@ function startLocalInvis()
 		end
 	end)
 	table.insert(Connections, InvisConn)
+end
+
+--// ==================== SKY (void isolator) ====================
+-- Short name: SKY
+-- TP yourself to configurable height, spawn a LOCAL visual of the selected target
+-- in front of you, lock first-person cam onto it, auto-SUK the REAL target
+-- (hits go to their real body wherever it is — including void invis).
+local SkyClone = nil
+local SkyConn = nil
+local SkySavedCF = nil
+local SkySavedCamMode = nil
+local SkySavedCamSubject = nil
+local SkyTargetPlr = nil
+local SkyWeEnabledSuk = false
+
+local function skyDestroyClone()
+	if SkyClone then
+		pcall(function() SkyClone:Destroy() end)
+		SkyClone = nil
+	end
+end
+
+local function skyPickTarget()
+	-- prefer SelectedTargets
+	for plr, on in pairs(SelectedTargets) do
+		if on and plr and plr.Parent and plr ~= LocalPlayer then
+			local ch = plr.Character
+			local hum = ch and ch:FindFirstChildOfClass("Humanoid")
+			if ch and hum and hum.Health > 0 then
+				return plr
+			end
+		end
+	end
+	-- fallback: closest living player
+	local cam = workspace.CurrentCamera
+	local origin = (cam and cam.CFrame.Position) or Vector3.zero
+	local best, bestD = nil, math.huge
+	for _, plr in ipairs(Players:GetPlayers()) do
+		if plr ~= LocalPlayer and plr.Parent then
+			local ch = plr.Character
+			local head = ch and (ch:FindFirstChild("Head") or ch:FindFirstChild("HumanoidRootPart"))
+			local hum = ch and ch:FindFirstChildOfClass("Humanoid")
+			if head and hum and hum.Health > 0 then
+				local d = (head.Position - origin).Magnitude
+				if d < bestD then best, bestD = plr, d end
+			end
+		end
+	end
+	return best
+end
+
+function stopSky()
+	ST.SkyEnabled = false
+	if SkyConn then pcall(function() SkyConn:Disconnect() end); SkyConn = nil end
+	skyDestroyClone()
+	local char = LocalPlayer.Character
+	local root = char and char:FindFirstChild("HumanoidRootPart")
+	if root and SkySavedCF then
+		pcall(function()
+			root.Anchored = false
+			root.CFrame = SkySavedCF
+			root.AssemblyLinearVelocity = Vector3.zero
+		end)
+	end
+	pcall(function()
+		if SkySavedCamMode ~= nil then
+			LocalPlayer.CameraMode = SkySavedCamMode
+		else
+			LocalPlayer.CameraMode = Enum.CameraMode.Classic
+		end
+		local cam = workspace.CurrentCamera
+		if cam and SkySavedCamSubject then
+			cam.CameraSubject = SkySavedCamSubject
+			cam.CameraType = Enum.CameraType.Custom
+		end
+	end)
+	if SkyWeEnabledSuk then
+		ST.isMultiSuk = false
+		SkyWeEnabledSuk = false
+		pcall(clearSukReloadState)
+	end
+	SkySavedCF = nil
+	SkySavedCamMode = nil
+	SkySavedCamSubject = nil
+	SkyTargetPlr = nil
+	_G.CLL_SkyActive = false
+end
+
+function startSky()
+	if ST.SkyEnabled and SkyConn then return end
+	local char = LocalPlayer.Character
+	local root = char and char:FindFirstChild("HumanoidRootPart")
+	local hum = char and char:FindFirstChildOfClass("Humanoid")
+	if not root or not hum or hum.Health <= 0 then
+		if CLL_Notify then CLL_Notify("SKY", "No character") end
+		ST.SkyEnabled = false
+		return
+	end
+	local target = skyPickTarget()
+	if not target then
+		if CLL_Notify then CLL_Notify("SKY", "Select a target first") end
+		ST.SkyEnabled = false
+		return
+	end
+	local tChar = target.Character
+	if not tChar then
+		ST.SkyEnabled = false
+		return
+	end
+
+	stopSky() -- clean any leftover
+	ST.SkyEnabled = true
+	SkyTargetPlr = target
+	SkySavedCF = root.CFrame
+	pcall(function()
+		SkySavedCamMode = LocalPlayer.CameraMode
+		local cam = workspace.CurrentCamera
+		SkySavedCamSubject = cam and cam.CameraSubject
+	end)
+
+	-- force this one as SUK target
+	table.clear(SelectedTargets)
+	SelectedTargets[target] = true
+	if ST.SkyAutoSuk ~= false and not ST.isMultiSuk then
+		ST.isMultiSuk = true
+		SkyWeEnabledSuk = true
+	end
+
+	local height = math.clamp(tonumber(ST.SkyHeight) or 300000, 5000, 500000)
+	local upCF = CFrame.new(root.Position.X, height, root.Position.Z)
+	pcall(function()
+		root.Anchored = false
+		root.CFrame = upCF
+		root.AssemblyLinearVelocity = Vector3.zero
+	end)
+
+	-- local visual of target (Archivable so meshes copy)
+	pcall(function() tChar.Archivable = true end)
+	for _, d in ipairs(tChar:GetDescendants()) do
+		pcall(function() d.Archivable = true end)
+	end
+	local ok, clone = pcall(function() return tChar:Clone() end)
+	if ok and clone then
+		SkyClone = clone
+		SkyClone.Name = "CLL_SKY_" .. target.Name
+		for _, d in ipairs(SkyClone:GetDescendants()) do
+			if d:IsA("BasePart") then
+				d.Anchored = true
+				d.CanCollide = false
+				d.CanQuery = false
+				d.CanTouch = false
+				if d.Name ~= "HumanoidRootPart" then
+					d.Transparency = math.min(d.Transparency, 0.15)
+				end
+			elseif d:IsA("Script") or d:IsA("LocalScript") then
+				d.Disabled = true
+			elseif d:IsA("Humanoid") then
+				d.DisplayDistanceType = Enum.HumanoidDisplayDistanceType.None
+				d.HealthDisplayType = Enum.HumanoidHealthDisplayType.AlwaysOff
+			end
+		end
+		SkyClone.Parent = workspace
+	end
+
+	-- first person lock
+	pcall(function()
+		LocalPlayer.CameraMode = Enum.CameraMode.LockFirstPerson
+		local cam = workspace.CurrentCamera
+		if cam and hum then
+			cam.CameraType = Enum.CameraType.Custom
+			cam.CameraSubject = hum
+		end
+	end)
+
+	if CLL_Notify then
+		CLL_Notify("SKY", "→ " .. (target.DisplayName or target.Name) .. " @ " .. tostring(math.floor(height)))
+	end
+	_G.CLL_SkyActive = true
+
+	SkyConn = RunService.RenderStepped:Connect(function()
+		if not ST.SkyEnabled or ST.isUnloaded then return end
+		local myChar = LocalPlayer.Character
+		local myRoot = myChar and myChar:FindFirstChild("HumanoidRootPart")
+		local myHum = myChar and myChar:FindFirstChildOfClass("Humanoid")
+		if not myRoot or not myHum or myHum.Health <= 0 then return end
+
+		local h = math.clamp(tonumber(ST.SkyHeight) or 300000, 5000, 500000)
+		-- keep yourself at height (soft)
+		if math.abs(myRoot.Position.Y - h) > 50 then
+			myRoot.CFrame = CFrame.new(myRoot.Position.X, h, myRoot.Position.Z) * (myRoot.CFrame - myRoot.CFrame.Position)
+			myRoot.AssemblyLinearVelocity = Vector3.zero
+		end
+
+		local plr = SkyTargetPlr
+		if not plr or not plr.Parent then
+			stopSky()
+			return
+		end
+		-- keep single target selected
+		if not SelectedTargets[plr] then
+			table.clear(SelectedTargets)
+			SelectedTargets[plr] = true
+		end
+
+		local dist = math.clamp(tonumber(ST.SkyFrontDist) or 14, 6, 40)
+		local look = myRoot.CFrame.LookVector
+		local flat = Vector3.new(look.X, 0, look.Z)
+		if flat.Magnitude < 0.05 then flat = Vector3.new(0, 0, -1) else flat = flat.Unit end
+		local puppetPos = myRoot.Position + flat * dist + Vector3.new(0, 1.5, 0)
+
+		-- place local puppet in front, face us
+		if SkyClone and SkyClone.Parent then
+			local cRoot = SkyClone:FindFirstChild("HumanoidRootPart") or SkyClone.PrimaryPart
+			if cRoot then
+				local face = CFrame.lookAt(puppetPos, myRoot.Position)
+				pcall(function()
+					SkyClone:PivotTo(face)
+					cRoot.Anchored = true
+					cRoot.CFrame = face
+				end)
+			end
+		elseif plr.Character then
+			-- recreate if lost
+			pcall(function()
+				local tc = plr.Character
+				tc.Archivable = true
+				for _, d in ipairs(tc:GetDescendants()) do d.Archivable = true end
+				local c = tc:Clone()
+				if c then
+					skyDestroyClone()
+					SkyClone = c
+					SkyClone.Name = "CLL_SKY_" .. plr.Name
+					for _, d in ipairs(SkyClone:GetDescendants()) do
+						if d:IsA("BasePart") then
+							d.Anchored = true; d.CanCollide = false; d.CanQuery = false
+						elseif d:IsA("Script") or d:IsA("LocalScript") then
+							d.Disabled = true
+						end
+					end
+					SkyClone.Parent = workspace
+				end
+			end)
+		end
+
+		-- FP camera locked toward puppet (or real head if no clone)
+		local cam = workspace.CurrentCamera
+		local aimPart = nil
+		if SkyClone then
+			aimPart = SkyClone:FindFirstChild("Head") or SkyClone:FindFirstChild("HumanoidRootPart")
+		end
+		-- real body aim for hitreg (void-safe)
+		local realChar = plr.Character
+		local realHead = realChar and (realChar:FindFirstChild("Head") or realChar:FindFirstChild("HumanoidRootPart"))
+		if realHead then
+			_G.CLL_AimPos = realHead.Position
+			_G.CLL_AimPart = realHead
+			_G.CLL_AimChar = realChar
+		elseif aimPart then
+			_G.CLL_AimPos = aimPart.Position
+			_G.CLL_AimPart = aimPart
+		end
+		if cam and myHum then
+			cam.CameraType = Enum.CameraType.Custom
+			cam.CameraSubject = myHum
+			pcall(function() LocalPlayer.CameraMode = Enum.CameraMode.LockFirstPerson end)
+			-- hard-look at puppet so FP view is only them
+			local lookAt = aimPart and aimPart.Position or (realHead and realHead.Position)
+			if lookAt then
+				local eye = myRoot.Position + Vector3.new(0, 1.6, 0)
+				cam.CFrame = CFrame.lookAt(eye, lookAt)
+			end
+		end
+	end)
+	table.insert(Connections, SkyConn)
+end
+
+function toggleSky(v)
+	if v then
+		ST.SkyEnabled = true
+		startSky()
+	else
+		stopSky()
+	end
 end
 
 --// ==================== HEAL LOGIC ====================
@@ -6033,6 +6321,10 @@ function buildTarget()
 	slider(scroll, y, L("t_suk_rps"), 1, 30, ST.SUK_FIRERATE_RPS, 1, function(v) ST.SUK_FIRERATE_RPS = v end, function() return ST.SUK_FIRERATE_RPS end, L("d_suk_rps")); y += 58
 	slider(scroll, y, L("t_suk_delay"), 0.01, 0.5, ST.SUK_FireDelay, 0.01, function(v) ST.SUK_FireDelay = v end, function() return ST.SUK_FireDelay end, L("d_suk_delay")); y += 58
 	slider(scroll, y, L("t_suk_targets"), 1, 16, ST.SUK_MaxPerTick, 1, function(v) ST.SUK_MaxPerTick = v end, function() return ST.SUK_MaxPerTick end, L("d_suk_targets")); y += 58
+	toggle(scroll, y, "SKY", function(v) toggleSky(v) end, false, function() return ST.SkyEnabled == true end, "TP up → local target puppet → FP lock → auto SUK on real body (void-safe). Select target first."); y += 54
+	slider(scroll, y, "SKY Height", 10000, 500000, ST.SkyHeight or 300000, 5000, function(v) ST.SkyHeight = v end, function() return ST.SkyHeight or 300000 end, "Studs above map (default 300000)."); y += 58
+	slider(scroll, y, "SKY Front Dist", 6, 40, ST.SkyFrontDist or 14, 1, function(v) ST.SkyFrontDist = v end, function() return ST.SkyFrontDist or 14 end, "How far the local puppet stands in front of you."); y += 58
+
 	toggle(scroll, y, "SUK Head Expand", function(v) ST.SUK_HeadExpand = v end, true, function() return ST.SUK_HeadExpand ~= false end, "Invisible local head enlarge on targets so Hit registers more reliably."); y += 54
 	slider(scroll, y, "Head Expand Size", 1.5, 10, ST.SUK_HeadExpandSize or 4.5, 0.5, function(v) ST.SUK_HeadExpandSize = v end, function() return ST.SUK_HeadExpandSize or 4.5 end, "Local head cube size while SUK fires."); y += 58
 	toggle(scroll, y, L("t_heal"), function(v) ST.HealEnabled = v; if v then StartHealLoop() else StopHealLoop() end end, false, function() return ST.HealEnabled end, L("d_heal")); y += 54
@@ -6120,7 +6412,7 @@ function buildKeybinds()
 		{ "ESP", "ESP" }, { "Hitbox", "Hitbox" }, { "Fly", "Fly" }, { "Walk Speed", "WalkSpeed" }, { "Jump Power", "JumpPower" },
 		{ "Heal", "Heal" }, { "Silent Aim", "SilentAim" }, { "China Hat", "ChinaHat" }, { "Wings", "Wings" }, { "Anti-Lag", "AntiLag" }, { "Spin", "Spin" },
         { "Teleport Heal", "TeleportHeal" }, { "Teleport Cursor", "TeleportCursor" }, { "Combo", "Combo" }, { "Reload Spas", "ReloadSpas" },
-		{ "???", "MenuMusic" },
+		{ "???", "MenuMusic" }, { "SKY", "Sky" },
 	}
 	for i, item in ipairs(bindRows) do
 		local title, keyName = item[1], item[2]
@@ -6741,6 +7033,7 @@ function buildSettings()
 		pcall(function() RunService:UnbindFromRenderStep("CLL_AntiShake") end)
 		pcall(vrShutdown)
 		pcall(stopLocalInvis)
+		pcall(stopSky)
 		pcall(stopWeather)
 		pcall(function() Cosmetics.setHat(false) end)
 		pcall(function() Cosmetics.setWings(false) end)
@@ -8423,6 +8716,8 @@ UIS.InputBegan:Connect(function(input, gp)
 		if CLL_Notify then
 			CLL_Notify("???", ST.MenuMusicEnabled and "ON" or "OFF")
 		end
+	elseif pressed(Keys.Sky) then
+		toggleSky(not ST.SkyEnabled)
 	end
 end)
 
