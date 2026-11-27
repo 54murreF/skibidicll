@@ -1,6 +1,6 @@
 --[[
     ╔═══════════════════════════════════════════════════════════════╗
-    ║              CLL CHEAT - FULL INTEGRATION v12.09-ce (native Q/G grab mirror + VR restore)                ║
+    ║              CLL CHEAT - FULL INTEGRATION v12.10-cf (native Q/G grab mirror + VR restore)                ║
     ╠═══════════════════════════════════════════════════════════════╣
     ║  SUK head-hit, real crosshair, tracers, ESP outline nick,     ║
     ║  ChinaHat/Wings fix, VR hands, anti-flash/shake, antibypass   ║
@@ -192,6 +192,7 @@ local ST = {
 	MenuMusicVolume = 0.4,
 	SilentAimFOV = 90,
 	SilentAimWallbang = false,
+	SilentAimIgnoreFriends = true,
 	SilentAimMissEnabled = false,
 	SilentAimMissPct = 15,
 	SilentAimNPCs = false,
@@ -4059,7 +4060,9 @@ function GetClosestAimPartInFOV()
 
 	for _, plr in ipairs(Players:GetPlayers()) do
 		if plr ~= LocalPlayer and plr.Character then
-			if not (ST.SUK_IgnoreFriends and FriendsList[plr.UserId]) then
+			local skipFriend = ST.SilentAimIgnoreFriends ~= false
+				and (FriendsList[plr.UserId] or (IsFriend and IsFriend(plr)))
+			if not skipFriend then
 				considerChar(plr.Character)
 			end
 		end
@@ -5031,7 +5034,7 @@ fit(); workspace.CurrentCamera:GetPropertyChangedSignal("ViewportSize"):Connect(
 local header = new("Frame", { Size = UDim2.new(1, 0, 0, 62), BackgroundTransparency = 1, Parent = window })
 local logoLabel = label({ Text = "CLL", Font = Enum.Font.Michroma, TextSize = 26, TextTruncate = Enum.TextTruncate.AtEnd, Size = UDim2.fromOffset(100, 62), Position = UDim2.fromOffset(23, 0), Parent = header })
 logoLabel.TextColor3 = Color3.fromRGB(255, 255, 255) -- Always white
-local verLabel = label({ Text = "v12.09-ce", Font = Enum.Font.GothamBold, TextSize = 12, TextColor3 = Theme.Dim, Size = UDim2.fromOffset(50, 62), Position = UDim2.fromOffset(85, 2), Parent = header })
+local verLabel = label({ Text = "v12.10-cf", Font = Enum.Font.GothamBold, TextSize = 12, TextColor3 = Theme.Dim, Size = UDim2.fromOffset(50, 62), Position = UDim2.fromOffset(85, 2), Parent = header })
 local timeLabel = label({ Text = "Session: 00:00", Font = Enum.Font.GothamMedium, TextSize = 13, TextColor3 = Theme.Dim, Size = UDim2.fromOffset(150, 62), Position = UDim2.fromOffset(150, 0), Parent = header })
 task.spawn(function()
 	while not ST.isUnloaded do
@@ -5638,16 +5641,19 @@ function buildCombat()
 				ST.SilentAimNPCs = v
 				if v then pcall(refreshNPCList) end
 			end)
-			detailToggle(d, 4, "Wallbang", ST.SilentAimWallbang == true, function(v)
+			detailToggle(d, 4, "Ignore friends", ST.SilentAimIgnoreFriends ~= false, function(v)
+				ST.SilentAimIgnoreFriends = v
+			end)
+			detailToggle(d, 5, "Wallbang", ST.SilentAimWallbang == true, function(v)
 				ST.SilentAimWallbang = v
 			end)
-			detailToggle(d, 5, "Miss chance", ST.SilentAimMissEnabled == true, function(v)
+			detailToggle(d, 6, "Miss chance", ST.SilentAimMissEnabled == true, function(v)
 				ST.SilentAimMissEnabled = v
 			end)
-			detailSlider(d, 6, "Miss %", 0, 80, ST.SilentAimMissPct or 15, 1, function(v) ST.SilentAimMissPct = v end)
-			detailSlider(d, 7, "Head %", 0, 100, ST.SilentAimHeadPct or 80, 1, function(v) ST.SilentAimHeadPct = v end)
-			detailSlider(d, 8, "Torso %", 0, 100, ST.SilentAimTorsoPct or 15, 1, function(v) ST.SilentAimTorsoPct = v end)
-			detailSlider(d, 9, "Legs %", 0, 100, ST.SilentAimLegsPct or 5, 1, function(v) ST.SilentAimLegsPct = v end)
+			detailSlider(d, 7, "Miss %", 0, 80, ST.SilentAimMissPct or 15, 1, function(v) ST.SilentAimMissPct = v end)
+			detailSlider(d, 8, "Head %", 0, 100, ST.SilentAimHeadPct or 80, 1, function(v) ST.SilentAimHeadPct = v end)
+			detailSlider(d, 9, "Torso %", 0, 100, ST.SilentAimTorsoPct or 15, 1, function(v) ST.SilentAimTorsoPct = v end)
+			detailSlider(d, 10, "Legs %", 0, 100, ST.SilentAimLegsPct or 5, 1, function(v) ST.SilentAimLegsPct = v end)
 			local hint = new("TextLabel", {
 				Text = "LMB: real shot into FOV target. Wallbang = through walls. NPCs = include NPC list.",
 				Font = Enum.Font.Gotham, TextSize = 11, TextColor3 = Theme.Dim,
@@ -6142,7 +6148,7 @@ function buildProfile()
 	end
 
 	local tBuild, vBuild = row("profile_build", 1)
-	vBuild.Text = "v12.09-ce"
+	vBuild.Text = "v12.10-cf"
 	local tSess, vSess = row("profile_session", 2)
 	local tStat, vStat = row("profile_status", 3)
 	vStat.Text = L("profile_active")
