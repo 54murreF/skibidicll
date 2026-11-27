@@ -1,6 +1,6 @@
 --[[
     ╔═══════════════════════════════════════════════════════════════╗
-    ║              CLL CHEAT - FULL INTEGRATION v11.93-bo (native Q/G grab mirror + VR restore)                ║
+    ║              CLL CHEAT - FULL INTEGRATION v11.96-br (native Q/G grab mirror + VR restore)                ║
     ╠═══════════════════════════════════════════════════════════════╣
     ║  SUK head-hit, real crosshair, tracers, ESP outline nick,     ║
     ║  ChinaHat/Wings fix, VR hands, anti-flash/shake, antibypass   ║
@@ -103,6 +103,8 @@ local ST = {
 	ReloadSpeed = 0.055,
 	AntiCCEnabled = false,
 	SUK_MaxPerTick = 1,
+	SUK_HeadExpand = true,
+	SUK_HeadExpandSize = 4.5,
 	TracersEnabled = false,
 	AutoBlockEnabled = false,
 	AutoBlockRange = 12,
@@ -1811,17 +1813,50 @@ function MultiFireAt()
 	markLocalShot(nearHead)
 
 	if head and head.Parent then
-		-- one Hit per shell (ap) — position on the head
-		-- force Head only (hand-block still registers head damage)
+		-- Invisible head expand (enemy-style): bigger local Head so Hit/ray
+		-- still "touches" the part even with small aim error. Not visible (T=1).
+		local expandOn = ST.SUK_HeadExpand ~= false
+		local expandSz = math.clamp(tonumber(ST.SUK_HeadExpandSize) or 4.5, 1.5, 12)
+		local cached = nil
+		if expandOn then
+			pcall(function()
+				if not Hitbox_Cache[head.Parent] then
+					cached = {
+						Size = head.Size,
+						Transparency = head.Transparency,
+						CanCollide = head.CanCollide,
+						CanQuery = head.CanQuery,
+						Massless = head.Massless,
+					}
+					head:SetAttribute("CLL_SUK_HEAD_BAK", true)
+				end
+				head.Size = Vector3.new(expandSz, expandSz, expandSz)
+				head.Transparency = 1
+				head.CanCollide = false
+				pcall(function() head.CanQuery = true end)
+				pcall(function() head.Massless = true end)
+			end)
+		end
+
 		local headPos = head.Position
-		local hitTbl = {
-			hit = head,
-			normal = -tpDir,
-			position = headPos,
-			velocity = vel,
-			bullet_cframe = CFrame.lookAt(headPos - tpDir * 0.15, headPos),
+		-- several points inside the (expanded) head volume — not only center
+		local offsets = {
+			Vector3.zero,
+			tpDir * 0.2,
+			-tpDir * 0.15,
+			Vector3.new(0.25, 0.1, 0),
+			Vector3.new(-0.25, 0.1, 0),
+			Vector3.new(0, 0.35, 0),
 		}
-		for _ = 1, 2 do
+		for _, off in ipairs(offsets) do
+			local pos = headPos + off
+			local hitTbl = {
+				hit = head,
+				normal = -tpDir,
+				position = pos,
+				velocity = vel,
+				bullet_cframe = CFrame.lookAt(pos - tpDir * 0.12, pos),
+			}
 			if CLL_FireServer then
 				pcall(CLL_FireServer, FireRemote, tool, "Hit", hitTbl)
 			else
@@ -1836,8 +1871,23 @@ function MultiFireAt()
 			local h2 = m2 and m2:FindFirstChildOfClass("Humanoid")
 			if h2 and h2.Health <= 0 then
 				onVictimDied(m2)
-				end
+			end
 		end)
+
+		-- restore only if we expanded and Hitbox expander is not owning this char
+		if expandOn and cached and head and head.Parent then
+			pcall(function()
+				if Hitbox_Config.Enabled and Hitbox_Cache[head.Parent] then
+					return -- hitbox system keeps its size
+				end
+				head.Size = cached.Size
+				head.Transparency = cached.Transparency
+				head.CanCollide = cached.CanCollide
+				if cached.CanQuery ~= nil then head.CanQuery = cached.CanQuery end
+				if cached.Massless ~= nil then head.Massless = cached.Massless end
+				head:SetAttribute("CLL_SUK_HEAD_BAK", nil)
+			end)
+		end
 	end
 
 	for i = 0, 7 do
@@ -4761,7 +4811,7 @@ fit(); workspace.CurrentCamera:GetPropertyChangedSignal("ViewportSize"):Connect(
 local header = new("Frame", { Size = UDim2.new(1, 0, 0, 62), BackgroundTransparency = 1, Parent = window })
 local logoLabel = label({ Text = "CLL", Font = Enum.Font.Michroma, TextSize = 26, TextTruncate = Enum.TextTruncate.AtEnd, Size = UDim2.fromOffset(100, 62), Position = UDim2.fromOffset(23, 0), Parent = header })
 logoLabel.TextColor3 = Color3.fromRGB(255, 255, 255) -- Always white
-local verLabel = label({ Text = "v11.93-bo", Font = Enum.Font.GothamBold, TextSize = 12, TextColor3 = Theme.Dim, Size = UDim2.fromOffset(50, 62), Position = UDim2.fromOffset(85, 2), Parent = header })
+local verLabel = label({ Text = "v11.96-br", Font = Enum.Font.GothamBold, TextSize = 12, TextColor3 = Theme.Dim, Size = UDim2.fromOffset(50, 62), Position = UDim2.fromOffset(85, 2), Parent = header })
 local timeLabel = label({ Text = "Session: 00:00", Font = Enum.Font.GothamMedium, TextSize = 13, TextColor3 = Theme.Dim, Size = UDim2.fromOffset(150, 62), Position = UDim2.fromOffset(150, 0), Parent = header })
 task.spawn(function()
 	while not ST.isUnloaded do
@@ -5308,13 +5358,32 @@ function buildCombat()
 				ClearTextOnFocus = false, Size = UDim2.new(1, -16, 0, 28),
 				BackgroundColor3 = Theme.Row, LayoutOrder = 4, Parent = d
 			}, { corner(6), stroke() })
-			local list = new("Frame", {
-				Size = UDim2.new(1, -16, 0, 160), BackgroundColor3 = Theme.Panel,
-				BackgroundTransparency = 0.2, LayoutOrder = 5, Parent = d
+			local list = new("ScrollingFrame", {
+				Size = UDim2.new(1, -16, 0, 180),
+				BackgroundColor3 = Theme.Panel,
+				BackgroundTransparency = 0.2,
+				BorderSizePixel = 0,
+				ScrollBarThickness = 5,
+				ScrollBarImageColor3 = Theme.Accent,
+				ScrollingDirection = Enum.ScrollingDirection.Y,
+				CanvasSize = UDim2.new(0, 0, 0, 0),
+				AutomaticCanvasSize = Enum.AutomaticSize.Y,
+				ClipsDescendants = true,
+				LayoutOrder = 5,
+				Parent = d,
 			}, {
 				corner(8), stroke(),
-				new("UIListLayout", { Padding = UDim.new(0, 3), SortOrder = Enum.SortOrder.LayoutOrder }),
-				new("UIPadding", { PaddingTop = UDim.new(0, 4), PaddingBottom = UDim.new(0, 4), PaddingLeft = UDim.new(0, 4), PaddingRight = UDim.new(0, 4) }),
+				new("UIListLayout", {
+					Padding = UDim.new(0, 3),
+					SortOrder = Enum.SortOrder.LayoutOrder,
+					HorizontalAlignment = Enum.HorizontalAlignment.Center,
+				}),
+				new("UIPadding", {
+					PaddingTop = UDim.new(0, 4),
+					PaddingBottom = UDim.new(0, 4),
+					PaddingLeft = UDim.new(0, 4),
+					PaddingRight = UDim.new(0, 8),
+				}),
 			})
 			local rows = {}
 			local function refreshHB()
@@ -5334,7 +5403,7 @@ function buildCombat()
 				for i, p in ipairs(arr) do
 					local on = HitboxSelectedTargets[p] == true
 					local row = new("Frame", {
-						Size = UDim2.new(1, 0, 0, 28), BackgroundColor3 = Theme.Row,
+						Size = UDim2.new(1, -4, 0, 28), BackgroundColor3 = Theme.Row,
 						BackgroundTransparency = 0.25, LayoutOrder = i, Parent = list
 					}, { corner(6) })
 					label({
@@ -5430,6 +5499,8 @@ function buildTarget()
 	slider(scroll, y, L("t_suk_rps"), 1, 30, ST.SUK_FIRERATE_RPS, 1, function(v) ST.SUK_FIRERATE_RPS = v end, function() return ST.SUK_FIRERATE_RPS end, L("d_suk_rps")); y += 58
 	slider(scroll, y, L("t_suk_delay"), 0.01, 0.5, ST.SUK_FireDelay, 0.01, function(v) ST.SUK_FireDelay = v end, function() return ST.SUK_FireDelay end, L("d_suk_delay")); y += 58
 	slider(scroll, y, L("t_suk_targets"), 1, 16, ST.SUK_MaxPerTick, 1, function(v) ST.SUK_MaxPerTick = v end, function() return ST.SUK_MaxPerTick end, L("d_suk_targets")); y += 58
+	toggle(scroll, y, "SUK Head Expand", function(v) ST.SUK_HeadExpand = v end, true, function() return ST.SUK_HeadExpand ~= false end, "Invisible local head enlarge on targets so Hit registers more reliably."); y += 54
+	slider(scroll, y, "Head Expand Size", 1.5, 10, ST.SUK_HeadExpandSize or 4.5, 0.5, function(v) ST.SUK_HeadExpandSize = v end, function() return ST.SUK_HeadExpandSize or 4.5 end, "Local head cube size while SUK fires (Transparency 1)."); y += 58
 	toggle(scroll, y, L("t_heal"), function(v) ST.HealEnabled = v; if v then StartHealLoop() else StopHealLoop() end end, false, function() return ST.HealEnabled end, L("d_heal")); y += 54
 	slider(scroll, y, L("t_heal_h"), -5, 10, ST.HealFlyHeight or 3.5, 0.5, function(v) ST.HealFlyHeight = v end, function() return ST.HealFlyHeight end, L("d_heal_h")); y += 58
 	toggle(scroll, y, L("t_ignore_friends"), function(v) ST.SUK_IgnoreFriends = v end, true, function() return ST.SUK_IgnoreFriends end, L("d_ignore_friends")); y += 54
@@ -5671,7 +5742,7 @@ function buildProfile()
 		return t, v
 	end
 	local tBuild, vBuild = row("profile_build", 225)
-	vBuild.Text = "v11.93-bo"
+	vBuild.Text = "v11.96-br"
 	local tSess, vSess = row("profile_session", 250)
 	local tStat, vStat = row("profile_status", 275)
 	vStat.Text = L("profile_active")
@@ -5682,10 +5753,84 @@ function buildProfile()
 	local tUid, vUid = row("profile_uid", 375)
 	vUid.Text = tostring(LocalPlayer.UserId)
 	local tSrv, vSrv = row("profile_server", 400)
-	pcall(function() vSrv.Text = tostring(game.JobId):sub(1, 12) .. "…" end)
+	local fullJob = ""
+	pcall(function() fullJob = tostring(game.JobId or "") end)
+	vSrv.Text = (#fullJob > 14) and (fullJob:sub(1, 12) .. "…") or (fullJob ~= "" and fullJob or "—")
+	vSrv.TextTruncate = Enum.TextTruncate.AtEnd
+	vSrv.Size = UDim2.fromOffset(160, 18)
 
-	divider(panel, 430)
-	local tipTitle = label({ Text = L("profile_tip"), Font = Enum.Font.GothamMedium, TextSize = 13, TextColor3 = Theme.Dim, Size = UDim2.fromOffset(120, 18), Position = UDim2.fromOffset(PAD, 445), Parent = panel })
+	local function copyToClipboard(text)
+		text = tostring(text or "")
+		if text == "" then return false end
+		local ok = false
+		pcall(function()
+			if setclipboard then setclipboard(text); ok = true
+			elseif toclipboard then toclipboard(text); ok = true
+			elseif typeof(Clipboard) == "table" and Clipboard.set then Clipboard.set(text); ok = true
+			end
+		end)
+		return ok
+	end
+
+	local copyJobBtn = new("TextButton", {
+		Text = "Copy JobId",
+		Font = Enum.Font.GothamMedium,
+		TextSize = 12,
+		TextColor3 = Color3.fromRGB(255, 255, 255),
+		BackgroundColor3 = Theme.Accent,
+		Size = UDim2.fromOffset(100, 26),
+		Position = UDim2.fromOffset(PAD + 290, 396),
+		AutoButtonColor = false,
+		Parent = panel,
+	}, { corner(8) })
+	copyJobBtn.MouseButton1Click:Connect(function()
+		local jid = ""
+		pcall(function() jid = tostring(game.JobId or "") end)
+		if jid == "" then
+			if CLL_Notify then CLL_Notify("JobId", "empty") end
+			return
+		end
+		if copyToClipboard(jid) then
+			copyJobBtn.Text = "Copied!"
+			if CLL_Notify then CLL_Notify("JobId", "copied") end
+			task.delay(1.2, function()
+				if copyJobBtn and copyJobBtn.Parent then copyJobBtn.Text = "Copy JobId" end
+			end)
+		else
+			-- fallback: put full id in the label so user can select
+			vSrv.Text = jid
+			if CLL_Notify then CLL_Notify("JobId", jid) end
+		end
+	end)
+
+	-- also show place id row
+	local tPlace, vPlace = row("profile_place", 425)
+	pcall(function() vPlace.Text = tostring(game.PlaceId or "") end)
+	local copyPlaceBtn = new("TextButton", {
+		Text = "Copy PlaceId",
+		Font = Enum.Font.GothamMedium,
+		TextSize = 12,
+		TextColor3 = Color3.fromRGB(255, 255, 255),
+		BackgroundColor3 = Theme.Accent,
+		Size = UDim2.fromOffset(100, 26),
+		Position = UDim2.fromOffset(PAD + 290, 421),
+		AutoButtonColor = false,
+		Parent = panel,
+	}, { corner(8) })
+	copyPlaceBtn.MouseButton1Click:Connect(function()
+		local pid = tostring(game.PlaceId or "")
+		if copyToClipboard(pid) then
+			copyPlaceBtn.Text = "Copied!"
+			task.delay(1.2, function()
+				if copyPlaceBtn and copyPlaceBtn.Parent then copyPlaceBtn.Text = "Copy PlaceId" end
+			end)
+		else
+			vPlace.Text = pid
+		end
+	end)
+
+	divider(panel, 460)
+	local tipTitle = label({ Text = L("profile_tip"), Font = Enum.Font.GothamMedium, TextSize = 13, TextColor3 = Theme.Dim, Size = UDim2.fromOffset(120, 18), Position = UDim2.fromOffset(PAD, 475), Parent = panel })
 	local tipBody = label({
 		Text = L("profile_tip_body"),
 		Font = Enum.Font.Gotham,
@@ -5695,7 +5840,7 @@ function buildProfile()
 		TextXAlignment = Enum.TextXAlignment.Left,
 		TextYAlignment = Enum.TextYAlignment.Top,
 		Size = UDim2.new(1, -PAD * 2, 0, 70),
-		Position = UDim2.fromOffset(PAD, 468),
+		Position = UDim2.fromOffset(PAD, 498),
 		Parent = panel,
 	})
 
@@ -6256,9 +6401,21 @@ pcall(function() if watermarkMain then watermarkMain:Destroy() end end)
 				stDump[k] = colorToArr(v)
 			end
 		end
+		local antiFlags = {}
+		for k, v in pairs(AntiCC_Flags or {}) do
+			antiFlags[tostring(k)] = v and true or false
+		end
+		local hbTargets = {}
+		for plr, on in pairs(HitboxSelectedTargets or {}) do
+			if on and plr and plr.UserId then
+				hbTargets[#hbTargets + 1] = plr.UserId
+			end
+		end
 		return {
-			version = 3,
+			version = 4,
 			st = stDump,
+			antiCCFlags = antiFlags,
+			hitboxTargets = hbTargets,
 			hitbox = {
 				Enabled = Hitbox_Config.Enabled,
 				IncludeNPCs = Hitbox_Config.IncludeNPCs,
@@ -6328,6 +6485,25 @@ function applyConfig(data)
 					elseif ST[k] ~= nil then
 						ST[k] = v
 					end
+				end
+			end
+		end
+		if type(data.antiCCFlags) == "table" then
+			for k, v in pairs(data.antiCCFlags) do
+				if AntiCC_Flags[k] ~= nil then
+					AntiCC_Flags[k] = v and true or false
+				elseif type(k) == "string" then
+					AntiCC_Flags[k] = v and true or false
+				end
+			end
+		end
+		if type(data.hitboxTargets) == "table" then
+			table.clear(HitboxSelectedTargets)
+			for _, id in ipairs(data.hitboxTargets) do
+				local uid = tonumber(id)
+				if uid then
+					local plr = Players:GetPlayerByUserId(uid)
+					if plr then HitboxSelectedTargets[plr] = true end
 				end
 			end
 		end
