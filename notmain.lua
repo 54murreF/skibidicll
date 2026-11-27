@@ -1,6 +1,6 @@
 --[[
     ╔═══════════════════════════════════════════════════════════════╗
-    ║              CLL CHEAT - FULL INTEGRATION v12.16-cl (SKY: void-target isolator)                ║
+    ║              CLL CHEAT - FULL INTEGRATION v12.17-cm (invis tools+unstick, config fix)                ║
     ╠═══════════════════════════════════════════════════════════════╣
     ║  SUK head-hit, real crosshair, tracers, ESP outline nick,     ║
     ║  ChinaHat/Wings fix, VR hands, anti-flash/shake, antibypass   ║
@@ -921,9 +921,13 @@ end)()
 
 --// ==================== HELPERS ====================
 function getCharacterParts()
-	local character = LocalPlayer.Character
-	local humanoid = character and character:FindFirstChildOfClass("Humanoid")
-	local root = character and character:FindFirstChild("HumanoidRootPart")
+	local ok, character = pcall(function() return LocalPlayer.Character end)
+	if not ok or not character then return nil, nil, nil end
+	local humanoid, root
+	pcall(function()
+		humanoid = character:FindFirstChildOfClass("Humanoid")
+		root = character:FindFirstChild("HumanoidRootPart")
+	end)
 	return character, humanoid, root
 end
 
@@ -2248,9 +2252,9 @@ function startLocalInvis()
 		if d:IsA("BasePart") then
 			d.Anchored = false
 			d.CanCollide = true
-			-- slight ghost look like public scripts (Transparency is local on our clone)
+			-- slight ghost look (LocalTransparencyModifier = client only, no gray meshes)
 			if d.Name ~= "HumanoidRootPart" then
-				d.Transparency = math.max(d.Transparency, 0.35)
+				d.LocalTransparencyModifier = 0.35
 			end
 		end
 	end
@@ -2312,22 +2316,46 @@ function startLocalInvis()
 		end
 		if v.Name == "Animate" then
 			pcall(function()
-				if v:IsA("LocalScript") then v.Disabled = false end
-				if v:IsA("Script") then v.Disabled = false end
+				if v:IsA("LocalScript") or v:IsA("Script") then v.Disabled = false end
 			end)
 		end
 	end
+	-- move any tools from real → clone so you can equip/shoot while invisible
+	pcall(function()
+		for _, t in ipairs(real:GetChildren()) do
+			if t:IsA("Tool") then
+				t.Parent = InvisClone
+			end
+		end
+		-- Backpack stays on player; EquipTool works on current Character (clone)
+	end)
+	-- ensure every part on clone is free (no wooden/frozen rig)
+	for _, d in ipairs(InvisClone:GetDescendants()) do
+		if d:IsA("BasePart") then
+			d.Anchored = false
+			d.CanCollide = (d.Name == "HumanoidRootPart") and false or d.CanCollide
+			d.AssemblyLinearVelocity = Vector3.zero
+			d.AssemblyAngularVelocity = Vector3.zero
+		end
+	end
+	fRoot.Anchored = false
+	fHum.PlatformStand = false
+	fHum.Sit = false
+	fHum.AutoRotate = true
+	pcall(function() fHum:ChangeState(Enum.HumanoidStateType.Running) end)
+
 	local cam = workspace.CurrentCamera
 	if cam then
 		cam.CameraType = Enum.CameraType.Custom
 		cam.CameraSubject = fHum
 	end
 	hideRealLocal(real)
-	InvisPseudoAnchor = root -- force real HRP onto pad every frame
+	InvisPseudoAnchor = root
 	_G.CLL_InvisClone = InvisClone
 	_G.CLL_InvisActive = true
 	_G.CLL_InvisPlayCF = playCF
 
+	local lastCharFix = 0
 	InvisConn = RunService.RenderStepped:Connect(function()
 		if not ST.LocalInvisEnabled or ST.isUnloaded then return end
 		local r = InvisRealChar
@@ -2340,7 +2368,7 @@ function startLocalInvis()
 			InvisPlayCF = fr.CFrame
 			_G.CLL_InvisPlayCF = InvisPlayCF
 		end
-		-- PseudoAnchor: only CFrame the real body onto the pad (never Anchor)
+		-- PseudoAnchor real body only
 		if rr and InvisSafePart and InvisSafePart.Parent then
 			rr.Anchored = false
 			rr.CFrame = InvisSafePart.CFrame * CFrame.new(0, 5, 0)
@@ -2348,18 +2376,30 @@ function startLocalInvis()
 			rr.AssemblyAngularVelocity = Vector3.zero
 			hideRealLocal(r)
 		end
-		if LocalPlayer.Character ~= f then
-			pcall(function() LocalPlayer.Character = f end)
+		-- Character swap ONCE in a while if game resets it — never every frame (stack overflow)
+		local now = os.clock()
+		if now - lastCharFix > 0.35 then
+			lastCharFix = now
+			if LocalPlayer.Character ~= f then
+				pcall(function() LocalPlayer.Character = f end)
+			end
+			if fr then fr.Anchored = false end
+			if fh then
+				if fh.PlatformStand then fh.PlatformStand = false end
+				if fh.Sit then fh.Sit = false end
+				fh.AutoRotate = true
+			end
+			-- tools that somehow stayed on real → move to clone
+			pcall(function()
+				for _, t in ipairs(r:GetChildren()) do
+					if t:IsA("Tool") then t.Parent = f end
+				end
+			end)
 		end
 		local camNow = workspace.CurrentCamera
 		if camNow and fh and camNow.CameraSubject ~= fh then
 			camNow.CameraType = Enum.CameraType.Custom
 			camNow.CameraSubject = fh
-		end
-		-- keep clone humanoid movable
-		if fh then
-			if fh.PlatformStand then fh.PlatformStand = false end
-			if fh.Sit then fh.Sit = false end
 		end
 	end)
 	table.insert(Connections, InvisConn)
@@ -2452,10 +2492,19 @@ function stopSky()
 end
 
 function startSky()
-	if ST.SkyEnabled and SkyConn then return end
-	local char = LocalPlayer.Character
-	local root = char and char:FindFirstChild("HumanoidRootPart")
-	local hum = char and char:FindFirstChildOfClass("Humanoid")
+	if SkyConn then
+		pcall(function() SkyConn:Disconnect() end)
+		SkyConn = nil
+	end
+	skyDestroyClone()
+	local okCh, char = pcall(function() return LocalPlayer.Character end)
+	if not okCh or not char then
+		ST.SkyEnabled = false
+		if CLL_Notify then CLL_Notify("SKY", "No character") end
+		return
+	end
+	local root = char:FindFirstChild("HumanoidRootPart")
+	local hum = char:FindFirstChildOfClass("Humanoid")
 	if not root or not hum or hum.Health <= 0 then
 		if CLL_Notify then CLL_Notify("SKY", "No character") end
 		ST.SkyEnabled = false
@@ -2473,7 +2522,6 @@ function startSky()
 		return
 	end
 
-	stopSky() -- clean any leftover
 	ST.SkyEnabled = true
 	SkyTargetPlr = target
 	SkySavedCF = root.CFrame
@@ -5524,7 +5572,7 @@ fit(); workspace.CurrentCamera:GetPropertyChangedSignal("ViewportSize"):Connect(
 local header = new("Frame", { Size = UDim2.new(1, 0, 0, 62), BackgroundTransparency = 1, Parent = window })
 local logoLabel = label({ Text = "CLL", Font = Enum.Font.Michroma, TextSize = 26, TextTruncate = Enum.TextTruncate.AtEnd, Size = UDim2.fromOffset(100, 62), Position = UDim2.fromOffset(23, 0), Parent = header })
 logoLabel.TextColor3 = Color3.fromRGB(255, 255, 255) -- Always white
-local verLabel = label({ Text = "v12.13-ci", Font = Enum.Font.GothamBold, TextSize = 12, TextColor3 = Theme.Dim, Size = UDim2.fromOffset(50, 62), Position = UDim2.fromOffset(85, 2), Parent = header })
+local verLabel = label({ Text = "v12.17-cm", Font = Enum.Font.GothamBold, TextSize = 12, TextColor3 = Theme.Dim, Size = UDim2.fromOffset(50, 62), Position = UDim2.fromOffset(85, 2), Parent = header })
 local timeLabel = label({ Text = "Session: 00:00", Font = Enum.Font.GothamMedium, TextSize = 13, TextColor3 = Theme.Dim, Size = UDim2.fromOffset(150, 62), Position = UDim2.fromOffset(150, 0), Parent = header })
 task.spawn(function()
 	while not ST.isUnloaded do
@@ -6643,7 +6691,7 @@ function buildProfile()
 	end
 
 	local tBuild, vBuild = row("profile_build", 1)
-	vBuild.Text = "v12.14-cj"
+	vBuild.Text = "v12.17-cm"
 	local tSess, vSess = row("profile_session", 2)
 	local tStat, vStat = row("profile_status", 3)
 	vStat.Text = L("profile_active")
@@ -7311,13 +7359,23 @@ pcall(function() if watermarkMain then watermarkMain:Destroy() end end)
 		end
 		local keys = {}
 		for k, v in pairs(Keys) do keys[k] = keycodeToStr(v) end
+		local stSkip = {
+			isUnloaded = true, isBinding = true, reloadInProgress = true, isBlockActive = true,
+			_reloadRunning = true, _sukChamber = true, LocalInvisEnabled = true, SkyEnabled = true,
+			HealEnabled = true, FlyEnabled = true, NoClipEnabled = true, isMultiSuk = true,
+			VREnabled = true, _spasPickupBusy = true, _reloadStartedAt = true,
+		}
 		local stDump = {}
 		for k, v in pairs(ST) do
-			local ty = typeof(v)
-			if ty == "boolean" or ty == "number" or ty == "string" then
-				stDump[k] = v
-			elseif ty == "Color3" then
-				stDump[k] = colorToArr(v)
+			if stSkip[k] then
+				-- never persist runtime toggles that freeze the client on load
+			else
+				local ty = typeof(v)
+				if ty == "boolean" or ty == "number" or ty == "string" then
+					stDump[k] = v
+				elseif ty == "Color3" then
+					stDump[k] = colorToArr(v)
+				end
 			end
 		end
 		local antiFlags = {}
@@ -7391,10 +7449,16 @@ function applyConfig(data)
 		if type(data) ~= "table" then return end
 		-- full ST table (v3)
 		if type(data.st) == "table" then
+			local skipKeys = {
+				isUnloaded = true, isBinding = true, reloadInProgress = true, isBlockActive = true,
+				_reloadRunning = true, _sukChamber = true, VREnabled = true,
+				LocalInvisEnabled = true, SkyEnabled = true, HealEnabled = true,
+				FlyEnabled = true, NoClipEnabled = true, isMultiSuk = true,
+				_spasPickupBusy = true, _reloadStartedAt = true,
+			}
 			for k, v in pairs(data.st) do
-				if k == "isUnloaded" or k == "isBinding" or k == "reloadInProgress" or k == "isBlockActive"
-					or k == "_reloadRunning" or k == "_sukChamber" or k == "VREnabled" then
-					-- skip runtime-only
+				if skipKeys[k] then
+					-- skip runtime-only / would freeze movement or half-enable features
 				elseif ST[k] ~= nil or type(v) == "boolean" or type(v) == "number" or type(v) == "string" or type(v) == "table" then
 					if type(v) == "table" and (v[1] ~= nil) and (ST[k] == nil or typeof(ST[k]) == "Color3") then
 						local c = arrToColor(v)
@@ -7597,6 +7661,52 @@ function applyConfig(data)
 		-- VR state from config
 		pcall(function()
 			if setVREnabled then setVREnabled(ST.VREnabled == true, false) end
+		end)
+		-- always unstick after config load (menu + movement)
+		ST.isBinding = false
+		bindTarget = nil
+		ST.LocalInvisEnabled = false
+		ST.SkyEnabled = false
+		ST.HealEnabled = false
+		ST.FlyEnabled = false
+		ST.NoClipEnabled = false
+		-- destroy leftover movers from a previous session in this config
+		pcall(function()
+			if flyVelocity then flyVelocity:Destroy(); flyVelocity = nil end
+			if flyGyro then flyGyro:Destroy(); flyGyro = nil end
+			if spinAngular then spinAngular:Destroy(); spinAngular = nil end
+		end)
+		pcall(function()
+			if stopLocalInvis then stopLocalInvis() end
+			if stopSky then stopSky() end
+			if StopHealLoop then StopHealLoop() end
+		end)
+		pcall(function()
+			local ch = LocalPlayer.Character
+			if not ch then return end
+			local hum = ch:FindFirstChildOfClass("Humanoid")
+			local root = ch:FindFirstChild("HumanoidRootPart")
+			if hum then
+				hum.PlatformStand = false
+				hum.Sit = false
+				hum.AutoRotate = true
+				pcall(function() hum:ChangeState(Enum.HumanoidStateType.Running) end)
+			end
+			if root then
+				root.Anchored = false
+				root.AssemblyLinearVelocity = Vector3.zero
+			end
+			for _, bp in ipairs(ch:GetDescendants()) do
+				if bp:IsA("BasePart") then
+					bp.Anchored = false
+				end
+			end
+		end)
+		-- force menu closable (isBinding was the usual stuck cause)
+		pcall(function()
+			if isOpen and setOpen then
+				-- leave menu as-is but ensure RightShift works
+			end
 		end)
 	end
 
@@ -8632,7 +8742,11 @@ UIS.InputBegan:Connect(function(input, gp)
 	end
 	if gp or UIS:GetFocusedTextBox() then return end
 	local key = input.KeyCode
-	if key == (Keys.Menu or Enum.KeyCode.RightShift) then setOpen(not isOpen); return end
+	local menuKey = Keys.Menu
+	if typeof(menuKey) ~= "EnumItem" or menuKey == Enum.KeyCode.Unknown then
+		menuKey = Enum.KeyCode.RightShift
+	end
+	if key == menuKey then setOpen(not isOpen); return end
 	local function pressed(bind)
 		if bind == nil or bind == Enum.KeyCode.Unknown then return false end
 		if typeof(bind) ~= "EnumItem" then return false end
