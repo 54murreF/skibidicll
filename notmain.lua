@@ -1,6 +1,6 @@
 --[[
     ╔═══════════════════════════════════════════════════════════════╗
-    ║              CLL CHEAT - FULL INTEGRATION v12.10-cf (native Q/G grab mirror + VR restore)                ║
+    ║              CLL CHEAT - FULL INTEGRATION v12.11-cg (native Q/G grab mirror + VR restore)                ║
     ╠═══════════════════════════════════════════════════════════════╣
     ║  SUK head-hit, real crosshair, tracers, ESP outline nick,     ║
     ║  ChinaHat/Wings fix, VR hands, anti-flash/shake, antibypass   ║
@@ -2069,13 +2069,16 @@ end
 --// ==================== LOCAL INVIS (clone + far real body, walk control) ====================
 local InvisClone = nil
 local InvisSavedCF = nil
+local InvisPlayCF = nil
 local InvisConn = nil
 local InvisFarPos = nil
 local InvisGrounded = true
 
 function destroyInvisClone()
-	if InvisConn then InvisConn:Disconnect(); InvisConn = nil end
-	if InvisClone then pcall(function() InvisClone:Destroy() end); InvisClone = nil end
+	if InvisClone then
+		pcall(function() InvisClone:Destroy() end)
+		InvisClone = nil
+	end
 end
 
 function stopLocalInvis()
@@ -2089,18 +2092,25 @@ function stopLocalInvis()
 	local root = char and char:FindFirstChild("HumanoidRootPart")
 	local hum = char and char:FindFirstChildOfClass("Humanoid")
 	if char and root then
-		root.Anchored = false
-		if InvisSavedCF then
+		pcall(function()
+			for _, p in ipairs(char:GetDescendants()) do
+				if p:IsA("BasePart") then
+					p.LocalTransparencyModifier = 0
+					p.Anchored = false
+				elseif p:IsA("Decal") then
+					p.Transparency = 0
+				end
+			end
+		end)
+		if InvisPlayCF then
+			pcall(function()
+				char:PivotTo(InvisPlayCF)
+				root.CFrame = InvisPlayCF
+			end)
+		elseif InvisSavedCF then
 			pcall(function() root.CFrame = InvisSavedCF end)
 		end
 		root.AssemblyLinearVelocity = Vector3.zero
-		for _, p in ipairs(char:GetDescendants()) do
-			if p:IsA("BasePart") then
-				p.LocalTransparencyModifier = 0
-			elseif p:IsA("Decal") then
-				p.Transparency = 0
-			end
-		end
 		local cam = workspace.CurrentCamera
 		if cam and hum then
 			cam.CameraSubject = hum
@@ -2108,22 +2118,30 @@ function stopLocalInvis()
 		end
 	end
 	InvisSavedCF = nil
+	InvisPlayCF = nil
 	InvisFarPos = nil
+	_G.CLL_InvisClone = nil
+	_G.CLL_InvisPlayCF = nil
 end
 
 LocalPlayer.CharacterAdded:Connect(function()
 	destroyInvisClone()
 	InvisSavedCF = nil
+	InvisPlayCF = nil
 	InvisFarPos = nil
 	if ST.LocalInvisEnabled then
-		task.delay(0.5, function()
+		task.delay(0.6, function()
 			if ST.LocalInvisEnabled then startLocalInvis() end
 		end)
 	end
 end)
 
--- Local invis: NO clone. Teleport real character far away every 0.1s (Y always positive).
--- Local invis: NO clone. Full-body PivotTo far away (Y always high).
+-- Custom invis (client):
+--  real character parked ~300k up (server sees you there / "off map")
+--  local semi-transparent clone at play position with mirrored movement
+--  shots use clone origin (see FireServer hook) — no blink
+local INVIS_SKY_Y = 300000
+
 function startLocalInvis()
 	local char = LocalPlayer.Character
 	if not char then return end
@@ -2131,39 +2149,65 @@ function startLocalInvis()
 	local hum = char:FindFirstChildOfClass("Humanoid")
 	if not root or not hum or hum.Health <= 0 then return end
 
-	destroyInvisClone()
 	if InvisConn then pcall(function() InvisConn:Disconnect() end); InvisConn = nil end
+	destroyInvisClone()
 
-	if not InvisSavedCF then
-		InvisSavedCF = root.CFrame
-	end
+	InvisSavedCF = root.CFrame
+	InvisPlayCF = root.CFrame
+	_G.CLL_InvisPlayCF = InvisPlayCF
 
-	pcall(function()
-		for _, p in ipairs(char:GetDescendants()) do
-			if p:IsA("BasePart") then
-				p.Anchored = false
-				p.AssemblyLinearVelocity = Vector3.zero
+	-- local visual clone
+	local okClone, clone = pcall(function() return char:Clone() end)
+	if okClone and clone then
+		InvisClone = clone
+		InvisClone.Name = "CLL_InvisClone"
+		for _, d in ipairs(InvisClone:GetDescendants()) do
+			if d:IsA("BaseScript") or d:IsA("LocalScript") or d:IsA("Script") then
+				pcall(function() d:Destroy() end)
+			elseif d:IsA("BasePart") then
+				d.CanCollide = false
+				d.CanQuery = false
+				d.CanTouch = false
+				d.Anchored = true
+				d.Massless = true
+				d.LocalTransparencyModifier = 0.5
+				d.AssemblyLinearVelocity = Vector3.zero
+			elseif d:IsA("Decal") or d:IsA("Texture") then
+				d.Transparency = math.clamp((d.Transparency or 0) + 0.4, 0, 1)
 			end
 		end
-	end)
-
-	local function pickFar()
-		-- far but not so extreme server may reject physics
-		local x = (math.random() * 2 - 1) * (8000 + math.random(0, 12000))
-		local z = (math.random() * 2 - 1) * (8000 + math.random(0, 12000))
-		local y = 400 + math.random(0, 900)
-		return Vector3.new(x, y, z)
+		-- strip tools on clone (visual only body)
+		for _, ch in ipairs(InvisClone:GetChildren()) do
+			if ch:IsA("Tool") then pcall(function() ch:Destroy() end) end
+		end
+		pcall(function()
+			InvisClone.Parent = workspace.CurrentCamera or workspace
+		end)
+		_G.CLL_InvisClone = InvisClone
+		local cHum = InvisClone:FindFirstChildOfClass("Humanoid")
+		if cHum then
+			cHum.DisplayDistanceType = Enum.HumanoidDisplayDistanceType.None
+			pcall(function() cHum:ChangeState(Enum.HumanoidStateType.Running) end)
+		end
 	end
-	InvisFarPos = pickFar()
 
+	-- hide real body locally
 	for _, p in ipairs(char:GetDescendants()) do
 		if p:FindFirstAncestorOfClass("Tool") then
-			-- keep tools usable / visible to systems
+			-- tools stay
 		elseif p:IsA("BasePart") then
 			p.LocalTransparencyModifier = 1
 		elseif p:IsA("Decal") then
 			p.Transparency = 1
 		end
+	end
+
+	-- camera on clone so view stays at play position
+	local cam = workspace.CurrentCamera
+	local cHum = InvisClone and InvisClone:FindFirstChildOfClass("Humanoid")
+	if cam and cHum then
+		cam.CameraSubject = cHum
+		cam.CameraType = Enum.CameraType.Custom
 	end
 
 	local acc = 0
@@ -2175,30 +2219,62 @@ function startLocalInvis()
 		local h = c:FindFirstChildOfClass("Humanoid")
 		if not r or not h or h.Health <= 0 then return end
 
-		acc += dt
-		if acc < 0.05 then return end -- 20 Hz server-visible TP
-		acc = 0
-		InvisFarPos = pickFar()
-		local pos = InvisFarPos
-		if pos.Y < 200 then pos = Vector3.new(pos.X, 600 + math.random(0, 400), pos.Z) end
-
-		-- force server-visible move (unanchored + PivotTo + tiny velocity)
-		pcall(function()
-			for _, part in ipairs(c:GetDescendants()) do
-				if part:IsA("BasePart") then
-					part.Anchored = false
-					part.AssemblyAngularVelocity = Vector3.zero
-				end
+		-- play-space movement from real humanoid input (before we sky-park the body)
+		if not InvisPlayCF then InvisPlayCF = r.CFrame end
+		local move = h.MoveDirection
+		if typeof(move) == "Vector3" and move.Magnitude > 0.05 then
+			local spd = h.WalkSpeed
+			if spd < 1 then spd = 16 end
+			InvisPlayCF = InvisPlayCF + move.Unit * spd * dt
+		end
+		-- face camera look on XZ
+		local look = workspace.CurrentCamera and workspace.CurrentCamera.CFrame.LookVector or InvisPlayCF.LookVector
+		local flat = Vector3.new(look.X, 0, look.Z)
+		if flat.Magnitude > 0.05 then
+			local pos = InvisPlayCF.Position
+			InvisPlayCF = CFrame.new(pos, pos + flat)
+		end
+		-- jump
+		if h.Jump or h:GetState() == Enum.HumanoidStateType.Jumping then
+			InvisPlayCF = InvisPlayCF + Vector3.new(0, math.min(40 * dt, 2), 0)
+		else
+			-- simple ground stick: keep Y from saved / slight settle
+			local y = InvisPlayCF.Position.Y
+			local baseY = InvisSavedCF and InvisSavedCF.Position.Y or y
+			if y > baseY + 0.05 then
+				InvisPlayCF = InvisPlayCF - Vector3.new(0, math.min(28 * dt, y - baseY), 0)
 			end
-			local cf = CFrame.new(pos)
-			pcall(function() c.PrimaryPart = r end)
-			pcall(function() c:PivotTo(cf) end)
-			r.CFrame = cf
-			r.AssemblyLinearVelocity = Vector3.new(0, 0.05, 0)
+		end
+		_G.CLL_InvisPlayCF = InvisPlayCF
+
+		-- update clone pose
+		if InvisClone and InvisClone.Parent then
 			pcall(function()
-				if c.PrimaryPart then c:SetPrimaryPartCFrame(cf) end
+				InvisClone:PivotTo(InvisPlayCF)
+				local cr = InvisClone:FindFirstChild("HumanoidRootPart")
+				if cr then cr.CFrame = InvisPlayCF end
 			end)
-		end)
+		end
+
+		-- park real character far UP (~300k) — server sees skybox void
+		acc += dt
+		if acc >= 0.08 then
+			acc = 0
+			local jitter = (math.random() - 0.5) * 40
+			local far = CFrame.new(InvisPlayCF.X + jitter * 0.05, INVIS_SKY_Y + math.random(0, 500), InvisPlayCF.Z + jitter * 0.05)
+			pcall(function()
+				for _, part in ipairs(c:GetDescendants()) do
+					if part:IsA("BasePart") and not part:FindFirstAncestorOfClass("Tool") then
+						part.AssemblyLinearVelocity = Vector3.zero
+						part.AssemblyAngularVelocity = Vector3.zero
+					end
+				end
+				pcall(function() c.PrimaryPart = r end)
+				pcall(function() c:PivotTo(far) end)
+				r.CFrame = far
+				r.AssemblyLinearVelocity = Vector3.new(0, 0.02, 0)
+			end)
+		end
 	end)
 	table.insert(Connections, InvisConn)
 end
@@ -4425,12 +4501,25 @@ oldNamecall = hookmetamethod(game, "__namecall", function(self, ...)
 					if typeof(payload.Origin) == "Vector3" then origin = payload.Origin end
 				end)
 			end
+			-- Local invis: shots from clone/play CF, not sky body
+			if ST.LocalInvisEnabled and typeof(payload) == "table" then
+				local play = _G.CLL_InvisPlayCF
+				local newOrigin = nil
+				if play then
+					newOrigin = play.Position + play.LookVector * 1.2 + Vector3.new(0, 1.2, 0)
+				end
+				if typeof(newOrigin) == "Vector3" then
+					payload.origin = newOrigin
+					payload.Origin = newOrigin
+					origin = newOrigin
+				end
+			end
 			if ST.SilentAimEnabled and typeof(origin) == "Vector3" and _G.CLL_AimPos and typeof(_G.CLL_AimPos) == "Vector3" then
 				local d = _G.CLL_AimPos - origin
 				if d.Magnitude > 0.01 then
 					payload.direction = d.Unit
 					payload.Direction = d.Unit
-									end
+				end
 			end
 			if ST.NoSpreadEnabled and typeof(payload.direction) == "Vector3" and payload.direction.Magnitude > 1e-4 then
 				payload.direction = payload.direction.Unit
@@ -5034,7 +5123,7 @@ fit(); workspace.CurrentCamera:GetPropertyChangedSignal("ViewportSize"):Connect(
 local header = new("Frame", { Size = UDim2.new(1, 0, 0, 62), BackgroundTransparency = 1, Parent = window })
 local logoLabel = label({ Text = "CLL", Font = Enum.Font.Michroma, TextSize = 26, TextTruncate = Enum.TextTruncate.AtEnd, Size = UDim2.fromOffset(100, 62), Position = UDim2.fromOffset(23, 0), Parent = header })
 logoLabel.TextColor3 = Color3.fromRGB(255, 255, 255) -- Always white
-local verLabel = label({ Text = "v12.10-cf", Font = Enum.Font.GothamBold, TextSize = 12, TextColor3 = Theme.Dim, Size = UDim2.fromOffset(50, 62), Position = UDim2.fromOffset(85, 2), Parent = header })
+local verLabel = label({ Text = "v12.11-cg", Font = Enum.Font.GothamBold, TextSize = 12, TextColor3 = Theme.Dim, Size = UDim2.fromOffset(50, 62), Position = UDim2.fromOffset(85, 2), Parent = header })
 local timeLabel = label({ Text = "Session: 00:00", Font = Enum.Font.GothamMedium, TextSize = 13, TextColor3 = Theme.Dim, Size = UDim2.fromOffset(150, 62), Position = UDim2.fromOffset(150, 0), Parent = header })
 task.spawn(function()
 	while not ST.isUnloaded do
@@ -6148,7 +6237,7 @@ function buildProfile()
 	end
 
 	local tBuild, vBuild = row("profile_build", 1)
-	vBuild.Text = "v12.10-cf"
+	vBuild.Text = "v12.11-cg"
 	local tSess, vSess = row("profile_session", 2)
 	local tStat, vStat = row("profile_status", 3)
 	vStat.Text = L("profile_active")
