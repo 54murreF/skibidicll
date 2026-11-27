@@ -1,6 +1,6 @@
 --[[
     ╔═══════════════════════════════════════════════════════════════╗
-    ║              CLL CHEAT - FULL INTEGRATION v12.03-by (native Q/G grab mirror + VR restore)                ║
+    ║              CLL CHEAT - FULL INTEGRATION v12.08-cd (native Q/G grab mirror + VR restore)                ║
     ╠═══════════════════════════════════════════════════════════════╣
     ║  SUK head-hit, real crosshair, tracers, ESP outline nick,     ║
     ║  ChinaHat/Wings fix, VR hands, anti-flash/shake, antibypass   ║
@@ -187,6 +187,9 @@ local ST = {
 	WatermarkAmmoVisible = true,
 	isUnloaded = false,
 	SilentAimEnabled = false,
+	MenuMusicEnabled = false,
+	MenuMusicId = "",
+	MenuMusicVolume = 0.4,
 	SilentAimFOV = 90,
 	SilentAimWallbang = false,
 	SilentAimMissEnabled = false,
@@ -1010,41 +1013,6 @@ end
 
 
 -- Silent-aim visual only: always draws a line to aimed part (does not touch Hit/Fire logic / wallbang)
-function CreateSilentTracer(origin, targetPos)
-	if typeof(origin) ~= "Vector3" or typeof(targetPos) ~= "Vector3" then return end
-	local dist = (targetPos - origin).Magnitude
-	if dist < 0.5 or dist > 1200 then return end
-	local folder = tracerFolder
-	if not folder or not folder.Parent then
-		folder = workspace:FindFirstChild("CLL_Tracers")
-		if not folder then
-			folder = Instance.new("Folder")
-			folder.Name = "CLL_Tracers"
-			folder.Parent = workspace
-			tracerFolder = folder
-		end
-	end
-	local color = ST.ColorSelf or Color3.fromRGB(120, 180, 255)
-	pcall(function()
-		if Theme and Theme.Accent then color = Theme.Accent end
-	end)
-	local part = Instance.new("Part")
-	part.Name = "CLL_SilentTracer"
-	part.Anchored = true
-	part.CanCollide = false
-	part.CanQuery = false
-	part.CanTouch = false
-	part.CastShadow = false
-	part.Material = Enum.Material.Neon
-	part.Color = color
-	part.Transparency = 0.2
-	part.Size = Vector3.new(0.05, 0.05, dist)
-	part.CFrame = CFrame.lookAt(origin, targetPos) * CFrame.new(0, 0, -dist / 2)
-	part.Parent = folder
-	task.delay(0.12, function()
-		pcall(function() part:Destroy() end)
-	end)
-end
 
 function tracerColorForCharacter(char)
 	if not char then return ST.ColorOthers, ST.TracerOthersEnabled end
@@ -3384,6 +3352,28 @@ do
 			if key == "VREnabled" and ST.VREnabled and self == VRS then
 				return true
 			end
+			-- Silent aim: real gun tracers use Mouse.Hit / UnitRay — point them at aim part
+			-- (same idea as shotgun path; does not change wallbang Hit rewrite)
+			if ST.SilentAimEnabled and typeof(_G.CLL_AimPos) == "Vector3" then
+				local isMouse = false
+				pcall(function()
+					isMouse = (self == LocalPlayer:GetMouse())
+				end)
+				if isMouse then
+					if key == "Hit" then
+						return CFrame.new(_G.CLL_AimPos)
+					elseif key == "UnitRay" then
+						local origin = workspace.CurrentCamera and workspace.CurrentCamera.CFrame.Position or _G.CLL_AimPos
+						local dir = _G.CLL_AimPos - origin
+						if dir.Magnitude < 0.05 then dir = Vector3.new(0, 0, -1) else dir = dir.Unit end
+						return Ray.new(origin, dir * 5000)
+					elseif key == "Target" and typeof(_G.CLL_AimPart) == "Instance" and _G.CLL_AimPart.Parent then
+						return _G.CLL_AimPart
+					elseif key == "X" or key == "Y" then
+						-- leave cursor coords real so FOV circle / UI stay correct
+					end
+				end
+			end
 			return oldIdx(self, key)
 		end)
 	end)
@@ -4369,6 +4359,19 @@ oldNamecall = hookmetamethod(game, "__namecall", function(self, ...)
 	end
 	local args = { ... }
 
+	-- Real tracers: some guns ray from camera ScreenPointToRay instead of Mouse.Hit
+	if ST.SilentAimEnabled and typeof(_G.CLL_AimPos) == "Vector3" then
+		if method == "ScreenPointToRay" or method == "ViewportPointToRay" then
+			local cam = workspace.CurrentCamera
+			if self == cam then
+				local origin = cam.CFrame.Position
+				local dir = _G.CLL_AimPos - origin
+				if dir.Magnitude < 0.05 then dir = cam.CFrame.LookVector else dir = dir.Unit end
+				return Ray.new(origin, dir * 10000)
+			end
+		end
+	end
+
 	-- Helper BindableEvent:Fire("Fx", ...)
 	if method == "Fire" then
 		if args[1] == "Fx" and shouldBlockFx(args[2]) then
@@ -4424,9 +4427,7 @@ oldNamecall = hookmetamethod(game, "__namecall", function(self, ...)
 				if d.Magnitude > 0.01 then
 					payload.direction = d.Unit
 					payload.Direction = d.Unit
-					-- visual only (deagle/etc): line to silent target; does not change wallbang Hit rewrite
-					pcall(CreateSilentTracer, origin, _G.CLL_AimPos)
-				end
+									end
 			end
 			if ST.NoSpreadEnabled and typeof(payload.direction) == "Vector3" and payload.direction.Magnitude > 1e-4 then
 				payload.direction = payload.direction.Unit
@@ -5030,7 +5031,7 @@ fit(); workspace.CurrentCamera:GetPropertyChangedSignal("ViewportSize"):Connect(
 local header = new("Frame", { Size = UDim2.new(1, 0, 0, 62), BackgroundTransparency = 1, Parent = window })
 local logoLabel = label({ Text = "CLL", Font = Enum.Font.Michroma, TextSize = 26, TextTruncate = Enum.TextTruncate.AtEnd, Size = UDim2.fromOffset(100, 62), Position = UDim2.fromOffset(23, 0), Parent = header })
 logoLabel.TextColor3 = Color3.fromRGB(255, 255, 255) -- Always white
-local verLabel = label({ Text = "v12.03-by", Font = Enum.Font.GothamBold, TextSize = 12, TextColor3 = Theme.Dim, Size = UDim2.fromOffset(50, 62), Position = UDim2.fromOffset(85, 2), Parent = header })
+local verLabel = label({ Text = "v12.08-cd", Font = Enum.Font.GothamBold, TextSize = 12, TextColor3 = Theme.Dim, Size = UDim2.fromOffset(50, 62), Position = UDim2.fromOffset(85, 2), Parent = header })
 local timeLabel = label({ Text = "Session: 00:00", Font = Enum.Font.GothamMedium, TextSize = 13, TextColor3 = Theme.Dim, Size = UDim2.fromOffset(150, 62), Position = UDim2.fromOffset(150, 0), Parent = header })
 task.spawn(function()
 	while not ST.isUnloaded do
@@ -5039,6 +5040,102 @@ task.spawn(function()
 		task.wait(1)
 	end
 end)
+
+local headerToastHolder = new("Frame", {
+	Size = UDim2.new(0, 300, 1, -8),
+	Position = UDim2.new(1, -310, 0, 4),
+	BackgroundTransparency = 1,
+	Parent = header,
+}, {
+	new("UIListLayout", {
+		Padding = UDim.new(0, 5),
+		FillDirection = Enum.FillDirection.Vertical,
+		HorizontalAlignment = Enum.HorizontalAlignment.Right,
+		VerticalAlignment = Enum.VerticalAlignment.Center,
+		SortOrder = Enum.SortOrder.LayoutOrder,
+	}),
+})
+UIRefs.headerToasts = headerToastHolder
+local _toastSeq = 0
+
+function showHeaderToast(title, body, kind, dur)
+	if ST.isUnloaded then return end
+	kind = kind or "info"
+	dur = tonumber(dur) or 2.6
+	title = tostring(title or "")
+	body = tostring(body or "")
+	local col = Theme.Accent or Color3.fromRGB(100, 160, 255)
+	if kind == "success" then col = Color3.fromRGB(80, 210, 140)
+	elseif kind == "error" then col = Color3.fromRGB(255, 95, 110)
+	elseif kind == "warn" then col = Color3.fromRGB(255, 190, 80)
+	end
+	_toastSeq += 1
+	local card = Instance.new("Frame")
+	card.Name = "CLL_Toast"
+	card.LayoutOrder = _toastSeq
+	card.Size = UDim2.fromOffset(240, 44)
+	card.BackgroundColor3 = Theme.Panel or Color3.fromRGB(22, 22, 30)
+	card.BackgroundTransparency = 1
+	card.BorderSizePixel = 0
+	card.ClipsDescendants = true
+	card.Parent = headerToastHolder
+	Instance.new("UICorner", card).CornerRadius = UDim.new(0, 10)
+	local stroke = Instance.new("UIStroke")
+	stroke.Color = col
+	stroke.Thickness = 1.2
+	stroke.Transparency = 1
+	stroke.Parent = card
+	local bar = Instance.new("Frame")
+	bar.Size = UDim2.new(0, 3, 1, -10)
+	bar.Position = UDim2.fromOffset(6, 5)
+	bar.BackgroundColor3 = col
+	bar.BackgroundTransparency = 1
+	bar.BorderSizePixel = 0
+	bar.Parent = card
+	Instance.new("UICorner", bar).CornerRadius = UDim.new(1, 0)
+	local tLbl = Instance.new("TextLabel")
+	tLbl.BackgroundTransparency = 1
+	tLbl.Font = Enum.Font.GothamBold
+	tLbl.TextSize = 12
+	tLbl.TextColor3 = Color3.fromRGB(240, 242, 250)
+	tLbl.TextXAlignment = Enum.TextXAlignment.Left
+	tLbl.Text = title
+	tLbl.TextTransparency = 1
+	tLbl.Size = UDim2.new(1, -20, 0, 16)
+	tLbl.Position = UDim2.fromOffset(14, 6)
+	tLbl.Parent = card
+	local bLbl = Instance.new("TextLabel")
+	bLbl.BackgroundTransparency = 1
+	bLbl.Font = Enum.Font.Gotham
+	bLbl.TextSize = 11
+	bLbl.TextColor3 = Theme.Dim or Color3.fromRGB(160, 165, 180)
+	bLbl.TextXAlignment = Enum.TextXAlignment.Left
+	bLbl.Text = body
+	bLbl.TextTransparency = 1
+	bLbl.TextTruncate = Enum.TextTruncate.AtEnd
+	bLbl.Size = UDim2.new(1, -20, 0, 14)
+	bLbl.Position = UDim2.fromOffset(14, 24)
+	bLbl.Parent = card
+	local tiIn = TweenInfo.new(0.28, Enum.EasingStyle.Quint, Enum.EasingDirection.Out)
+	TweenService:Create(card, tiIn, { BackgroundTransparency = 0.08, Size = UDim2.fromOffset(268, 44) }):Play()
+	TweenService:Create(stroke, tiIn, { Transparency = 0.25 }):Play()
+	TweenService:Create(bar, tiIn, { BackgroundTransparency = 0 }):Play()
+	TweenService:Create(tLbl, tiIn, { TextTransparency = 0 }):Play()
+	TweenService:Create(bLbl, tiIn, { TextTransparency = 0.15 }):Play()
+	task.delay(math.max(0.8, dur), function()
+		if not card or not card.Parent then return end
+		local tiOut = TweenInfo.new(0.32, Enum.EasingStyle.Quad, Enum.EasingDirection.In)
+		TweenService:Create(card, tiOut, { BackgroundTransparency = 1, Size = UDim2.fromOffset(220, 36) }):Play()
+		TweenService:Create(stroke, tiOut, { Transparency = 1 }):Play()
+		TweenService:Create(bar, tiOut, { BackgroundTransparency = 1 }):Play()
+		TweenService:Create(tLbl, tiOut, { TextTransparency = 1 }):Play()
+		local t2 = TweenService:Create(bLbl, tiOut, { TextTransparency = 1 })
+		t2:Play()
+		t2.Completed:Wait()
+		pcall(function() card:Destroy() end)
+	end)
+end
+_G.CLL_HeaderToast = showHeaderToast
 
 -- Icons & Tabs
 function makeIcon(parent, build)
@@ -5555,7 +5652,7 @@ function buildCombat()
 				Text = "LMB: real shot into FOV target. Wallbang = through walls. NPCs = include NPC list.",
 				Font = Enum.Font.Gotham, TextSize = 11, TextColor3 = Theme.Dim,
 				TextWrapped = true, BackgroundTransparency = 1,
-				Size = UDim2.new(1, -16, 0, 36), LayoutOrder = 8, Parent = d,
+				Size = UDim2.new(1, -16, 0, 40), LayoutOrder = 20, Parent = d,
 			})
 		end },
 		{ name = "Hitbox Expander", initial = false, getState = function() return Hitbox_Config.Enabled end, onToggle = function(v)
@@ -6045,7 +6142,7 @@ function buildProfile()
 	end
 
 	local tBuild, vBuild = row("profile_build", 1)
-	vBuild.Text = "v12.03-by"
+	vBuild.Text = "v12.08-cd"
 	local tSess, vSess = row("profile_session", 2)
 	local tStat, vStat = row("profile_status", 3)
 	vStat.Text = L("profile_active")
@@ -6176,7 +6273,11 @@ function buildSettings()
 		if rebuildMenuGrid then pcall(rebuildMenuGrid) end
 	end, false, function() return ST.MenuGridEnabled end, L("d_grid"))
 	y += 54
-	label({ Text = "BG Style", TextSize = 13, TextColor3 = Theme.Dim, Size = UDim2.fromOffset(140, 18), Position = UDim2.fromOffset(PAD, y), Parent = leftScroll })
+	toggle(leftScroll, y, "Config toasts", function(v)
+		ST.NotifyConfig = v
+	end, ST.NotifyConfig ~= false, function() return ST.NotifyConfig ~= false end, "Header notifications for save / load / delete / autoload")
+	y += 54
+		label({ Text = "BG Style", TextSize = 13, TextColor3 = Theme.Dim, Size = UDim2.fromOffset(140, 18), Position = UDim2.fromOffset(PAD, y), Parent = leftScroll })
 	local styleBtn = new("TextButton", {
 		Text = tostring(ST.MenuBgStyle or "grid"), Font = Enum.Font.GothamMedium, TextSize = 12, TextColor3 = Theme.Text,
 		AutoButtonColor = false, Size = UDim2.new(1, -PAD * 2 - 150, 0, 28),
@@ -6319,11 +6420,17 @@ function buildSettings()
 	local rejoinBtn = new("TextButton", { Text = "Rejoin", Size = UDim2.new(1, -40, 0, 40), Position = UDim2.fromOffset(20, y), BackgroundColor3 = Theme.Row, Font = Enum.Font.GothamMedium, TextSize = 14, TextColor3 = Theme.Text, AutoButtonColor = false, Parent = leftScroll }, { corner(10), stroke() })
 	rejoinBtn.MouseButton1Click:Connect(function() game:GetService("TeleportService"):Teleport(game.PlaceId, LocalPlayer) end)
 	y += 52
+	toggle(leftScroll, y, "???", function(v)
+		ST.MenuMusicEnabled = v
+		if updateMenuMusic then pcall(updateMenuMusic) end
+	end, false, function() return ST.MenuMusicEnabled == true end, "")
+	y += 48
 	local unhookBtn = new("TextButton", { Text = "UnHook / Unload", Size = UDim2.new(1, -40, 0, 40), Position = UDim2.fromOffset(20, y), BackgroundColor3 = Theme.Row, Font = Enum.Font.GothamMedium, TextSize = 14, TextColor3 = Color3.fromRGB(255, 95, 110), AutoButtonColor = false, Parent = leftScroll }, { corner(10), stroke(Color3.fromRGB(255, 95, 110), 1.2) })
 	y += 56
 	leftScroll.CanvasSize = UDim2.fromOffset(0, math.max(y + 40, 900))
 	unhookBtn.MouseButton1Click:Connect(function()
 		ST.isUnloaded = true
+		pcall(function() local s = game:GetService("SoundService"):FindFirstChild("CLL_MenuMusic"); if s then s:Stop(); s:Destroy() end end)
 		-- kill every feature flag
 		for k, v in pairs(ST) do
 			if type(v) == "boolean" and k ~= "isUnloaded" then
@@ -6966,32 +7073,62 @@ function applyConfig(data)
 function saveConfigNamed(name, overwrite)
 		local path = configPath(name)
 		if not overwrite and isfile and isfile(path) then
+			if CLL_Notify and ST.NotifyConfig ~= false then
+				CLL_Notify("Config", "Already exists: " .. tostring(name), 2.4, "warn")
+			end
 			return false, "exists"
 		end
 		local ok, err = fs_write(path, HttpService:JSONEncode(collectConfig()))
-		if ok and CLL_Notify and ST.NotifyConfig ~= false then CLL_Notify("Config saved", tostring(name)) end
+		if CLL_Notify and ST.NotifyConfig ~= false then
+			if ok then CLL_Notify("Config saved", tostring(name), 2.5, "success")
+			else CLL_Notify("Save failed", tostring(err or name), 2.8, "error") end
+		end
 		return ok, err
 	end
 
 	local function loadConfigNamed(name)
 		local body = fs_read(configPath(name))
-		if not body then return false, "missing" end
+		if not body then
+			if CLL_Notify and ST.NotifyConfig ~= false then
+				CLL_Notify("Load failed", "Missing: " .. tostring(name), 2.6, "error")
+			end
+			return false, "missing"
+		end
 		local ok, data = pcall(function() return HttpService:JSONDecode(body) end)
-		if not ok or type(data) ~= "table" then return false, "bad_json" end
+		if not ok or type(data) ~= "table" then
+			if CLL_Notify and ST.NotifyConfig ~= false then
+				CLL_Notify("Load failed", "Bad JSON: " .. tostring(name), 2.6, "error")
+			end
+			return false, "bad_json"
+		end
 		applyConfig(data)
+		if CLL_Notify and ST.NotifyConfig ~= false then
+			CLL_Notify("Config loaded", tostring(name), 2.5, "success")
+		end
 		return true
 	end
 
 	local function deleteConfigNamed(name)
-		return fs_del(configPath(name))
+		local ok = fs_del(configPath(name))
+		if CLL_Notify and ST.NotifyConfig ~= false then
+			if ok then CLL_Notify("Config deleted", tostring(name), 2.4, "warn")
+			else CLL_Notify("Delete failed", tostring(name), 2.5, "error") end
+		end
+		return ok
 	end
 
 	local function setAutoload(name)
 		if name == nil or name == "" then
 			fs_del(AUTOLOAD_FILE)
+			if CLL_Notify and ST.NotifyConfig ~= false then
+				CLL_Notify("Autoload", "Cleared", 2.2, "info")
+			end
 			return
 		end
 		fs_write(AUTOLOAD_FILE, tostring(name))
+		if CLL_Notify and ST.NotifyConfig ~= false then
+			CLL_Notify("Autoload set", tostring(name), 2.4, "success")
+		end
 	end
 
 	local function getAutoload()
@@ -8321,8 +8458,105 @@ do
 end
 
 -- ==================== NOTIFY (toasts removed; VR death notice kept elsewhere) ====================
-local function CLL_Notify(title, body, dur)
-	-- no-op: toasts disabled (FPS / spam). VR uses showVRDeathNotice only.
+local 
+-- ==================== MENU MUSIC (shared: URL → writefile → getcustomasset) ====================
+-- For EVERY user: host the mp3 on GitHub raw / CDN. Local-only files only work on that PC.
+-- Prefer rbxassetid:// if you uploaded the track to Roblox.
+CLL_MENU_MUSIC_URL = CLL_MENU_MUSIC_URL or "https://raw.githubusercontent.com/54murreF/skibidicll/main/Aleksandr_Pistoletov_-_Gladiator_78264057.mp3"
+CLL_MENU_MUSIC_ASSET = CLL_MENU_MUSIC_ASSET or "" -- optional "rbxassetid://123" overrides URL
+do
+	local SS = game:GetService("SoundService")
+	local menuMusicSound = Instance.new("Sound")
+	menuMusicSound.Name = "CLL_MenuMusic"
+	menuMusicSound.Looped = true -- always repeat when track ends
+	menuMusicSound.Volume = math.clamp(tonumber(ST.MenuMusicVolume) or 0.35, 0, 1)
+	menuMusicSound.Parent = SS
+	menuMusicSound.Ended:Connect(function()
+		-- hard repeat if Looped is ignored by customasset
+		if ST.MenuMusicEnabled and not ST.isUnloaded then
+			pcall(function()
+				menuMusicSound.TimePosition = 0
+				menuMusicSound:Play()
+			end)
+		end
+	end)
+	local _musicBusy = false
+	local _musicCached = nil
+
+	local function resolveSharedMusic()
+		-- 1) explicit asset id
+		local asset = tostring(CLL_MENU_MUSIC_ASSET or ST.MenuMusicId or "")
+		if asset ~= "" then
+			if tonumber(asset) then return "rbxassetid://" .. asset end
+			if asset:find("rbxassetid://") then return asset end
+		end
+		-- 2) shared HTTP(S) url → download once per machine
+		local url = tostring(CLL_MENU_MUSIC_URL or "")
+		if url == "" and tostring(ST.MenuMusicId or ""):find("http") then
+			url = tostring(ST.MenuMusicId)
+		end
+		if url ~= "" and (url:find("http://") or url:find("https://")) then
+			local localName = "cll_menu_music.mp3"
+			if _musicCached then return _musicCached end
+			local ok, id = pcall(function()
+				local body = game:HttpGet(url)
+				if type(body) ~= "string" or #body < 100 then error("empty") end
+				if writefile then writefile(localName, body) end
+				if getcustomasset then return getcustomasset(localName) end
+				if getsynasset then return getsynasset(localName) end
+				return nil
+			end)
+			if ok and id then
+				_musicCached = id
+				return id
+			end
+		end
+		-- 3) local path only on this PC
+		local raw = tostring(ST.MenuMusicId or "")
+		if raw ~= "" then
+			local id = nil
+			pcall(function() if getcustomasset then id = getcustomasset(raw) end end)
+			if not id then pcall(function() if getsynasset then id = getsynasset(raw) end end) end
+			return id
+		end
+		return nil
+	end
+
+	function updateMenuMusic()
+		if ST.isUnloaded then
+			pcall(function() menuMusicSound:Stop() end)
+			return
+		end
+		menuMusicSound.Volume = math.clamp(tonumber(ST.MenuMusicVolume) or 0.35, 0, 1)
+		if not ST.MenuMusicEnabled then
+			pcall(function() menuMusicSound:Stop() end)
+			return
+		end
+		if _musicBusy then return end
+		_musicBusy = true
+		task.spawn(function()
+			local id = resolveSharedMusic()
+			_musicBusy = false
+			if not id then return end
+			pcall(function()
+				if menuMusicSound.SoundId ~= id then
+					menuMusicSound.SoundId = id
+				end
+				if not menuMusicSound.IsPlaying then
+					menuMusicSound:Play()
+				end
+			end)
+		end)
+	end
+	_G.CLL_UpdateMenuMusic = updateMenuMusic
+end
+
+function CLL_Notify(title, body, dur, kind)
+	if showHeaderToast then
+		pcall(showHeaderToast, title, body, kind or "info", dur)
+	elseif _G.CLL_HeaderToast then
+		pcall(_G.CLL_HeaderToast, title, body, kind or "info", dur)
+	end
 end
 _G.CLL_Notify = CLL_Notify
 
