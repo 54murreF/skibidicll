@@ -1,6 +1,6 @@
 --[[
     ╔═══════════════════════════════════════════════════════════════╗
-    ║              CLL CHEAT - FULL INTEGRATION v11.96-br (native Q/G grab mirror + VR restore)                ║
+    ║              CLL CHEAT - FULL INTEGRATION v11.97-bs (native Q/G grab mirror + VR restore)                ║
     ╠═══════════════════════════════════════════════════════════════╣
     ║  SUK head-hit, real crosshair, tracers, ESP outline nick,     ║
     ║  ChinaHat/Wings fix, VR hands, anti-flash/shake, antibypass   ║
@@ -3919,35 +3919,64 @@ function GetClosestPlayerInFOV()
 	return closest
 end
 
+function pickSilentAimPart(char)
+	if not char then return nil end
+	local h = tonumber(ST.SilentAimHeadPct) or 80
+	local t = tonumber(ST.SilentAimTorsoPct) or 15
+	local l = tonumber(ST.SilentAimLegsPct) or 5
+	local sum = h + t + l
+	if sum <= 0 then h, t, l, sum = 100, 0, 0, 100 end
+	local r = math.random() * sum
+	local part = nil
+	if r <= h then
+		part = char:FindFirstChild("Head")
+	elseif r <= h + t then
+		part = char:FindFirstChild("UpperTorso") or char:FindFirstChild("Torso") or char:FindFirstChild("HumanoidRootPart")
+	else
+		part = char:FindFirstChild("LeftFoot") or char:FindFirstChild("RightFoot")
+			or char:FindFirstChild("Left Leg") or char:FindFirstChild("Right Leg")
+			or char:FindFirstChild("HumanoidRootPart")
+	end
+	return part or char:FindFirstChild("Head") or char:FindFirstChild("HumanoidRootPart")
+end
+
+function GetMouseScreenPos()
+	local ok, pos = pcall(function() return UIS:GetMouseLocation() end)
+	if ok and typeof(pos) == "Vector2" then return pos end
+	local m = LocalPlayer:GetMouse()
+	return Vector2.new(m.X, m.Y + 36) -- inset compensation approx
+end
+
 function GetClosestAimPartInFOV()
 	if not ST.SilentAimEnabled then return nil end
 	local cam = workspace.CurrentCamera
 	if not cam then return nil end
-	local screenCenter = Vector2.new(cam.ViewportSize.X / 2, cam.ViewportSize.Y / 2)
-	local fovR = (cam.ViewportSize.Y / 2) * (ST.SilentAimFOV / math.max(cam.FieldOfView, 1))
-	local partName = ST.SilentAimPart or "Head"
-	local closest, closestDist = nil, math.huge
+	local mousePos = GetMouseScreenPos()
+	-- FOV radius in pixels from degrees-like slider (same formula as before, but about cursor)
+	local fovR = (cam.ViewportSize.Y / 2) * ((ST.SilentAimFOV or 90) / math.max(cam.FieldOfView, 1))
+	local closestChar, closestDist = nil, math.huge
 	for _, plr in ipairs(Players:GetPlayers()) do
 		if plr ~= LocalPlayer and plr.Character and not (ST.SUK_IgnoreFriends and FriendsList[plr.UserId]) then
 			local hum = plr.Character:FindFirstChildOfClass("Humanoid")
 			if hum and hum.Health > 0 then
-				local part = plr.Character:FindFirstChild(partName)
-					or plr.Character:FindFirstChild("Head")
+				local ref = plr.Character:FindFirstChild("Head")
 					or plr.Character:FindFirstChild("HumanoidRootPart")
-				if part then
-					local screenPos, onScreen = cam:WorldToViewportPoint(part.Position)
+				if ref then
+					local screenPos, onScreen = cam:WorldToViewportPoint(ref.Position)
 					if onScreen and screenPos.Z > 0 then
-						local d = (Vector2.new(screenPos.X, screenPos.Y) - screenCenter).Magnitude
+						local d = (Vector2.new(screenPos.X, screenPos.Y) - mousePos).Magnitude
 						if d < fovR and d < closestDist then
-							closest, closestDist = part, d
+							closestChar, closestDist = plr.Character, d
 						end
 					end
 				end
 			end
 		end
 	end
-	return closest
+	if not closestChar then return nil end
+	return pickSilentAimPart(closestChar)
 end
+
 
 
 local lastFireTime = 0
@@ -4606,16 +4635,30 @@ local fovCircle = new("Frame", {
 }, { round(), stroke(Color3.fromRGB(255, 255, 255), 1) })
 
 function updateFOVCircle()
-	if ST.SilentAimEnabled then
+	if ST.SilentAimEnabled and ST.SilentAimShowFOV ~= false then
 		fovCircle.Visible = true
 		local cam = workspace.CurrentCamera
 		if not cam then return end
-		local fovRadius = (cam.ViewportSize.Y / 2) * (ST.SilentAimFOV / cam.FieldOfView)
-		fovCircle.Size = UDim2.fromOffset(fovRadius * 2, fovRadius * 2)
+		local fovRadius = (cam.ViewportSize.Y / 2) * ((ST.SilentAimFOV or 90) / math.max(cam.FieldOfView, 1))
+		fovCircle.Size = UDim2.fromOffset(math.max(20, fovRadius * 2), math.max(20, fovRadius * 2))
+		local mp = GetMouseScreenPos and GetMouseScreenPos() or Vector2.new(cam.ViewportSize.X/2, cam.ViewportSize.Y/2)
+		fovCircle.Position = UDim2.fromOffset(mp.X, mp.Y)
 	else
 		fovCircle.Visible = false
 	end
 end
+
+-- keep FOV ring glued to cursor while silent is on
+task.spawn(function()
+	while not ST.isUnloaded do
+		if ST.SilentAimEnabled and ST.SilentAimShowFOV ~= false then
+			pcall(updateFOVCircle)
+			task.wait(0.03)
+		else
+			task.wait(0.15)
+		end
+	end
+end)
 subscribeTheme(function() local s = fovCircle:FindFirstChildOfClass("UIStroke"); if s then s.Color = Theme.Accent end end)
 
 function cosmeticColor() return CosmeticUseCustom and CosmeticColorCustom or Theme.Accent end
@@ -4811,7 +4854,7 @@ fit(); workspace.CurrentCamera:GetPropertyChangedSignal("ViewportSize"):Connect(
 local header = new("Frame", { Size = UDim2.new(1, 0, 0, 62), BackgroundTransparency = 1, Parent = window })
 local logoLabel = label({ Text = "CLL", Font = Enum.Font.Michroma, TextSize = 26, TextTruncate = Enum.TextTruncate.AtEnd, Size = UDim2.fromOffset(100, 62), Position = UDim2.fromOffset(23, 0), Parent = header })
 logoLabel.TextColor3 = Color3.fromRGB(255, 255, 255) -- Always white
-local verLabel = label({ Text = "v11.96-br", Font = Enum.Font.GothamBold, TextSize = 12, TextColor3 = Theme.Dim, Size = UDim2.fromOffset(50, 62), Position = UDim2.fromOffset(85, 2), Parent = header })
+local verLabel = label({ Text = "v11.97-bs", Font = Enum.Font.GothamBold, TextSize = 12, TextColor3 = Theme.Dim, Size = UDim2.fromOffset(50, 62), Position = UDim2.fromOffset(85, 2), Parent = header })
 local timeLabel = label({ Text = "Session: 00:00", Font = Enum.Font.GothamMedium, TextSize = 13, TextColor3 = Theme.Dim, Size = UDim2.fromOffset(150, 62), Position = UDim2.fromOffset(150, 0), Parent = header })
 task.spawn(function()
 	while not ST.isUnloaded do
@@ -5316,18 +5359,17 @@ end
 function buildCombat()
 	buildFeaturePage(pages.Combat, "ATTACK", {
 		{ name = "Silent Aim", nameKey = "t_silent", descKey = "d_silent", initial = false, getState = function() return ST.SilentAimEnabled end, onToggle = function(v) ST.SilentAimEnabled = v; updateFOVCircle() end, buildDetail = function(d)
-			detailSlider(d, 1, "FOV", 20, 360, ST.SilentAimFOV, 1, function(v) ST.SilentAimFOV = v; updateFOVCircle() end)
-			local parts = { "Head", "HumanoidRootPart", "Torso", "UpperTorso" }
-			local idx = 1
-			for i, n in ipairs(parts) do if n == (ST.SilentAimPart or "Head") then idx = i end end
-			local row = new("Frame", { Size = UDim2.new(1, -16, 0, 32), BackgroundTransparency = 1, LayoutOrder = 2, Parent = d })
-			label({ Text = "Hit Part", TextSize = 12, TextColor3 = Theme.Dim, Size = UDim2.fromOffset(70, 32), Parent = row })
-			local btn = new("TextButton", { Text = parts[idx], Font = Enum.Font.GothamMedium, TextSize = 12, TextColor3 = Theme.Text, AutoButtonColor = false, Size = UDim2.new(1, -78, 1, 0), Position = UDim2.fromOffset(74, 0), BackgroundColor3 = Theme.Row, Parent = row }, { corner(6), stroke() })
-			btn.MouseButton1Click:Connect(function()
-				idx = (idx % #parts) + 1
-				ST.SilentAimPart = parts[idx]
-				btn.Text = parts[idx]
-			end)
+			detailSlider(d, 1, "FOV", 20, 360, ST.SilentAimFOV or 90, 1, function(v) ST.SilentAimFOV = v; updateFOVCircle() end)
+			detailToggle(d, 2, "Show FOV circle", ST.SilentAimShowFOV ~= false, function(v) ST.SilentAimShowFOV = v; updateFOVCircle() end)
+			detailSlider(d, 3, "Head %", 0, 100, ST.SilentAimHeadPct or 80, 1, function(v) ST.SilentAimHeadPct = v end)
+			detailSlider(d, 4, "Torso %", 0, 100, ST.SilentAimTorsoPct or 15, 1, function(v) ST.SilentAimTorsoPct = v end)
+			detailSlider(d, 5, "Legs %", 0, 100, ST.SilentAimLegsPct or 5, 1, function(v) ST.SilentAimLegsPct = v end)
+			local hint = new("TextLabel", {
+				Text = "On LMB: real shot toward target in FOV (no bullet TP). Hit bone rolled by %.",
+				Font = Enum.Font.Gotham, TextSize = 11, TextColor3 = Theme.Dim,
+				TextWrapped = true, BackgroundTransparency = 1,
+				Size = UDim2.new(1, -16, 0, 36), LayoutOrder = 6, Parent = d,
+			})
 		end },
 		{ name = "Hitbox Expander", initial = false, getState = function() return Hitbox_Config.Enabled end, onToggle = function(v)
 			Hitbox_Config.Enabled = v
@@ -5742,7 +5784,7 @@ function buildProfile()
 		return t, v
 	end
 	local tBuild, vBuild = row("profile_build", 225)
-	vBuild.Text = "v11.96-br"
+	vBuild.Text = "v11.97-bs"
 	local tSess, vSess = row("profile_session", 250)
 	local tStat, vStat = row("profile_status", 275)
 	vStat.Text = L("profile_active")
@@ -5775,14 +5817,15 @@ function buildProfile()
 	local copyJobBtn = new("TextButton", {
 		Text = "Copy JobId",
 		Font = Enum.Font.GothamMedium,
-		TextSize = 12,
-		TextColor3 = Color3.fromRGB(255, 255, 255),
-		BackgroundColor3 = Theme.Accent,
-		Size = UDim2.fromOffset(100, 26),
-		Position = UDim2.fromOffset(PAD + 290, 396),
+		TextSize = 11,
+		TextColor3 = Theme.Accent,
+		BackgroundColor3 = Theme.Row,
+		BackgroundTransparency = 0.15,
+		Size = UDim2.fromOffset(96, 24),
+		Position = UDim2.fromOffset(PAD + 290, 397),
 		AutoButtonColor = false,
 		Parent = panel,
-	}, { corner(8) })
+	}, { corner(7), stroke(Theme.Accent, 1) })
 	copyJobBtn.MouseButton1Click:Connect(function()
 		local jid = ""
 		pcall(function() jid = tostring(game.JobId or "") end)
@@ -5809,14 +5852,15 @@ function buildProfile()
 	local copyPlaceBtn = new("TextButton", {
 		Text = "Copy PlaceId",
 		Font = Enum.Font.GothamMedium,
-		TextSize = 12,
-		TextColor3 = Color3.fromRGB(255, 255, 255),
-		BackgroundColor3 = Theme.Accent,
-		Size = UDim2.fromOffset(100, 26),
-		Position = UDim2.fromOffset(PAD + 290, 421),
+		TextSize = 11,
+		TextColor3 = Theme.Accent,
+		BackgroundColor3 = Theme.Row,
+		BackgroundTransparency = 0.15,
+		Size = UDim2.fromOffset(96, 24),
+		Position = UDim2.fromOffset(PAD + 290, 422),
 		AutoButtonColor = false,
 		Parent = panel,
-	}, { corner(8) })
+	}, { corner(7), stroke(Theme.Accent, 1) })
 	copyPlaceBtn.MouseButton1Click:Connect(function()
 		local pid = tostring(game.PlaceId or "")
 		if copyToClipboard(pid) then
@@ -5882,12 +5926,19 @@ function buildProfile()
 			end)
 			vFps.Text = tostring(math.clamp(fps, 1, 240))
 			local n = 0
-			if ST.isMultiSuk then n += 1 end
-			if ST.VREnabled then n += 1 end
-			if ST.LocalInvisEnabled then n += 1 end
+			local flags = {
+				ST.isMultiSuk, ST.SilentAimEnabled, ST.VREnabled, ST.HealEnabled, ST.LocalInvisEnabled,
+				ST.TracersEnabled, ST.WalkSpeedEnabled, ST.JumpPowerEnabled, ST.FlyEnabled, ST.SpinEnabled,
+				ST.NoClipEnabled, ST.InfiniteJumpEnabled, ST.AntiCCEnabled, ST.AntiSlowEnabled,
+				ST.NoRecoilEnabled, ST.NoSpreadEnabled, ST.FullbrightEnabled, ST.AntiLagEnabled,
+				ST.RemoveFogEnabled, ST.FootTrailsEnabled, ST.HandTrailsEnabled, ST.HighlightChamsEnabled,
+				ST.KillHighlightEnabled, ST.ChinaHatEnabled, ST.WingsEnabled, ST.CameraFOVLocked,
+				ST.TrueCrosshairEnabled, ST.AntiCamShakeEnabled, ST.AntiFlashEnabled, ST.MenuGridEnabled,
+				ST.HitSoundEnabled, ST.TimeOverrideEnabled, ST.SkyColorEnabled, ST.VRTargetEnabled,
+			}
+			for _, on in ipairs(flags) do if on then n += 1 end end
 			if ESP_Config and ESP_Config.Enabled then n += 1 end
-			if ST.TracersEnabled then n += 1 end
-			if ST.HealEnabled then n += 1 end
+			if Hitbox_Config and Hitbox_Config.Enabled then n += 1 end
 			vFeat.Text = tostring(n) .. " on"
 			task.wait(1)
 		end
