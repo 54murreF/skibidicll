@@ -1,6 +1,6 @@
 --[[
     ╔═══════════════════════════════════════════════════════════════╗
-    ║              CLL CHEAT - FULL INTEGRATION v12.31-cv (hard head-TP + VR grab fix)                ║
+    ║              CLL CHEAT - FULL INTEGRATION v12.32-cw (reg + grab vararg fix, no unequip)                ║
     ╠═══════════════════════════════════════════════════════════════╣
     ║  SUK head-hit, real crosshair, tracers, ESP outline nick,     ║
     ║  ChinaHat/Wings fix, VR hands, anti-flash/shake, antibypass   ║
@@ -637,12 +637,7 @@ end)
 -- dump-accurate remote fire (bypasses broken namecall arg paths)
 local function CLL_FireServer(remote, ...)
 	if not remote then return end
-	-- plain :FireServer. Hook must pass original ... through (unpack breaks namecall / hitreg).
-	local a = { ... }
-	local unpackFn = table.unpack or unpack
-	pcall(function()
-		remote:FireServer(unpackFn(a))
-	end)
+	pcall(remote.FireServer, remote, ...)
 end
 
 function HelperFire(...)
@@ -1756,41 +1751,32 @@ function MultiFireAt()
 		if cv and (cv:IsA("NumberValue") or cv:IsA("IntValue")) then cv.Value = cur end
 	end)
 
-	-- LIVE head position + velocity predict (moving targets)
+	-- real muzzle (for direction only)
+	local muzzle = head.Position
+	pcall(function()
+		local fp = tool:FindFirstChild("Firepoint", true) or tool:FindFirstChild("Muzzle", true)
+		if fp and fp:IsA("Attachment") then muzzle = fp.WorldPosition
+		elseif fp and fp:IsA("BasePart") then muzzle = fp.Position
+		else
+			local my = LocalPlayer.Character
+			local hrp = my and my:FindFirstChild("HumanoidRootPart")
+			if hrp then muzzle = hrp.Position + hrp.CFrame.LookVector * 1.2 + Vector3.new(0, 1.2, 0) end
+		end
+	end)
+
 	local headPos = head.Position
 	pcall(function()
 		local v = head.AssemblyLinearVelocity
-		if v and v.Magnitude > 0.5 then
-			headPos = headPos + v * 0.05
+		if typeof(v) == "Vector3" and v.Magnitude > 0.5 then
+			headPos = headPos + v * 0.06
 		end
 	end)
 
-	-- HARD teleport: origin ON the skull, ray goes through center
-	local into = Vector3.new(0, -1, 0)
-	pcall(function()
-		local cam = workspace.CurrentCamera
-		if cam then
-			local d = headPos - cam.CFrame.Position
-			if d.Magnitude > 0.05 then into = d.Unit end
-		end
-	end)
-	local tpOrigin = headPos - into * 0.08
-	local tpDir = into
+	local toHead = headPos - muzzle
+	local tpDir = (toHead.Magnitude > 0.05) and toHead.Unit or Vector3.new(0, -1, 0)
+	-- hard TP: origin almost on skull, direction INTO head (same as bullet path from gun)
+	local nearHead = headPos - tpDir * 0.06
 	local vel = tpDir * 2000
-
-	local function firePayload(org)
-		local payload = {
-			velocity = 2000,
-			bullet = bulletModel,
-			origin = org,
-			direction = tpDir,
-		}
-		if CLL_FireServer then
-			pcall(CLL_FireServer, FireRemote, tool, "Fire", payload)
-		else
-			pcall(function() FireRemote:FireServer(tool, "Fire", payload) end)
-		end
-	end
 
 	local expandOn = ST.SUK_HeadExpand ~= false
 	local expandSz = math.clamp(tonumber(ST.SUK_HeadExpandSize) or 4.5, 1.5, 12)
@@ -1811,18 +1797,30 @@ function MultiFireAt()
 		end)
 	end
 
-	-- primary: origin glued to head (not muzzle fly-by)
-	firePayload(tpOrigin)
-	firePayload(headPos)
-	pcall(markLocalShot, tpOrigin)
+	local payloadNear = {
+		velocity = 2000,
+		bullet = bulletModel,
+		origin = nearHead,
+		direction = tpDir,
+	}
+	local payloadHead = {
+		velocity = 2000,
+		bullet = bulletModel,
+		origin = headPos,
+		direction = tpDir,
+	}
+	-- direct FireServer (vararg-safe) — same frame as Hits
+	pcall(FireRemote.FireServer, FireRemote, tool, "Fire", payloadNear)
+	pcall(FireRemote.FireServer, FireRemote, tool, "Fire", payloadHead)
+	pcall(markLocalShot, nearHead)
 
 	local offsets = {
 		Vector3.zero,
-		tpDir * 0.15,
-		-tpDir * 0.1,
-		Vector3.new(0.2, 0.1, 0),
-		Vector3.new(-0.2, 0.1, 0),
-		Vector3.new(0, 0.25, 0),
+		tpDir * 0.18,
+		-tpDir * 0.12,
+		Vector3.new(0.22, 0.1, 0),
+		Vector3.new(-0.22, 0.1, 0),
+		Vector3.new(0, 0.28, 0),
 		Vector3.new(0, -0.1, 0),
 	}
 	for _, off in ipairs(offsets) do
@@ -1832,20 +1830,16 @@ function MultiFireAt()
 			normal = -tpDir,
 			position = pos,
 			velocity = vel,
-			bullet_cframe = CFrame.lookAt(pos - tpDir * 0.05, pos),
+			bullet_cframe = CFrame.lookAt(pos - tpDir * 0.08, pos),
 		}
-		if CLL_FireServer then
-			pcall(CLL_FireServer, FireRemote, tool, "Hit", hitTbl)
-		else
-			pcall(function() FireRemote:FireServer(tool, "Hit", hitTbl) end)
-		end
+		pcall(FireRemote.FireServer, FireRemote, tool, "Hit", hitTbl)
 	end
 	HelperFire("Gun Base", "Hit", head, headPos, -tpDir, vel, bulletModel)
 	HelperFire("Fx", "Hitmarker", head)
 	pcall(markKillCandidate, head.Parent)
 
 	if headBak and head then
-		task.delay(0.14, function()
+		task.delay(0.12, function()
 			pcall(function()
 				if not head or not head.Parent then return end
 				if Hitbox_Config.Enabled and Hitbox_Cache[head.Parent] then
@@ -1864,11 +1858,11 @@ function MultiFireAt()
 	HelperFire("Fx", "Fire Bullet", tool, {
 		velocity = 2000,
 		bullet = bulletModel,
-		origin = tpOrigin,
+		origin = nearHead,
 		direction = tpDir,
 	})
 	if ST.TracersEnabled and ST.TracerSelfEnabled then
-		pcall(CreateTracer, tpOrigin, headPos, ST.ColorSelf)
+		pcall(CreateTracer, nearHead, headPos, ST.ColorSelf)
 	end
 	HelperFire("Fx", "Ammo", cur, maxA, false)
 	HelperFire("Gun Base", "Shot", tool)
@@ -3647,11 +3641,7 @@ UIS.InputBegan:Connect(function(input, _)
 	local root = char:FindFirstChild("HumanoidRootPart")
 	if not hum or not root or hum.Health <= 0 then return end
 	if char:GetAttribute("Downed") or char:GetAttribute("Ragdoll") then return end
-	-- unequip tool so server does not treat as item throw
-	local held = char:FindFirstChildOfClass("Tool")
-	if held then
-		pcall(function() hum:UnequipTools() end)
-	end
+	-- do NOT unequip — grab works with Combat/Uber in hand (native behavior)
 	local origin = root.Position
 	local victim, bestD = nil, 28
 	for _, plr in ipairs(Players:GetPlayers()) do
@@ -3702,17 +3692,21 @@ UIS.InputBegan:Connect(function(input, _)
 			if la and la:IsA("BasePart") then la.Anchored = true; la.CFrame = left end
 		end)
 		local arm = isQ and "RIGHT_ARM" or "LEFT_ARM"
-		local function grabFire(...)
+		local function grabFire(a, b, c, d)
 			pcall(function()
-				if SwingRemote.FireServer then SwingRemote:FireServer(...) end
-			end)
-			pcall(function()
-				if SwingRemote.InvokeServer then SwingRemote:InvokeServer(...) end
+				if typeof(d) ~= "nil" then
+					SwingRemote:FireServer(a, b, c, d)
+				elseif typeof(c) ~= "nil" then
+					SwingRemote:FireServer(a, b, c)
+				elseif typeof(b) ~= "nil" then
+					SwingRemote:FireServer(a, b)
+				else
+					SwingRemote:FireServer(a)
+				end
 			end)
 		end
 		grabFire("Grabmove", arm, victim)
 		grabFire("Grabmove", isQ and "LEFT_ARM" or "RIGHT_ARM", victim)
-		grabFire("Grabmove", arm, victim, true)
 		grabFire("Grab", victim)
 		pcall(function()
 			local pg = LocalPlayer:FindFirstChild("PlayerGui")
@@ -5302,7 +5296,7 @@ fit(); workspace.CurrentCamera:GetPropertyChangedSignal("ViewportSize"):Connect(
 local header = new("Frame", { Size = UDim2.new(1, 0, 0, 62), BackgroundTransparency = 1, Parent = window })
 local logoLabel = label({ Text = "CLL", Font = Enum.Font.Michroma, TextSize = 26, TextTruncate = Enum.TextTruncate.AtEnd, Size = UDim2.fromOffset(100, 62), Position = UDim2.fromOffset(23, 0), Parent = header })
 logoLabel.TextColor3 = Color3.fromRGB(255, 255, 255) -- Always white
-local verLabel = label({ Text = "v12.31-cv", Font = Enum.Font.GothamBold, TextSize = 12, TextColor3 = Theme.Dim, Size = UDim2.fromOffset(50, 62), Position = UDim2.fromOffset(85, 2), Parent = header })
+local verLabel = label({ Text = "v12.32-cw", Font = Enum.Font.GothamBold, TextSize = 12, TextColor3 = Theme.Dim, Size = UDim2.fromOffset(50, 62), Position = UDim2.fromOffset(85, 2), Parent = header })
 local timeLabel = label({ Text = "Session: 00:00", Font = Enum.Font.GothamMedium, TextSize = 13, TextColor3 = Theme.Dim, Size = UDim2.fromOffset(150, 62), Position = UDim2.fromOffset(150, 0), Parent = header })
 task.spawn(function()
 	while not ST.isUnloaded do
@@ -6445,7 +6439,7 @@ function buildProfile()
 	end
 
 	local tBuild, vBuild = row("profile_build", 1)
-	vBuild.Text = "v12.31-cv"
+	vBuild.Text = "v12.32-cw"
 	local tSess, vSess = row("profile_session", 2)
 	local tStat, vStat = row("profile_status", 3)
 	vStat.Text = L("profile_active")
