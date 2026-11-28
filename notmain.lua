@@ -1,6 +1,6 @@
 --[[
     ╔═══════════════════════════════════════════════════════════════╗
-    ║              CLL CHEAT - FULL INTEGRATION v12.21-cm (grid anim restore, no gradient)                ║
+    ║              CLL CHEAT - FULL INTEGRATION v12.22-cm (silent aim gun-only, no freeze)                ║
     ╠═══════════════════════════════════════════════════════════════╣
     ║  SUK head-hit, real crosshair, tracers, ESP outline nick,     ║
     ║  ChinaHat/Wings fix, VR hands, anti-flash/shake, antibypass   ║
@@ -4144,20 +4144,22 @@ end)
 function GetClosestPlayerInFOV()
 	if not ST.SilentAimEnabled then return nil end
 	if not silentAimLocalGun or not silentAimLocalGun() then return nil end
-	local cam = workspace.CurrentCamera; if not cam then return nil end
-	local screenCenter = Vector2.new(cam.ViewportSize.X / 2, cam.ViewportSize.Y / 2); local closest, closestDist = nil, math.huge
+	local cam = workspace.CurrentCamera
+	if not cam then return nil end
+	local screenCenter = Vector2.new(cam.ViewportSize.X / 2, cam.ViewportSize.Y / 2)
+	local closest, closestDist = nil, math.huge
+	local fovMul = (ST.SilentAimFOV or 90) / math.max(cam.FieldOfView, 1)
+	local maxR = (cam.ViewportSize.Y / 2) * fovMul
 	for _, plr in ipairs(Players:GetPlayers()) do
 		if plr ~= LocalPlayer and plr.Character then
-			-- only gun targets (skip Combat / Uber Combat / no tool)
-			if not isFirearm(plr.Character:FindFirstChildOfClass("Tool")) then
-				-- continue
-			else
-				local head, hum = plr.Character:FindFirstChild("Head"), plr.Character:FindFirstChildOfClass("Humanoid")
-				if head and hum and hum.Health > 0 then
-					local screenPos, onScreen = cam:WorldToViewportPoint(head.Position)
-					if onScreen then
-						local distFromCenter = (Vector2.new(screenPos.X, screenPos.Y) - screenCenter).Magnitude
-						if distFromCenter < (cam.ViewportSize.Y / 2) * (ST.SilentAimFOV / cam.FieldOfView) and distFromCenter < closestDist then closest, closestDist = head, distFromCenter end
+			local head = plr.Character:FindFirstChild("Head")
+			local hum = plr.Character:FindFirstChildOfClass("Humanoid")
+			if head and hum and hum.Health > 0 then
+				local screenPos, onScreen = cam:WorldToViewportPoint(head.Position)
+				if onScreen then
+					local distFromCenter = (Vector2.new(screenPos.X, screenPos.Y) - screenCenter).Magnitude
+					if distFromCenter < maxR and distFromCenter < closestDist then
+						closest, closestDist = head, distFromCenter
 					end
 				end
 			end
@@ -4214,28 +4216,40 @@ function silentAimHasLOS(fromPos, toPos, targetChar)
 	return false
 end
 
+-- Only these pickups count as guns (Combat / Uber Combat / empty hands = no silent aim)
+local FIREARM_KEYS = {
+	ar = true, ["ar-15"] = true, ar15 = true,
+	ak = true, ak47 = true, ["ak-47"] = true,
+	p250 = true,
+	["spas 12"] = true, spas12 = true, ["spas-12"] = true, spas = true,
+	deagle = true, ["desert eagle"] = true,
+}
 function isFirearm(tool)
 	if not tool or not tool:IsA("Tool") then return false end
-	local n = string.lower(tool.Name)
-	-- fists / Combat / Uber Combat / bare hands — never silent-aim targets
-	if n == "" or n:find("combat") or n:find("fist") or n:find("punch") or n:find("melee")
-		or n:find("knife") or n:find("bat") or n:find("sword") then
+	local n = string.lower(tostring(tool.Name or ""))
+	n = n:gsub("%s+", " "):gsub("^%s+", ""):gsub("%s+$", "")
+	if n == "" then return false end
+	-- melee / fists — hard deny (even if someone named a gun weirdly)
+	if n:find("combat", 1, true) or n:find("uber", 1, true) or n:find("fist", 1, true)
+		or n:find("punch", 1, true) or n:find("melee", 1, true) then
 		return false
 	end
-	-- real guns: must have Firepoint (muzzle) OR known gun name
-	if tool:FindFirstChild("Firepoint", true) then return true end
-	if n:find("spas") or n:find("deagle") or n:find("p250") or n:find("remington")
-		or n:find("ak") or n:find("shotgun") or n:find("rifle") or n:find("pistol")
-		or n:find("gun") or n:find("m4") or n:find("mp5") or n:find("uzi")
-		or n:find("revolver") or n:find("sniper") or n:find("scar") then
-		return true
-	end
+	if FIREARM_KEYS[n] then return true end
+	-- tolerant match for server renames
+	if n:find("spas", 1, true) then return true end
+	if n:find("deagle", 1, true) or n:find("desert", 1, true) then return true end
+	if n:find("p250", 1, true) then return true end
+	if n:find("ak-47", 1, true) or n:find("ak47", 1, true) or n == "ak" then return true end
+	if n:find("ar-15", 1, true) or n:find("ar15", 1, true) or n == "ar" then return true end
 	return false
 end
 
 function silentAimLocalGun()
 	local char = LocalPlayer.Character
-	return isFirearm(char and char:FindFirstChildOfClass("Tool"))
+	if not char then return false end
+	local tool = char:FindFirstChildOfClass("Tool")
+	if not tool then return false end
+	return isFirearm(tool)
 end
 
 function GetClosestAimPartInFOV()
@@ -4665,7 +4679,7 @@ oldNamecall = hookmetamethod(game, "__namecall", function(self, ...)
 			return pass(...)
 		end
 		-- Silent / wallbang: rewrite Hit onto aimed part (otherwise ray hits the wall)
-		if args[2] == "Hit" and ST.SilentAimEnabled then
+		if args[2] == "Hit" and ST.SilentAimEnabled and silentAimLocalGun() then
 			local part = _G.CLL_AimPart
 			if typeof(part) == "Instance" and part.Parent then
 				local hitArg = args[3]
@@ -4762,11 +4776,21 @@ oldNamecall = hookmetamethod(game, "__namecall", function(self, ...)
 end)
 
 
--- silent aim position, computed outside __namecall (namecall inside the hook kills FireServer)
+-- silent aim position outside __namecall
+-- NO scan when empty hands / Combat / Uber Combat (that was the freeze)
 task.spawn(function()
 	while not ST.isUnloaded do
-		task.wait(0.016)
-		if ST.SilentAimEnabled and GetClosestAimPartInFOV then
+		if not ST.SilentAimEnabled then
+			_G.CLL_AimPart = nil
+			_G.CLL_AimPos = nil
+			_G.CLL_AimChar = nil
+			task.wait(0.15)
+		elseif not silentAimLocalGun() then
+			_G.CLL_AimPart = nil
+			_G.CLL_AimPos = nil
+			_G.CLL_AimChar = nil
+			task.wait(0.1)
+		else
 			local ok, part = pcall(GetClosestAimPartInFOV)
 			if ok and part and part.Parent then
 				_G.CLL_AimPart = part
@@ -4777,10 +4801,7 @@ task.spawn(function()
 				_G.CLL_AimPos = nil
 				_G.CLL_AimChar = nil
 			end
-		else
-			_G.CLL_AimPart = nil
-			_G.CLL_AimPos = nil
-			_G.CLL_AimChar = nil
+			task.wait(0.03)
 		end
 	end
 end)
@@ -5256,7 +5277,7 @@ fit(); workspace.CurrentCamera:GetPropertyChangedSignal("ViewportSize"):Connect(
 local header = new("Frame", { Size = UDim2.new(1, 0, 0, 62), BackgroundTransparency = 1, Parent = window })
 local logoLabel = label({ Text = "CLL", Font = Enum.Font.Michroma, TextSize = 26, TextTruncate = Enum.TextTruncate.AtEnd, Size = UDim2.fromOffset(100, 62), Position = UDim2.fromOffset(23, 0), Parent = header })
 logoLabel.TextColor3 = Color3.fromRGB(255, 255, 255) -- Always white
-local verLabel = label({ Text = "v12.21-cm", Font = Enum.Font.GothamBold, TextSize = 12, TextColor3 = Theme.Dim, Size = UDim2.fromOffset(50, 62), Position = UDim2.fromOffset(85, 2), Parent = header })
+local verLabel = label({ Text = "v12.22-cm", Font = Enum.Font.GothamBold, TextSize = 12, TextColor3 = Theme.Dim, Size = UDim2.fromOffset(50, 62), Position = UDim2.fromOffset(85, 2), Parent = header })
 local timeLabel = label({ Text = "Session: 00:00", Font = Enum.Font.GothamMedium, TextSize = 13, TextColor3 = Theme.Dim, Size = UDim2.fromOffset(150, 62), Position = UDim2.fromOffset(150, 0), Parent = header })
 task.spawn(function()
 	while not ST.isUnloaded do
@@ -6371,7 +6392,7 @@ function buildProfile()
 	end
 
 	local tBuild, vBuild = row("profile_build", 1)
-	vBuild.Text = "v12.21-cm"
+	vBuild.Text = "v12.22-cm"
 	local tSess, vSess = row("profile_session", 2)
 	local tStat, vStat = row("profile_status", 3)
 	vStat.Text = L("profile_active")
