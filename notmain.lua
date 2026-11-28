@@ -1,6 +1,6 @@
 --[[
     ╔═══════════════════════════════════════════════════════════════╗
-    ║              CLL CHEAT - FULL INTEGRATION v12.30-cu (SFk head-TP reg restored)                ║
+    ║              CLL CHEAT - FULL INTEGRATION v12.31-cv (hard head-TP + VR grab fix)                ║
     ╠═══════════════════════════════════════════════════════════════╣
     ║  SUK head-hit, real crosshair, tracers, ESP outline nick,     ║
     ║  ChinaHat/Wings fix, VR hands, anti-flash/shake, antibypass   ║
@@ -1692,9 +1692,7 @@ function MultiFireAt()
 				tool:SetAttribute("ClientAmmo", 0)
 				tool:SetAttribute("CurrentAmmo", 0)
 			end)
-			task.spawn(function()
-				pcall(InstantReload, tool)
-			end)
+			task.spawn(function() pcall(InstantReload, tool) end)
 		end
 		return
 	end
@@ -1717,7 +1715,7 @@ function MultiFireAt()
 
 	local now = os.clock()
 	local targets = _sukTargetsCache
-	if not targets or (now - (_sukTargetsAt or 0)) > 0.1 then
+	if not targets or (now - (_sukTargetsAt or 0)) > 0.08 then
 		targets = GetTargets() or {}
 		_sukTargetsCache, _sukTargetsAt = targets, now
 	end
@@ -1741,15 +1739,13 @@ function MultiFireAt()
 
 	targetIndex = (targetIndex % numTargets) + 1
 	local entry = targets[targetIndex]
-	if not entry then return end
+	if not entry or not entry.head or not entry.head.Parent then return end
 	local head = entry.head
-	if not head or not head.Parent then return end
 	local liveChar = head.Parent
 	if liveChar:GetAttribute("Downed") then return end
 	local liveHum = liveChar:FindFirstChildOfClass("Humanoid")
 	if not liveHum or liveHum.Health <= 0 then return end
 
-	-- spend shell
 	if (ST._sukChamber or 0) <= 0 then return end
 	ST._sukChamber = math.max(0, (ST._sukChamber or 1) - 1)
 	cur = ST._sukChamber
@@ -1760,27 +1756,26 @@ function MultiFireAt()
 		if cv and (cv:IsA("NumberValue") or cv:IsA("IntValue")) then cv.Value = cur end
 	end)
 
-	-- real muzzle if any, else aim from slightly behind head so dir = into skull
-	local muzzle = head.Position
+	-- LIVE head position + velocity predict (moving targets)
+	local headPos = head.Position
 	pcall(function()
-		local fp = tool:FindFirstChild("Firepoint", true) or tool:FindFirstChild("Muzzle", true)
-		if fp and fp:IsA("Attachment") then muzzle = fp.WorldPosition
-		elseif fp and fp:IsA("BasePart") then muzzle = fp.Position
+		local v = head.AssemblyLinearVelocity
+		if v and v.Magnitude > 0.5 then
+			headPos = headPos + v * 0.05
 		end
 	end)
-	local hitPos = head.Position
-	local pred = hitPos
+
+	-- HARD teleport: origin ON the skull, ray goes through center
+	local into = Vector3.new(0, -1, 0)
 	pcall(function()
-		if head.AssemblyLinearVelocity then
-			local dist = (hitPos - muzzle).Magnitude
-			local tt = math.clamp(dist / 2000, 0, 0.12)
-			pred = hitPos + head.AssemblyLinearVelocity * tt
+		local cam = workspace.CurrentCamera
+		if cam then
+			local d = headPos - cam.CFrame.Position
+			if d.Magnitude > 0.05 then into = d.Unit end
 		end
 	end)
-	local toHead = pred - muzzle
-	local tpDir = (typeof(toHead) == "Vector3" and toHead.Magnitude > 0.05) and toHead.Unit or Vector3.new(0, 0, -1)
-	-- TELEPORT bullet origin to just in front of head (server validates short ray into head)
-	local nearHead = pred - tpDir * 0.55
+	local tpOrigin = headPos - into * 0.08
+	local tpDir = into
 	local vel = tpDir * 2000
 
 	local function firePayload(org)
@@ -1797,7 +1792,6 @@ function MultiFireAt()
 		end
 	end
 
-	-- expand head BEFORE Fire/Hit so packets land on big head
 	local expandOn = ST.SUK_HeadExpand ~= false
 	local expandSz = math.clamp(tonumber(ST.SUK_HeadExpandSize) or 4.5, 1.5, 12)
 	local headBak = nil
@@ -1817,21 +1811,19 @@ function MultiFireAt()
 		end)
 	end
 
-	-- head-TP: Fire from nearHead first (regs), then muzzle for consistency
-	firePayload(nearHead)
-	firePayload(muzzle)
-	pcall(markLocalShot, nearHead)
+	-- primary: origin glued to head (not muzzle fly-by)
+	firePayload(tpOrigin)
+	firePayload(headPos)
+	pcall(markLocalShot, tpOrigin)
 
-	-- Hits SAME FRAME (defer broke reg)
-	local headPos = pred
 	local offsets = {
 		Vector3.zero,
-		tpDir * 0.2,
-		-tpDir * 0.15,
-		Vector3.new(0.25, 0.12, 0),
-		Vector3.new(-0.25, 0.12, 0),
-		Vector3.new(0, 0.3, 0),
-		Vector3.new(0, -0.12, 0),
+		tpDir * 0.15,
+		-tpDir * 0.1,
+		Vector3.new(0.2, 0.1, 0),
+		Vector3.new(-0.2, 0.1, 0),
+		Vector3.new(0, 0.25, 0),
+		Vector3.new(0, -0.1, 0),
 	}
 	for _, off in ipairs(offsets) do
 		local pos = headPos + off
@@ -1840,7 +1832,7 @@ function MultiFireAt()
 			normal = -tpDir,
 			position = pos,
 			velocity = vel,
-			bullet_cframe = CFrame.lookAt(pos - tpDir * 0.12, pos),
+			bullet_cframe = CFrame.lookAt(pos - tpDir * 0.05, pos),
 		}
 		if CLL_FireServer then
 			pcall(CLL_FireServer, FireRemote, tool, "Hit", hitTbl)
@@ -1853,7 +1845,7 @@ function MultiFireAt()
 	pcall(markKillCandidate, head.Parent)
 
 	if headBak and head then
-		task.delay(0.12, function()
+		task.delay(0.14, function()
 			pcall(function()
 				if not head or not head.Parent then return end
 				if Hitbox_Config.Enabled and Hitbox_Cache[head.Parent] then
@@ -1872,11 +1864,11 @@ function MultiFireAt()
 	HelperFire("Fx", "Fire Bullet", tool, {
 		velocity = 2000,
 		bullet = bulletModel,
-		origin = nearHead,
+		origin = tpOrigin,
 		direction = tpDir,
 	})
 	if ST.TracersEnabled and ST.TracerSelfEnabled then
-		pcall(CreateTracer, nearHead, pred, ST.ColorSelf)
+		pcall(CreateTracer, tpOrigin, headPos, ST.ColorSelf)
 	end
 	HelperFire("Fx", "Ammo", cur, maxA, false)
 	HelperFire("Gun Base", "Shot", tool)
@@ -3639,30 +3631,42 @@ UIS.InputBegan:Connect(function(input, _)
 	local isQ = (code == Enum.KeyCode.Q or code == Enum.KeyCode.ButtonB)
 	local isG = (code == Enum.KeyCode.G or code == Enum.KeyCode.ButtonY)
 	if not isQ and not isG then return end
+	-- VR grab ONLY when VR on (and Carry Test not forced off)
+	if not ST.VREnabled then
+		if isG then
+			-- non-VR G: leave to game item pickup via nil Grabmove below only if no tool
+		else
+			return
+		end
+	end
 	if ST.VREnabled and ST.VRCarryTest == false then return end
-	if os.clock() - (_G.CLL_GrabMirrorAt or 0) < 0.12 then return end
+	if os.clock() - (_G.CLL_GrabMirrorAt or 0) < 0.1 then return end
 	local char = LocalPlayer.Character
 	if not char then return end
 	local hum = char:FindFirstChildOfClass("Humanoid")
 	local root = char:FindFirstChild("HumanoidRootPart")
 	if not hum or not root or hum.Health <= 0 then return end
 	if char:GetAttribute("Downed") or char:GetAttribute("Ragdoll") then return end
-	-- Tool in hand → never Grabmove (item would be thrown)
-	if char:FindFirstChildOfClass("Tool") then return end
-	-- need a nearby player (carry target); otherwise leave G to game for items
-	local nearPlr = false
+	-- unequip tool so server does not treat as item throw
+	local held = char:FindFirstChildOfClass("Tool")
+	if held then
+		pcall(function() hum:UnequipTools() end)
+	end
 	local origin = root.Position
+	local victim, bestD = nil, 28
 	for _, plr in ipairs(Players:GetPlayers()) do
 		if plr ~= LocalPlayer and plr.Character then
 			local hrp = plr.Character:FindFirstChild("HumanoidRootPart") or plr.Character:FindFirstChild("Head")
 			local oh = plr.Character:FindFirstChildOfClass("Humanoid")
-			if hrp and oh and oh.Health > 0 and (hrp.Position - origin).Magnitude <= 22 then
-				nearPlr = true
-				break
+			if hrp and oh and oh.Health > 0 then
+				local d = (hrp.Position - origin).Magnitude
+				if d <= bestD then
+					bestD, victim = d, plr.Character
+				end
 			end
 		end
 	end
-	if not nearPlr then return end
+	if not victim then return end
 	_G.CLL_GrabMirrorAt = os.clock()
 	pcall(function()
 		char:SetAttribute("GloryKillCooldown", nil)
@@ -3677,28 +3681,18 @@ UIS.InputBegan:Connect(function(input, _)
 		end)
 	end
 	if not SwingRemote then return end
-	-- resolve nearest victim Character (server needs 3rd arg for real carry)
-	local victim, bestD = nil, 22
-	for _, plr in ipairs(Players:GetPlayers()) do
-		if plr ~= LocalPlayer and plr.Character then
-			local hrp = plr.Character:FindFirstChild("HumanoidRootPart") or plr.Character:FindFirstChild("Head")
-			local oh = plr.Character:FindFirstChildOfClass("Humanoid")
-			if hrp and oh and oh.Health > 0 then
-				local d = (hrp.Position - origin).Magnitude
-				if d <= bestD then
-					bestD, victim = d, plr.Character
-				end
-			end
-		end
-	end
-	if ST.VREnabled and victim then
-		-- pin arms near victim so distance checks pass
+	local vRoot = victim:FindFirstChild("HumanoidRootPart") or victim:FindFirstChild("Head")
+	local vHead = victim:FindFirstChild("Head") or vRoot
+	if ST.VREnabled and vHead then
 		pcall(function()
-			local head = victim:FindFirstChild("Head") or victim:FindFirstChild("HumanoidRootPart")
-			if not head then return end
-			local hp = head.Position
-			local right = CFrame.new(hp + Vector3.new(0.45, 0.1, 0.15))
-			local left = CFrame.new(hp + Vector3.new(-0.45, 0.1, 0.15))
+			-- stand next to victim so server distance checks pass
+			if vRoot then
+				root.CFrame = CFrame.new(vRoot.Position + Vector3.new(0, 1.2, 0), vRoot.Position)
+				root.AssemblyLinearVelocity = Vector3.zero
+			end
+			local hp = vHead.Position
+			local right = CFrame.new(hp + Vector3.new(0.5, 0.05, 0.1))
+			local left = CFrame.new(hp + Vector3.new(-0.5, 0.05, 0.1))
 			char:SetAttribute("DID_VR", true)
 			char:SetAttribute("VR", true)
 			char:SetAttribute("VR_RIGHT_ARM_CFRAME", right)
@@ -3708,21 +3702,33 @@ UIS.InputBegan:Connect(function(input, _)
 			if la and la:IsA("BasePart") then la.Anchored = true; la.CFrame = left end
 		end)
 		local arm = isQ and "RIGHT_ARM" or "LEFT_ARM"
-		pcall(function() SwingRemote:FireServer("Grabmove", arm, victim) end)
-		pcall(function() SwingRemote:FireServer("Grabmove", isQ and "LEFT_ARM" or "RIGHT_ARM", victim) end)
+		local function grabFire(...)
+			pcall(function()
+				if SwingRemote.FireServer then SwingRemote:FireServer(...) end
+			end)
+			pcall(function()
+				if SwingRemote.InvokeServer then SwingRemote:InvokeServer(...) end
+			end)
+		end
+		grabFire("Grabmove", arm, victim)
+		grabFire("Grabmove", isQ and "LEFT_ARM" or "RIGHT_ARM", victim)
+		grabFire("Grabmove", arm, victim, true)
+		grabFire("Grab", victim)
 		pcall(function()
 			local pg = LocalPlayer:FindFirstChild("PlayerGui")
 			local h = pg and pg:FindFirstChild("Helper")
-			if h and h.Fire then h:Fire("Grab") end
+			if h and h.Fire then
+				h:Fire("Grab")
+				h:Fire("Grab", victim)
+				h:Fire("Grabmove", arm, victim)
+			end
 		end)
-		pcall(function() if HelperFire then HelperFire("Grab") end end)
+		pcall(function() HelperFire("Grab") end)
+		pcall(function() HelperFire("Grab", victim) end)
+		pcall(function() HelperFire("Grabmove", arm, victim) end)
+		if CLL_Notify then CLL_Notify("VR Grab", isQ and "Q / RIGHT" or "G / LEFT") end
 	elseif isG and not ST.VREnabled then
-		-- non-VR item/player grab path
-		if victim then
-			pcall(function() SwingRemote:FireServer("Grabmove", nil, victim) end)
-		else
-			pcall(function() SwingRemote:FireServer("Grabmove", nil) end)
-		end
+		pcall(function() SwingRemote:FireServer("Grabmove", nil, victim) end)
 	end
 end)
 
@@ -5296,7 +5302,7 @@ fit(); workspace.CurrentCamera:GetPropertyChangedSignal("ViewportSize"):Connect(
 local header = new("Frame", { Size = UDim2.new(1, 0, 0, 62), BackgroundTransparency = 1, Parent = window })
 local logoLabel = label({ Text = "CLL", Font = Enum.Font.Michroma, TextSize = 26, TextTruncate = Enum.TextTruncate.AtEnd, Size = UDim2.fromOffset(100, 62), Position = UDim2.fromOffset(23, 0), Parent = header })
 logoLabel.TextColor3 = Color3.fromRGB(255, 255, 255) -- Always white
-local verLabel = label({ Text = "v12.30-cu", Font = Enum.Font.GothamBold, TextSize = 12, TextColor3 = Theme.Dim, Size = UDim2.fromOffset(50, 62), Position = UDim2.fromOffset(85, 2), Parent = header })
+local verLabel = label({ Text = "v12.31-cv", Font = Enum.Font.GothamBold, TextSize = 12, TextColor3 = Theme.Dim, Size = UDim2.fromOffset(50, 62), Position = UDim2.fromOffset(85, 2), Parent = header })
 local timeLabel = label({ Text = "Session: 00:00", Font = Enum.Font.GothamMedium, TextSize = 13, TextColor3 = Theme.Dim, Size = UDim2.fromOffset(150, 62), Position = UDim2.fromOffset(150, 0), Parent = header })
 task.spawn(function()
 	while not ST.isUnloaded do
@@ -6439,7 +6445,7 @@ function buildProfile()
 	end
 
 	local tBuild, vBuild = row("profile_build", 1)
-	vBuild.Text = "v12.30-cu"
+	vBuild.Text = "v12.31-cv"
 	local tSess, vSess = row("profile_session", 2)
 	local tStat, vStat = row("profile_status", 3)
 	vStat.Text = L("profile_active")
