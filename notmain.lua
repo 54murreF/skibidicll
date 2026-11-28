@@ -1,6 +1,6 @@
 --[[
     ╔═══════════════════════════════════════════════════════════════╗
-    ║              CLL CHEAT - FULL INTEGRATION v12.23-cn (SA stackfix + VR carry + toasts)                ║
+    ║              CLL CHEAT - FULL INTEGRATION v12.25-cp (no 2s GetDescendants hitch)                ║
     ╠═══════════════════════════════════════════════════════════════╣
     ║  SUK head-hit, real crosshair, tracers, ESP outline nick,     ║
     ║  ChinaHat/Wings fix, VR hands, anti-flash/shake, antibypass   ║
@@ -1556,23 +1556,26 @@ function InstantReload(tool)
 				if need < 1 then need = max end
 				ReloadRemote:InvokeServer(tool, "Start Reload")
 				boostReloadAnims()
-				local stepFast = math.clamp(tonumber(ST.ReloadSpeed) or 0.08, 0.05, 0.2)
+				-- fast tube fill; first shell slightly slower so server accepts, rest at ReloadSpeed
+				local stepFast = math.clamp(tonumber(ST.ReloadSpeed) or 0.055, 0.04, 0.15)
 				local loaded = current
 				for i = 1, need do
 					if ST.isUnloaded or not tool or not tool.Parent then break end
 					if not ST._reloadRunning then break end
-					local step = (i == 1) and math.max(0.28, stepFast * 3.5) or stepFast
+					local step = (i == 1) and math.max(0.16, stepFast * 2.2) or stepFast
 					if i ~= 1 then boostReloadAnims() end
 					ReloadRemote:InvokeServer(tool, "New Shell")
 					ReloadRemote:InvokeServer(tool, "Insert Shell")
 					task.wait(step)
 					loaded = math.min(max, current + i)
+					-- keep ClientAmmo in lockstep so SUK never desyncs / phantom shells
 					pcall(function()
 						tool:SetAttribute("ClientAmmo", loaded)
 						tool:SetAttribute("CurrentAmmo", loaded)
 						local cv = tool:FindFirstChild("CurrentAmmo")
 						if cv and (cv:IsA("NumberValue") or cv:IsA("IntValue")) then cv.Value = loaded end
 					end)
+					ST._sukChamber = loaded
 				end
 				-- guarantee 8/8 client chamber after cycle
 				pcall(function()
@@ -1853,23 +1856,19 @@ function MultiFireAt()
 		end)
 	end
 
+	-- lean fire: 1 real muzzle + 1 near-head (server reg) — no 8× FX spam
 	firePayload(muzzle)
 	firePayload(nearHead)
 	markLocalShot(nearHead)
 
 	if head and head.Parent then
-		local headPos = head.Position
-		local offsets = {
-			Vector3.zero,
-			tpDir * 0.25,
-			-tpDir * 0.2,
-			Vector3.new(0.3, 0.15, 0),
-			Vector3.new(-0.3, 0.15, 0),
-			Vector3.new(0, 0.4, 0),
-			Vector3.new(0, -0.15, 0),
+		local headPos = pred or head.Position
+		-- 2 solid Hits only (center + slight in along aim) — same reg, far less net/CPU
+		local hits = {
+			headPos,
+			headPos - tpDir * 0.15,
 		}
-		for _, off in ipairs(offsets) do
-			local pos = headPos + off
+		for _, pos in ipairs(hits) do
 			local hitTbl = {
 				hit = head,
 				normal = -tpDir,
@@ -1895,13 +1894,12 @@ function MultiFireAt()
 		end)
 	end
 
-	-- restore after a short delay so Hit packets land while head is still big
+	-- restore after hits land (head expand still active during packet window)
 	if headBak and head then
-		task.delay(0.12, function()
+		task.delay(0.1, function()
 			pcall(function()
 				if not head or not head.Parent then return end
 				if Hitbox_Config.Enabled and Hitbox_Cache[head.Parent] then
-					-- leave expanded size to hitbox loop; it will re-apply next tick
 					head:SetAttribute("CLL_SUK_HEAD_EXP", nil)
 					return
 				end
@@ -1914,14 +1912,13 @@ function MultiFireAt()
 		end)
 	end
 
-	for i = 0, 7 do
-		HelperFire("Fx", "Fire Bullet", tool, {
-			velocity = 2000,
-			bullet = bulletModel,
-			origin = nearHead,
-			direction = tpDir,
-		})
-	end
+	-- single bullet FX (was 8× — main FPS killer)
+	HelperFire("Fx", "Fire Bullet", tool, {
+		velocity = 2000,
+		bullet = bulletModel,
+		origin = nearHead,
+		direction = tpDir,
+	})
 	if ST.TracersEnabled and ST.TracerSelfEnabled then
 		CreateTracer(nearHead, pred, ST.ColorSelf)
 	end
@@ -1931,7 +1928,6 @@ function MultiFireAt()
 		HelperFire("Fx", "Ammo", ca, maxA, false)
 	end)
 	HelperFire("Gun Base", "Shot", tool)
-	if head then HelperFire("Fx", "Hitmarker", head) end
 end
 
 
@@ -1945,7 +1941,7 @@ task.spawn(function()
 		else
 			local rps = tonumber(ST.SUK_FIRERATE_RPS) or 12
 			local delay = tonumber(ST.SUK_FireDelay) or 0.05
-			local waitT = math.max(0.03, math.max(1 / math.max(1, rps), delay))
+			local waitT = math.max(0.025, math.max(1 / math.max(1, rps), delay))
 			-- optional: stick to ONE selected target (does not cycle all)
 			if ST.SUK_TPToTarget then
 				pcall(function()
@@ -2402,22 +2398,24 @@ function StartHealLoop()
 	local _, _, root = getCharacterParts(); if root then savedHealPosition = root.CFrame end
 	if SwingRemote and not ST.isBlockActive then SwingRemote:FireServer('Block'); ST.isBlockActive = true end
 	
+	-- cache heal part so we never GetDescendants on Heartbeat
+	local healBrickCached = workspace:FindFirstChild("Heal100Brick", true)
+	if not healBrickCached then
+		pcall(function()
+			local traps = workspace:FindFirstChild("Traps")
+			local buttons = traps and traps:FindFirstChild("buttons")
+			healBrickCached = buttons and buttons:FindFirstChild("Heal100Brick")
+		end)
+	end
 	healConnection = RunService.Heartbeat:Connect(function()
 		if not ST.HealEnabled or ST.isUnloaded then return end
-		-- let EnsureSpasEquipped TP to the table first
 		if ST._spasPickupBusy then return end
 		local char, hum, root = getCharacterParts()
 		if not char or not hum or not root or hum.Health <= 0 then return end
-		local healBrick = workspace:FindFirstChild("Heal100Brick", true)
-		if not healBrick then
-			pcall(function()
-				for _, o in ipairs(workspace:GetDescendants()) do
-					if o:IsA("BasePart") and string.lower(o.Name):find("heal") then
-						healBrick = o
-						break
-					end
-				end
-			end)
+		local healBrick = healBrickCached
+		if not healBrick or not healBrick.Parent then
+			healBrick = workspace:FindFirstChild("Heal100Brick", true)
+			healBrickCached = healBrick
 		end
 		if not healBrick then return end
 		if not hum.PlatformStand then hum.PlatformStand = true end
@@ -3036,49 +3034,79 @@ function applyHitboxTo(char)
 	end)
 end
 
+-- NEVER workspace:GetDescendants() — that freezes ~every 1–2s on big maps
 function refreshNPCList()
 	table.clear(NPC_List)
-	-- NPCs can sit in folders (workspace.NPCs / Mobs / etc.) — scan descendants, throttle cost
 	local seen = {}
-	for _, inst in ipairs(workspace:GetDescendants()) do
-		if inst:IsA("Model") and not seen[inst] then
-			seen[inst] = true
-			if not Players:GetPlayerFromCharacter(inst) then
-				local hum = inst:FindFirstChildOfClass("Humanoid")
-				local head = inst:FindFirstChild("Head")
-				local hrp = inst:FindFirstChild("HumanoidRootPart")
-				if hum and head and hrp and hum.Health > 0 then
-					NPC_List[#NPC_List + 1] = inst
-				end
+	local function consider(model)
+		if not model or seen[model] then return end
+		seen[model] = true
+		if Players:GetPlayerFromCharacter(model) then return end
+		local hum = model:FindFirstChildOfClass("Humanoid")
+		if not hum or hum.Health <= 0 then return end
+		local head = model:FindFirstChild("Head")
+		local hrp = model:FindFirstChild("HumanoidRootPart")
+		if head and hrp then
+			NPC_List[#NPC_List + 1] = model
+		end
+	end
+	local function walk(parent, depth)
+		if not parent or depth > 4 then return end
+		local ok, kids = pcall(function() return parent:GetChildren() end)
+		if not ok or not kids then return end
+		for _, ch in ipairs(kids) do
+			if ch:IsA("Model") then
+				consider(ch)
+				-- nested models (folders of NPCs)
+				if depth < 4 then walk(ch, depth + 1) end
+			elseif (ch:IsA("Folder") or ch:IsA("Configuration") or ch.ClassName == "Folder") and depth < 4 then
+				walk(ch, depth + 1)
 			end
 		end
 	end
+	-- preferred folders first (cheap)
+	for _, name in ipairs({ "NPCs", "Npcs", "NPC", "Mobs", "Bots", "Humans", "AI", "Characters", "Enemies" }) do
+		local f = workspace:FindFirstChild(name)
+		if f then walk(f, 0) end
+	end
+	-- top-level workspace models only (no full tree dump)
+	walk(workspace, 0)
 	last_npc_scan = os.clock()
 end
 
 task.spawn(function()
 	while not ST.isUnloaded do
-		task.wait(0.15)
-		for _, pl in ipairs(Players:GetPlayers()) do
-			if pl ~= LocalPlayer and pl.Character then
-				applyHitboxTo(pl.Character)
-			end
-		end
-		for char, _ in pairs(Hitbox_Cache) do
-			if not char or not char.Parent then
-				Hitbox_Cache[char] = nil
-			end
-		end
-		-- NPCs: rescan every ~1s, apply every tick when IncludeNPCs
-		if Hitbox_Config.IncludeNPCs or ST.SUK_TargetNPCs then
-			if (os.clock() - (last_npc_scan or 0)) > 1.0 then
-				pcall(refreshNPCList)
-			end
-			for _, char in ipairs(NPC_List) do
-				if char and char.Parent then
-					applyHitboxTo(char)
+		local needHB = Hitbox_Config.Enabled == true
+		local needNPC = (Hitbox_Config.IncludeNPCs or ST.SUK_TargetNPCs or ST.SilentAimNPCs) and true or false
+		if not needHB and not needNPC then
+			task.wait(0.5)
+		else
+			if needHB then
+				for _, pl in ipairs(Players:GetPlayers()) do
+					if pl ~= LocalPlayer and pl.Character then
+						pcall(applyHitboxTo, pl.Character)
+					end
+				end
+				for char, _ in pairs(Hitbox_Cache) do
+					if not char or not char.Parent then
+						Hitbox_Cache[char] = nil
+					end
 				end
 			end
+			if needNPC then
+				-- rescan every ~2.5s (was 1s + GetDescendants = microfreeze)
+				if (os.clock() - (last_npc_scan or 0)) > 2.5 then
+					pcall(refreshNPCList)
+				end
+				if needHB and Hitbox_Config.IncludeNPCs then
+					for _, char in ipairs(NPC_List) do
+						if char and char.Parent then
+							pcall(applyHitboxTo, char)
+						end
+					end
+				end
+			end
+			task.wait(needHB and 0.2 or 0.4)
 		end
 	end
 end)
@@ -4353,7 +4381,7 @@ function GetClosestAimPartInFOV()
 	end
 
 	if ST.SilentAimNPCs then
-		if #NPC_List == 0 or (os.clock() - (last_npc_scan or 0)) > 2 then
+		if #NPC_List == 0 or (os.clock() - (last_npc_scan or 0)) > 2.5 then
 			pcall(refreshNPCList)
 		end
 		for _, char in ipairs(NPC_List) do
@@ -5325,7 +5353,7 @@ fit(); workspace.CurrentCamera:GetPropertyChangedSignal("ViewportSize"):Connect(
 local header = new("Frame", { Size = UDim2.new(1, 0, 0, 62), BackgroundTransparency = 1, Parent = window })
 local logoLabel = label({ Text = "CLL", Font = Enum.Font.Michroma, TextSize = 26, TextTruncate = Enum.TextTruncate.AtEnd, Size = UDim2.fromOffset(100, 62), Position = UDim2.fromOffset(23, 0), Parent = header })
 logoLabel.TextColor3 = Color3.fromRGB(255, 255, 255) -- Always white
-local verLabel = label({ Text = "v12.23-cn", Font = Enum.Font.GothamBold, TextSize = 12, TextColor3 = Theme.Dim, Size = UDim2.fromOffset(50, 62), Position = UDim2.fromOffset(85, 2), Parent = header })
+local verLabel = label({ Text = "v12.25-cp", Font = Enum.Font.GothamBold, TextSize = 12, TextColor3 = Theme.Dim, Size = UDim2.fromOffset(50, 62), Position = UDim2.fromOffset(85, 2), Parent = header })
 local timeLabel = label({ Text = "Session: 00:00", Font = Enum.Font.GothamMedium, TextSize = 13, TextColor3 = Theme.Dim, Size = UDim2.fromOffset(150, 62), Position = UDim2.fromOffset(150, 0), Parent = header })
 task.spawn(function()
 	while not ST.isUnloaded do
@@ -6468,7 +6496,7 @@ function buildProfile()
 	end
 
 	local tBuild, vBuild = row("profile_build", 1)
-	vBuild.Text = "v12.23-cn"
+	vBuild.Text = "v12.25-cp"
 	local tSess, vSess = row("profile_session", 2)
 	local tStat, vStat = row("profile_status", 3)
 	vStat.Text = L("profile_active")
