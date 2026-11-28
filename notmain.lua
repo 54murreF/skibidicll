@@ -1,6 +1,6 @@
 --[[
     ╔═══════════════════════════════════════════════════════════════╗
-    ║              CLL CHEAT - FULL INTEGRATION v12.22-cm (silent aim gun-only, no freeze)                ║
+    ║              CLL CHEAT - FULL INTEGRATION v12.23-cn (SA stackfix + VR carry + toasts)                ║
     ╠═══════════════════════════════════════════════════════════════╣
     ║  SUK head-hit, real crosshair, tracers, ESP outline nick,     ║
     ║  ChinaHat/Wings fix, VR hands, anti-flash/shake, antibypass   ║
@@ -211,6 +211,7 @@ local ST = {
 	SilentAimPart = "Head",
 	GunSoundVolume = 0.9,
 	VRTargetEnabled = false,
+	VRCarryTest = true, -- Q/G carry mirror when VR on
 	HitboxFilterEnabled = false, -- when true: only HitboxSelectedTargets; when false: all players
 	VRSwingSpeed = 14,
 	VRSwingAmp = 1.8,
@@ -3538,19 +3539,29 @@ end
 do
 	local VRS = game:GetService("VRService")
 	pcall(function()
+		-- NEVER call GetMouse() inside __index — that re-enters the hook → C stack overflow
+		local cachedMouse = nil
+		local function refreshMouse()
+			pcall(function() cachedMouse = LocalPlayer:GetMouse() end)
+		end
+		refreshMouse()
+		pcall(function()
+			LocalPlayer.CharacterAdded:Connect(function()
+				task.defer(refreshMouse)
+			end)
+		end)
 		local oldIdx
 		oldIdx = hookmetamethod(game, "__index", function(self, key)
 			if key == "VREnabled" and ST.VREnabled and self == VRS then
 				return true
 			end
-			-- Silent aim: real gun tracers use Mouse.Hit / UnitRay — point them at aim part
-			-- (same idea as shotgun path; does not change wallbang Hit rewrite)
-			if ST.SilentAimEnabled and silentAimLocalGun() and typeof(_G.CLL_AimPos) == "Vector3" then
-				local isMouse = false
-				pcall(function()
-					isMouse = (self == LocalPlayer:GetMouse())
-				end)
-				if isMouse then
+			-- only touch Mouse when we already have a cached ref (no GetMouse here)
+			if ST.SilentAimEnabled and cachedMouse and self == cachedMouse and typeof(_G.CLL_AimPos) == "Vector3" then
+				if key == "Hit" or key == "UnitRay" or key == "Target" then
+					-- gun check AFTER identity match so empty hands / combat never rewrite
+					if not silentAimLocalGun() then
+						return oldIdx(self, key)
+					end
 					if key == "Hit" then
 						return CFrame.new(_G.CLL_AimPos)
 					elseif key == "UnitRay" then
@@ -3560,8 +3571,6 @@ do
 						return Ray.new(origin, dir * 5000)
 					elseif key == "Target" and typeof(_G.CLL_AimPart) == "Instance" and _G.CLL_AimPart.Parent then
 						return _G.CLL_AimPart
-					elseif key == "X" or key == "Y" then
-						-- leave cursor coords real so FOV circle / UI stay correct
 					end
 				end
 			end
@@ -3659,6 +3668,7 @@ UIS.InputBegan:Connect(function(input, _)
 	local isQ = (code == Enum.KeyCode.Q or code == Enum.KeyCode.ButtonB)
 	local isG = (code == Enum.KeyCode.G or code == Enum.KeyCode.ButtonY)
 	if not isQ and not isG then return end
+	if ST.VREnabled and ST.VRCarryTest == false then return end
 	if os.clock() - (_G.CLL_GrabMirrorAt or 0) < 0.12 then return end
 	local char = LocalPlayer.Character
 	if not char then return end
@@ -3696,14 +3706,52 @@ UIS.InputBegan:Connect(function(input, _)
 		end)
 	end
 	if not SwingRemote then return end
-	if ST.VREnabled then
-		if isQ then
-			pcall(function() SwingRemote:FireServer("Grabmove", "RIGHT_ARM") end)
-		elseif isG then
-			pcall(function() SwingRemote:FireServer("Grabmove", "LEFT_ARM") end)
+	-- resolve nearest victim Character (server needs 3rd arg for real carry)
+	local victim, bestD = nil, 22
+	for _, plr in ipairs(Players:GetPlayers()) do
+		if plr ~= LocalPlayer and plr.Character then
+			local hrp = plr.Character:FindFirstChild("HumanoidRootPart") or plr.Character:FindFirstChild("Head")
+			local oh = plr.Character:FindFirstChildOfClass("Humanoid")
+			if hrp and oh and oh.Health > 0 then
+				local d = (hrp.Position - origin).Magnitude
+				if d <= bestD then
+					bestD, victim = d, plr.Character
+				end
+			end
 		end
-	elseif isG then
-		pcall(function() SwingRemote:FireServer("Grabmove", nil) end)
+	end
+	if ST.VREnabled and victim then
+		-- pin arms near victim so distance checks pass
+		pcall(function()
+			local head = victim:FindFirstChild("Head") or victim:FindFirstChild("HumanoidRootPart")
+			if not head then return end
+			local hp = head.Position
+			local right = CFrame.new(hp + Vector3.new(0.45, 0.1, 0.15))
+			local left = CFrame.new(hp + Vector3.new(-0.45, 0.1, 0.15))
+			char:SetAttribute("DID_VR", true)
+			char:SetAttribute("VR", true)
+			char:SetAttribute("VR_RIGHT_ARM_CFRAME", right)
+			char:SetAttribute("VR_LEFT_ARM_CFRAME", left)
+			local ra, la = char:FindFirstChild("Right Arm"), char:FindFirstChild("Left Arm")
+			if ra and ra:IsA("BasePart") then ra.Anchored = true; ra.CFrame = right end
+			if la and la:IsA("BasePart") then la.Anchored = true; la.CFrame = left end
+		end)
+		local arm = isQ and "RIGHT_ARM" or "LEFT_ARM"
+		pcall(function() SwingRemote:FireServer("Grabmove", arm, victim) end)
+		pcall(function() SwingRemote:FireServer("Grabmove", isQ and "LEFT_ARM" or "RIGHT_ARM", victim) end)
+		pcall(function()
+			local pg = LocalPlayer:FindFirstChild("PlayerGui")
+			local h = pg and pg:FindFirstChild("Helper")
+			if h and h.Fire then h:Fire("Grab") end
+		end)
+		pcall(function() if HelperFire then HelperFire("Grab") end end)
+	elseif isG and not ST.VREnabled then
+		-- non-VR item/player grab path
+		if victim then
+			pcall(function() SwingRemote:FireServer("Grabmove", nil, victim) end)
+		else
+			pcall(function() SwingRemote:FireServer("Grabmove", nil) end)
+		end
 	end
 end)
 
@@ -5277,7 +5325,7 @@ fit(); workspace.CurrentCamera:GetPropertyChangedSignal("ViewportSize"):Connect(
 local header = new("Frame", { Size = UDim2.new(1, 0, 0, 62), BackgroundTransparency = 1, Parent = window })
 local logoLabel = label({ Text = "CLL", Font = Enum.Font.Michroma, TextSize = 26, TextTruncate = Enum.TextTruncate.AtEnd, Size = UDim2.fromOffset(100, 62), Position = UDim2.fromOffset(23, 0), Parent = header })
 logoLabel.TextColor3 = Color3.fromRGB(255, 255, 255) -- Always white
-local verLabel = label({ Text = "v12.22-cm", Font = Enum.Font.GothamBold, TextSize = 12, TextColor3 = Theme.Dim, Size = UDim2.fromOffset(50, 62), Position = UDim2.fromOffset(85, 2), Parent = header })
+local verLabel = label({ Text = "v12.23-cn", Font = Enum.Font.GothamBold, TextSize = 12, TextColor3 = Theme.Dim, Size = UDim2.fromOffset(50, 62), Position = UDim2.fromOffset(85, 2), Parent = header })
 local timeLabel = label({ Text = "Session: 00:00", Font = Enum.Font.GothamMedium, TextSize = 13, TextColor3 = Theme.Dim, Size = UDim2.fromOffset(150, 62), Position = UDim2.fromOffset(150, 0), Parent = header })
 task.spawn(function()
 	while not ST.isUnloaded do
@@ -5305,6 +5353,30 @@ UIRefs.headerToasts = headerToastHolder
 local _toastSeq = 0
 
 function showHeaderToast(title, body, kind, dur)
+	-- prevent stacking: drop oldest if too many, replace same title
+	pcall(function()
+		local holder = headerToastHolder or UIRefs.headerToasts
+		if not holder then return end
+		local kids = holder:GetChildren()
+		local same = {}
+		for _, c in ipairs(kids) do
+			if c:IsA("Frame") then
+				local tl = c:FindFirstChild("Title") or c:FindFirstChildWhichIsA("TextLabel")
+				if tl and tostring(tl.Text) == tostring(title or "") then
+					same[#same + 1] = c
+				end
+			end
+		end
+		for _, c in ipairs(same) do pcall(function() c:Destroy() end) end
+		local frames = {}
+		for _, c in ipairs(holder:GetChildren()) do
+			if c:IsA("Frame") then frames[#frames + 1] = c end
+		end
+		while #frames > 1 do
+			pcall(function() frames[1]:Destroy() end)
+			table.remove(frames, 1)
+		end
+	end)
 	if ST.isUnloaded then return end
 	kind = kind or "info"
 	dur = tonumber(dur) or 2.6
@@ -6228,6 +6300,10 @@ function buildVR()
 	y = y + 55
 	slider(scroll, y, "Swing Speed", 6, 24, ST.VRSwingSpeed or 14, 1, function(v) ST.VRSwingSpeed = v end)
 	y = y + 50
+	toggle(scroll, y, "Carry Test (Q/G grab)", function(v)
+		ST.VRCarryTest = v
+	end, ST.VRCarryTest ~= false, function() return ST.VRCarryTest ~= false end, "Mirror native VR controller grab on Q / G")
+	y = y + 54
 	-- swing bind button
 	label({ Text = "Swing Bind", TextSize = 13, TextColor3 = Theme.Dim, Size = UDim2.fromOffset(120, 24), Position = UDim2.fromOffset(PAD, y - 12), Parent = scroll })
 	local swingBindBtn = new("TextButton", {
@@ -6392,7 +6468,7 @@ function buildProfile()
 	end
 
 	local tBuild, vBuild = row("profile_build", 1)
-	vBuild.Text = "v12.22-cm"
+	vBuild.Text = "v12.23-cn"
 	local tSess, vSess = row("profile_session", 2)
 	local tStat, vStat = row("profile_status", 3)
 	vStat.Text = L("profile_active")
