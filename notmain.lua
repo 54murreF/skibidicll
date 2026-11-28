@@ -1,6 +1,6 @@
 --[[
     ╔═══════════════════════════════════════════════════════════════╗
-    ║              CLL CHEAT - FULL INTEGRATION v12.29-ct (SFk faster event pipeline)                ║
+    ║              CLL CHEAT - FULL INTEGRATION v12.30-cu (SFk head-TP reg restored)                ║
     ╠═══════════════════════════════════════════════════════════════╣
     ║  SUK head-hit, real crosshair, tracers, ESP outline nick,     ║
     ║  ChinaHat/Wings fix, VR hands, anti-flash/shake, antibypass   ║
@@ -66,8 +66,8 @@ local flyVelocity, flyGyro, spinAngular, InfiniteJumpConnection
 local ST = {
 	Language = "en",
 	isMultiSuk = false,
-	SUK_FIRERATE_RPS = 18,
-	SUK_FireDelay = 0.03,
+	SUK_FIRERATE_RPS = 14,
+	SUK_FireDelay = 0.05,
 	SUK_EquipRequired = true,
 	SUK_IgnoreFriends = true,
 	SUK_TargetNPCs = false,
@@ -1634,11 +1634,10 @@ end
 local targetIndex = 1
 local _sukToolCache, _sukToolCacheAt = nil, 0
 local _sukTargetsCache, _sukTargetsAt = nil, 0
-local _sukExpandUntil = {}
 
 local function sukGetToolFast()
 	local now = os.clock()
-	if _sukToolCache and _sukToolCache.Parent == LocalPlayer.Character and (now - _sukToolCacheAt) < 0.35 then
+	if _sukToolCache and _sukToolCache.Parent == LocalPlayer.Character and (now - _sukToolCacheAt) < 0.4 then
 		return _sukToolCache
 	end
 	local tool = GetSpas()
@@ -1656,10 +1655,12 @@ end
 function MultiFireAt()
 	if ST.reloadInProgress or ST._reloadRunning then return end
 	if not FireRemote or not FireRemote.Parent then
-		local r = ReplicatedStorage:FindFirstChild("Remotes")
-		FireRemote = r and r:FindFirstChild("Fire")
-		if not FireRemote then return end
+		pcall(function()
+			local r = ReplicatedStorage:FindFirstChild("Remotes")
+			FireRemote = r and r:FindFirstChild("Fire")
+		end)
 	end
+	if not FireRemote then return end
 
 	local tool = sukGetToolFast()
 	if not tool then
@@ -1674,17 +1675,23 @@ function MultiFireAt()
 		return
 	end
 
-	local maxA = math.clamp(tonumber(tool:GetAttribute("MaxAmmo")) or 8, 1, 12)
+	local realCur, maxA = ReadAmmo(tool)
+	realCur = tonumber(realCur) or 0
+	maxA = math.clamp(tonumber(maxA) or tool:GetAttribute("MaxAmmo") or 8, 1, 12)
 	if ST._sukChamber == nil then
-		local realCur = tonumber(tool:GetAttribute("ClientAmmo")) or tonumber(tool:GetAttribute("CurrentAmmo")) or 0
 		ST._sukChamber = (realCur > 0) and realCur or maxA
+	end
+	if realCur > 0 and realCur < ST._sukChamber then
+		ST._sukChamber = realCur
 	end
 	local cur = ST._sukChamber or 0
 	if cur <= 0 then
 		ST._sukChamber = 0
 		if not ST._reloadRunning then
-			tool:SetAttribute("ClientAmmo", 0)
-			tool:SetAttribute("CurrentAmmo", 0)
+			pcall(function()
+				tool:SetAttribute("ClientAmmo", 0)
+				tool:SetAttribute("CurrentAmmo", 0)
+			end)
 			task.spawn(function()
 				pcall(InstantReload, tool)
 			end)
@@ -1694,21 +1701,23 @@ function MultiFireAt()
 
 	local bulletModel = BulletModel
 	if not bulletModel then
-		local models = ReplicatedStorage:FindFirstChild("Models")
-		local bullets = models and models:FindFirstChild("Bullets")
-		bulletModel = bullets and bullets:FindFirstChild("Default")
-		BulletModel = bulletModel
-		if not bulletModel then return end
+		pcall(function()
+			local models = ReplicatedStorage:FindFirstChild("Models")
+			local bullets = models and models:FindFirstChild("Bullets")
+			bulletModel = bullets and bullets:FindFirstChild("Default")
+			BulletModel = bulletModel
+		end)
 	end
+	if not bulletModel then return end
 
 	if ST.isBlockActive and SwingRemote then
-		SwingRemote:FireServer("UnBlock")
+		pcall(function() SwingRemote:FireServer("UnBlock") end)
 		ST.isBlockActive = false
 	end
 
 	local now = os.clock()
 	local targets = _sukTargetsCache
-	if not targets or (now - (_sukTargetsAt or 0)) > 0.12 then
+	if not targets or (now - (_sukTargetsAt or 0)) > 0.1 then
 		targets = GetTargets() or {}
 		_sukTargetsCache, _sukTargetsAt = targets, now
 	end
@@ -1732,8 +1741,26 @@ function MultiFireAt()
 
 	targetIndex = (targetIndex % numTargets) + 1
 	local entry = targets[targetIndex]
-	if not entry or not entry.head or not entry.head.Parent then return end
+	if not entry then return end
 	local head = entry.head
+	if not head or not head.Parent then return end
+	local liveChar = head.Parent
+	if liveChar:GetAttribute("Downed") then return end
+	local liveHum = liveChar:FindFirstChildOfClass("Humanoid")
+	if not liveHum or liveHum.Health <= 0 then return end
+
+	-- spend shell
+	if (ST._sukChamber or 0) <= 0 then return end
+	ST._sukChamber = math.max(0, (ST._sukChamber or 1) - 1)
+	cur = ST._sukChamber
+	pcall(function()
+		tool:SetAttribute("ClientAmmo", cur)
+		tool:SetAttribute("CurrentAmmo", cur)
+		local cv = tool:FindFirstChild("CurrentAmmo")
+		if cv and (cv:IsA("NumberValue") or cv:IsA("IntValue")) then cv.Value = cur end
+	end)
+
+	-- real muzzle if any, else aim from slightly behind head so dir = into skull
 	local muzzle = head.Position
 	pcall(function()
 		local fp = tool:FindFirstChild("Firepoint", true) or tool:FindFirstChild("Muzzle", true)
@@ -1742,13 +1769,6 @@ function MultiFireAt()
 		end
 	end)
 	local hitPos = head.Position
-
-	if (ST._sukChamber or 0) <= 0 then return end
-	ST._sukChamber = math.max(0, (ST._sukChamber or 1) - 1)
-	cur = ST._sukChamber
-	tool:SetAttribute("ClientAmmo", cur)
-	tool:SetAttribute("CurrentAmmo", cur)
-
 	local pred = hitPos
 	pcall(function()
 		if head.AssemblyLinearVelocity then
@@ -1759,106 +1779,107 @@ function MultiFireAt()
 	end)
 	local toHead = pred - muzzle
 	local tpDir = (typeof(toHead) == "Vector3" and toHead.Magnitude > 0.05) and toHead.Unit or Vector3.new(0, 0, -1)
-	local nearHead = pred - tpDir * 0.8
+	-- TELEPORT bullet origin to just in front of head (server validates short ray into head)
+	local nearHead = pred - tpDir * 0.55
 	local vel = tpDir * 2000
 
-	local expandOn = ST.SUK_HeadExpand ~= false
-	local expandSz = math.clamp(tonumber(ST.SUK_HeadExpandSize) or 4.5, 1.5, 12)
-	local headBak = nil
-	if expandOn and head and head.Parent then
-		local untilT = _sukExpandUntil[head]
-		if not untilT or now > untilT or not head:GetAttribute("CLL_SUK_HEAD_EXP") then
-			pcall(function()
-				headBak = {
-					Size = head.Size,
-					Transparency = head.Transparency,
-					CanCollide = head.CanCollide,
-					Material = head.Material,
-				}
-				head.Size = Vector3.new(expandSz, expandSz, expandSz)
-				head.Transparency = 1
-				head.CanCollide = false
-				head:SetAttribute("CLL_SUK_HEAD_EXP", true)
-				_sukExpandUntil[head] = now + 0.18
-			end)
-			task.delay(0.18, function()
-				pcall(function()
-					if not head or not head.Parent then return end
-					if Hitbox_Config.Enabled and Hitbox_Cache[head.Parent] then
-						head:SetAttribute("CLL_SUK_HEAD_EXP", nil)
-						return
-					end
-					if headBak then
-						head.Size = headBak.Size
-						head.Transparency = headBak.Transparency
-						head.CanCollide = headBak.CanCollide
-						if headBak.Material then head.Material = headBak.Material end
-					end
-					head:SetAttribute("CLL_SUK_HEAD_EXP", nil)
-				end)
-			end)
+	local function firePayload(org)
+		local payload = {
+			velocity = 2000,
+			bullet = bulletModel,
+			origin = org,
+			direction = tpDir,
+		}
+		if CLL_FireServer then
+			pcall(CLL_FireServer, FireRemote, tool, "Fire", payload)
+		else
+			pcall(function() FireRemote:FireServer(tool, "Fire", payload) end)
 		end
 	end
 
-	local payload = {
-		velocity = 2000,
-		bullet = bulletModel,
-		origin = muzzle,
-		direction = tpDir,
+	-- expand head BEFORE Fire/Hit so packets land on big head
+	local expandOn = ST.SUK_HeadExpand ~= false
+	local expandSz = math.clamp(tonumber(ST.SUK_HeadExpandSize) or 4.5, 1.5, 12)
+	local headBak = nil
+	if expandOn then
+		pcall(function()
+			headBak = {
+				Size = head.Size,
+				Transparency = head.Transparency,
+				CanCollide = head.CanCollide,
+				Material = head.Material,
+			}
+			head.Size = Vector3.new(expandSz, expandSz, expandSz)
+			head.Transparency = 1
+			head.CanCollide = false
+			pcall(function() head.CanQuery = true end)
+			head:SetAttribute("CLL_SUK_HEAD_EXP", true)
+		end)
+	end
+
+	-- head-TP: Fire from nearHead first (regs), then muzzle for consistency
+	firePayload(nearHead)
+	firePayload(muzzle)
+	pcall(markLocalShot, nearHead)
+
+	-- Hits SAME FRAME (defer broke reg)
+	local headPos = pred
+	local offsets = {
+		Vector3.zero,
+		tpDir * 0.2,
+		-tpDir * 0.15,
+		Vector3.new(0.25, 0.12, 0),
+		Vector3.new(-0.25, 0.12, 0),
+		Vector3.new(0, 0.3, 0),
+		Vector3.new(0, -0.12, 0),
 	}
-	local payload2 = {
+	for _, off in ipairs(offsets) do
+		local pos = headPos + off
+		local hitTbl = {
+			hit = head,
+			normal = -tpDir,
+			position = pos,
+			velocity = vel,
+			bullet_cframe = CFrame.lookAt(pos - tpDir * 0.12, pos),
+		}
+		if CLL_FireServer then
+			pcall(CLL_FireServer, FireRemote, tool, "Hit", hitTbl)
+		else
+			pcall(function() FireRemote:FireServer(tool, "Hit", hitTbl) end)
+		end
+	end
+	HelperFire("Gun Base", "Hit", head, headPos, -tpDir, vel, bulletModel)
+	HelperFire("Fx", "Hitmarker", head)
+	pcall(markKillCandidate, head.Parent)
+
+	if headBak and head then
+		task.delay(0.12, function()
+			pcall(function()
+				if not head or not head.Parent then return end
+				if Hitbox_Config.Enabled and Hitbox_Cache[head.Parent] then
+					head:SetAttribute("CLL_SUK_HEAD_EXP", nil)
+					return
+				end
+				head.Size = headBak.Size
+				head.Transparency = headBak.Transparency
+				head.CanCollide = headBak.CanCollide
+				if headBak.Material then head.Material = headBak.Material end
+				head:SetAttribute("CLL_SUK_HEAD_EXP", nil)
+			end)
+		end)
+	end
+
+	HelperFire("Fx", "Fire Bullet", tool, {
 		velocity = 2000,
 		bullet = bulletModel,
 		origin = nearHead,
 		direction = tpDir,
-	}
-	FireRemote:FireServer(tool, "Fire", payload)
-	FireRemote:FireServer(tool, "Fire", payload2)
-	pcall(markLocalShot, nearHead)
-
-	local headPos = pred or head.Position
-	local offsets = {
-		Vector3.zero,
-		tpDir * 0.2,
-		-tpDir * 0.12,
-		Vector3.new(0.22, 0.1, 0),
-		Vector3.new(-0.22, 0.1, 0),
-		Vector3.new(0, 0.28, 0),
-	}
-	local hit0 = {
-		hit = head,
-		normal = -tpDir,
-		position = headPos,
-		velocity = vel,
-		bullet_cframe = CFrame.lookAt(headPos - tpDir * 0.12, headPos),
-	}
-	FireRemote:FireServer(tool, "Hit", hit0)
-	task.defer(function()
-		for i = 2, #offsets do
-			local pos = headPos + offsets[i]
-			FireRemote:FireServer(tool, "Hit", {
-				hit = head,
-				normal = -tpDir,
-				position = pos,
-				velocity = vel,
-				bullet_cframe = CFrame.lookAt(pos - tpDir * 0.12, pos),
-			})
-		end
-		HelperFire("Gun Base", "Hit", head, headPos, -tpDir, vel, bulletModel)
-		HelperFire("Fx", "Hitmarker", head)
-		HelperFire("Fx", "Fire Bullet", tool, {
-			velocity = 2000,
-			bullet = bulletModel,
-			origin = nearHead,
-			direction = tpDir,
-		})
-		HelperFire("Gun Base", "Shot", tool)
-		HelperFire("Fx", "Ammo", cur, maxA, false)
-		if ST.TracersEnabled and ST.TracerSelfEnabled then
-			pcall(CreateTracer, nearHead, pred, ST.ColorSelf)
-		end
-		pcall(markKillCandidate, head.Parent)
-	end)
+	})
+	if ST.TracersEnabled and ST.TracerSelfEnabled then
+		pcall(CreateTracer, nearHead, pred, ST.ColorSelf)
+	end
+	HelperFire("Fx", "Ammo", cur, maxA, false)
+	HelperFire("Gun Base", "Shot", tool)
 end
 
 
@@ -5275,7 +5296,7 @@ fit(); workspace.CurrentCamera:GetPropertyChangedSignal("ViewportSize"):Connect(
 local header = new("Frame", { Size = UDim2.new(1, 0, 0, 62), BackgroundTransparency = 1, Parent = window })
 local logoLabel = label({ Text = "CLL", Font = Enum.Font.Michroma, TextSize = 26, TextTruncate = Enum.TextTruncate.AtEnd, Size = UDim2.fromOffset(100, 62), Position = UDim2.fromOffset(23, 0), Parent = header })
 logoLabel.TextColor3 = Color3.fromRGB(255, 255, 255) -- Always white
-local verLabel = label({ Text = "v12.29-ct", Font = Enum.Font.GothamBold, TextSize = 12, TextColor3 = Theme.Dim, Size = UDim2.fromOffset(50, 62), Position = UDim2.fromOffset(85, 2), Parent = header })
+local verLabel = label({ Text = "v12.30-cu", Font = Enum.Font.GothamBold, TextSize = 12, TextColor3 = Theme.Dim, Size = UDim2.fromOffset(50, 62), Position = UDim2.fromOffset(85, 2), Parent = header })
 local timeLabel = label({ Text = "Session: 00:00", Font = Enum.Font.GothamMedium, TextSize = 13, TextColor3 = Theme.Dim, Size = UDim2.fromOffset(150, 62), Position = UDim2.fromOffset(150, 0), Parent = header })
 task.spawn(function()
 	while not ST.isUnloaded do
@@ -6418,7 +6439,7 @@ function buildProfile()
 	end
 
 	local tBuild, vBuild = row("profile_build", 1)
-	vBuild.Text = "v12.29-ct"
+	vBuild.Text = "v12.30-cu"
 	local tSess, vSess = row("profile_session", 2)
 	local tStat, vStat = row("profile_status", 3)
 	vStat.Text = L("profile_active")
