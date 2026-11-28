@@ -1,6 +1,6 @@
 --[[
     ╔═══════════════════════════════════════════════════════════════╗
-    ║              CLL CHEAT - FULL INTEGRATION v12.32-cw (reg + grab vararg fix, no unequip)                ║
+    ║              CLL CHEAT - FULL INTEGRATION v12.33-cx (SUK muzzle+nearHead AP reg)                ║
     ╠═══════════════════════════════════════════════════════════════╣
     ║  SUK head-hit, real crosshair, tracers, ESP outline nick,     ║
     ║  ChinaHat/Wings fix, VR hands, anti-flash/shake, antibypass   ║
@@ -641,12 +641,13 @@ local function CLL_FireServer(remote, ...)
 end
 
 function HelperFire(...)
-	if not HelperBE then return end
-	local a = { ... }
-	local unpackFn = table.unpack or unpack
-	pcall(function()
-		HelperBE:Fire(unpackFn(a))
-	end)
+	if not HelperBE then
+		pcall(function()
+			HelperBE = LocalPlayer:FindFirstChild("PlayerScripts") and LocalPlayer.PlayerScripts:FindFirstChild("Helper")
+		end)
+		if not HelperBE then return end
+	end
+	pcall(HelperBE.Fire, HelperBE, ...)
 end
 
 
@@ -1710,7 +1711,7 @@ function MultiFireAt()
 
 	local now = os.clock()
 	local targets = _sukTargetsCache
-	if not targets or (now - (_sukTargetsAt or 0)) > 0.08 then
+	if not targets or (now - (_sukTargetsAt or 0)) > 0.1 then
 		targets = GetTargets() or {}
 		_sukTargetsCache, _sukTargetsAt = targets, now
 	end
@@ -1751,32 +1752,48 @@ function MultiFireAt()
 		if cv and (cv:IsA("NumberValue") or cv:IsA("IntValue")) then cv.Value = cur end
 	end)
 
-	-- real muzzle (for direction only)
-	local muzzle = head.Position
-	pcall(function()
-		local fp = tool:FindFirstChild("Firepoint", true) or tool:FindFirstChild("Muzzle", true)
-		if fp and fp:IsA("Attachment") then muzzle = fp.WorldPosition
-		elseif fp and fp:IsA("BasePart") then muzzle = fp.Position
-		else
-			local my = LocalPlayer.Character
-			local hrp = my and my:FindFirstChild("HumanoidRootPart")
-			if hrp then muzzle = hrp.Position + hrp.CFrame.LookVector * 1.2 + Vector3.new(0, 1.2, 0) end
-		end
-	end)
+	-- REAL muzzle (server distance check) — without this packets are rejected
+	local fp = tool:FindFirstChild("Firepoint", true)
+	if not fp then
+		local base = tool:FindFirstChild("Base")
+		fp = base and base:FindFirstChild("Firepoint")
+	end
+	local muzzle
+	if fp then
+		muzzle = fp.WorldPosition or fp.Position
+	else
+		local char = LocalPlayer.Character
+		local hand = char and (char:FindFirstChild("Right Arm") or char:FindFirstChild("RightHand"))
+		local hrp = char and char:FindFirstChild("HumanoidRootPart")
+		muzzle = (hand and hand.Position) or (hrp and (hrp.Position + hrp.CFrame.LookVector * 1.5 + Vector3.new(0, 1.2, 0)))
+	end
+	if typeof(muzzle) ~= "Vector3" then return end
 
-	local headPos = head.Position
+	local hitPos = head.Position
 	pcall(function()
 		local v = head.AssemblyLinearVelocity
 		if typeof(v) == "Vector3" and v.Magnitude > 0.5 then
-			headPos = headPos + v * 0.06
+			local dist = (hitPos - muzzle).Magnitude
+			local tt = math.clamp(dist / 2000, 0, 0.12)
+			hitPos = hitPos + v * tt
 		end
 	end)
 
-	local toHead = headPos - muzzle
-	local tpDir = (toHead.Magnitude > 0.05) and toHead.Unit or Vector3.new(0, -1, 0)
-	-- hard TP: origin almost on skull, direction INTO head (same as bullet path from gun)
-	local nearHead = headPos - tpDir * 0.06
+	local toHead = hitPos - muzzle
+	local tpDir = (toHead.Magnitude > 0.05) and toHead.Unit or Vector3.new(0, 0, -1)
+	-- near skull for second Fire + hits; primary Fire MUST be from muzzle
+	local nearHead = hitPos - tpDir * 0.8
 	local vel = tpDir * 2000
+
+	local function firePayload(org)
+		local payload = {
+			velocity = 2000,
+			bullet = bulletModel,
+			origin = org,
+			direction = tpDir,
+		}
+		pcall(FireRemote.FireServer, FireRemote, tool, "Fire", payload)
+	end
 
 	local expandOn = ST.SUK_HeadExpand ~= false
 	local expandSz = math.clamp(tonumber(ST.SUK_HeadExpandSize) or 4.5, 1.5, 12)
@@ -1797,31 +1814,20 @@ function MultiFireAt()
 		end)
 	end
 
-	local payloadNear = {
-		velocity = 2000,
-		bullet = bulletModel,
-		origin = nearHead,
-		direction = tpDir,
-	}
-	local payloadHead = {
-		velocity = 2000,
-		bullet = bulletModel,
-		origin = headPos,
-		direction = tpDir,
-	}
-	-- direct FireServer (vararg-safe) — same frame as Hits
-	pcall(FireRemote.FireServer, FireRemote, tool, "Fire", payloadNear)
-	pcall(FireRemote.FireServer, FireRemote, tool, "Fire", payloadHead)
+	-- AP path: muzzle first (server accepts), then nearHead
+	firePayload(muzzle)
+	firePayload(nearHead)
 	pcall(markLocalShot, nearHead)
 
+	local headPos = hitPos
 	local offsets = {
 		Vector3.zero,
-		tpDir * 0.18,
-		-tpDir * 0.12,
-		Vector3.new(0.22, 0.1, 0),
-		Vector3.new(-0.22, 0.1, 0),
-		Vector3.new(0, 0.28, 0),
-		Vector3.new(0, -0.1, 0),
+		tpDir * 0.25,
+		-tpDir * 0.2,
+		Vector3.new(0.3, 0.15, 0),
+		Vector3.new(-0.3, 0.15, 0),
+		Vector3.new(0, 0.4, 0),
+		Vector3.new(0, -0.15, 0),
 	}
 	for _, off in ipairs(offsets) do
 		local pos = headPos + off
@@ -1830,7 +1836,7 @@ function MultiFireAt()
 			normal = -tpDir,
 			position = pos,
 			velocity = vel,
-			bullet_cframe = CFrame.lookAt(pos - tpDir * 0.08, pos),
+			bullet_cframe = CFrame.lookAt(pos - tpDir * 0.12, pos),
 		}
 		pcall(FireRemote.FireServer, FireRemote, tool, "Hit", hitTbl)
 	end
@@ -5296,7 +5302,7 @@ fit(); workspace.CurrentCamera:GetPropertyChangedSignal("ViewportSize"):Connect(
 local header = new("Frame", { Size = UDim2.new(1, 0, 0, 62), BackgroundTransparency = 1, Parent = window })
 local logoLabel = label({ Text = "CLL", Font = Enum.Font.Michroma, TextSize = 26, TextTruncate = Enum.TextTruncate.AtEnd, Size = UDim2.fromOffset(100, 62), Position = UDim2.fromOffset(23, 0), Parent = header })
 logoLabel.TextColor3 = Color3.fromRGB(255, 255, 255) -- Always white
-local verLabel = label({ Text = "v12.32-cw", Font = Enum.Font.GothamBold, TextSize = 12, TextColor3 = Theme.Dim, Size = UDim2.fromOffset(50, 62), Position = UDim2.fromOffset(85, 2), Parent = header })
+local verLabel = label({ Text = "v12.33-cx", Font = Enum.Font.GothamBold, TextSize = 12, TextColor3 = Theme.Dim, Size = UDim2.fromOffset(50, 62), Position = UDim2.fromOffset(85, 2), Parent = header })
 local timeLabel = label({ Text = "Session: 00:00", Font = Enum.Font.GothamMedium, TextSize = 13, TextColor3 = Theme.Dim, Size = UDim2.fromOffset(150, 62), Position = UDim2.fromOffset(150, 0), Parent = header })
 task.spawn(function()
 	while not ST.isUnloaded do
@@ -6439,7 +6445,7 @@ function buildProfile()
 	end
 
 	local tBuild, vBuild = row("profile_build", 1)
-	vBuild.Text = "v12.32-cw"
+	vBuild.Text = "v12.33-cx"
 	local tSess, vSess = row("profile_session", 2)
 	local tStat, vStat = row("profile_status", 3)
 	vStat.Text = L("profile_active")
