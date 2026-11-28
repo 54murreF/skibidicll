@@ -1,6 +1,6 @@
 --[[
     ╔═══════════════════════════════════════════════════════════════╗
-    ║              CLL CHEAT - FULL INTEGRATION v12.17-cm (invis tools+unstick, config fix)                ║
+    ║              CLL CHEAT - FULL INTEGRATION v12.18-cm (remove Local Invis)                ║
     ╠═══════════════════════════════════════════════════════════════╣
     ║  SUK head-hit, real crosshair, tracers, ESP outline nick,     ║
     ║  ChinaHat/Wings fix, VR hands, anti-flash/shake, antibypass   ║
@@ -199,7 +199,6 @@ local ST = {
 	SilentAimNPCs = false,
 	RealCrosshairEnabled = true,
 	TrueCrosshairEnabled = true,
-	LocalInvisEnabled = false,
 	SkyEnabled = false,
 	SkyHeight = 300000,
 	SkyFrontDist = 14,
@@ -385,7 +384,7 @@ local LANG = {
 		profile_fps = "FPS",
 		profile_feat = "Модули",
 		profile_tip = "Совет",
-		profile_tip_body = "SUK: не гони firerate. Invis + дальняк требуют head-TP пуль.\nКонфиг сохраняется локально.",
+		profile_tip_body = "SUK: не гони firerate. Дальняк требует head-TP пуль.\nКонфиг сохраняется локально.",
 		profile_uid = "UserId",
 		profile_server = "Сервер",
 		-- feature titles
@@ -399,7 +398,6 @@ local LANG = {
 		t_target_npcs = "Цель: NPC",
 		t_equip = "Нужен Spas в руках",
 		t_silent = "Silent Aim",
-		t_invis = "Local Invis",
 		t_tracers = "Трассеры",
 		t_esp = "ESP",
 		t_vr = "VR Mode",
@@ -418,7 +416,6 @@ local LANG = {
 		d_target_npcs = "SUK также берёт NPC из NPC list.",
 		d_equip = "Стрельба только если Spas-12 экипирован.",
 		d_silent = "Подводит направление выстрела к цели в FOV.",
-		d_invis = "Уносит персонажа далеко на сервере и локально.",
 		d_tracers = "Рисует линии пуль своих/чужих выстрелов.",
 		d_esp = "Показывает игроков сквозь стены (боксы/имена).",
 		d_vr = "Включает VR-руки и VR-камеру в игре.",
@@ -491,7 +488,7 @@ local LANG = {
 		profile_fps = "FPS",
 		profile_feat = "Modules",
 		profile_tip = "Tip",
-		profile_tip_body = "SUK: don't max firerate. Invis + range need head-TP bullets.\nConfig is saved locally.",
+		profile_tip_body = "SUK: don't max firerate. Range needs head-TP bullets.\nConfig is saved locally.",
 		profile_uid = "UserId",
 		profile_server = "Server",
 		t_suk = "Enable SUK",
@@ -504,7 +501,6 @@ local LANG = {
 		t_target_npcs = "Target NPCs",
 		t_equip = "Equip required",
 		t_silent = "Silent Aim",
-		t_invis = "Local Invis",
 		t_tracers = "Tracers",
 		t_esp = "ESP",
 		t_vr = "VR Mode",
@@ -522,7 +518,6 @@ local LANG = {
 		d_target_npcs = "SUK also targets NPCs in NPC list.",
 		d_equip = "Only shoots while Spas-12 is equipped.",
 		d_silent = "Bends your shot direction toward a FOV target.",
-		d_invis = "Moves your character far away on client and server.",
 		d_tracers = "Draws bullet lines for your and others' shots.",
 		d_esp = "Shows players through walls (boxes/names).",
 		d_vr = "Enables VR arms and VR camera in-game.",
@@ -2077,334 +2072,6 @@ function FireNormalGun(tool)
 end
 
 
---// ==================== LOCAL INVIS (classic FE: clone + Character swap) ====================
--- Matches public BitingTheDust / Franny2012 pattern:
---   real parked on far pad via PseudoAnchor (CFrame only, never Anchored),
---   Player.Character = clone so WASD/jump/run/fly are native engine input,
---   Archivable on all descendants so MeshParts clone (no gray HRP block),
---   LocalScripts cloned disabled then enabled after swap.
-local InvisClone = nil
-local InvisSavedCF = nil
-local InvisPlayCF = nil
-local InvisRealChar = nil
-local InvisSafePart = nil
-local InvisConn = nil
-local InvisFarPos = nil
-local InvisGrounded = true
-local InvisPseudoAnchor = nil -- the HRP we force onto the pad each frame
-
-function destroyInvisClone()
-	if InvisClone then
-		pcall(function() InvisClone:Destroy() end)
-		InvisClone = nil
-	end
-	if InvisSafePart then
-		pcall(function() InvisSafePart:Destroy() end)
-		InvisSafePart = nil
-	end
-	InvisPseudoAnchor = nil
-end
-
-function stopLocalInvis()
-	ST.LocalInvisEnabled = false
-	if InvisConn then
-		pcall(function() InvisConn:Disconnect() end)
-		InvisConn = nil
-	end
-	local real = InvisRealChar
-	local fake = InvisClone
-	local playCF = InvisPlayCF
-	pcall(function()
-		if fake and fake.Parent and real and real.Parent then
-			local fr = fake:FindFirstChild("HumanoidRootPart")
-			if fr then playCF = fr.CFrame end
-			-- classic order: move fake to pad, real to play pos, then Character = real
-			local rr = real:FindFirstChild("HumanoidRootPart")
-			if fr and rr and InvisSafePart then
-				fr.CFrame = InvisSafePart.CFrame * CFrame.new(0, 5, 0)
-			end
-			pcall(function() LocalPlayer.Character = real end)
-			local cam = workspace.CurrentCamera
-			local hum = real:FindFirstChildOfClass("Humanoid")
-			if cam and hum then
-				cam.CameraSubject = hum
-				cam.CameraType = Enum.CameraType.Custom
-			end
-			if playCF and rr then
-				rr.Anchored = false
-				rr.CFrame = playCF
-				rr.AssemblyLinearVelocity = Vector3.zero
-				rr.AssemblyAngularVelocity = Vector3.zero
-				pcall(function() real:PivotTo(playCF) end)
-			end
-			for _, p in ipairs(real:GetDescendants()) do
-				if p:IsA("BasePart") then
-					p.LocalTransparencyModifier = 0
-					p.Anchored = false
-				elseif p:IsA("Decal") or p:IsA("Texture") then
-					p.LocalTransparencyModifier = 0
-				end
-			end
-			-- disable clone localscripts
-			for _, v in ipairs(fake:GetChildren()) do
-				if v:IsA("LocalScript") then v.Disabled = true end
-			end
-		elseif real and real.Parent then
-			pcall(function() LocalPlayer.Character = real end)
-			local cam = workspace.CurrentCamera
-			local hum = real:FindFirstChildOfClass("Humanoid")
-			if cam and hum then cam.CameraSubject = hum end
-			for _, p in ipairs(real:GetDescendants()) do
-				if p:IsA("BasePart") then
-					p.LocalTransparencyModifier = 0
-					p.Anchored = false
-				end
-			end
-		end
-	end)
-	destroyInvisClone()
-	InvisSavedCF = nil
-	InvisPlayCF = nil
-	InvisFarPos = nil
-	InvisRealChar = nil
-	_G.CLL_InvisClone = nil
-	_G.CLL_InvisPlayCF = nil
-	_G.CLL_InvisActive = false
-end
-
-LocalPlayer.CharacterAdded:Connect(function(ch)
-	if ST.LocalInvisEnabled and ch ~= InvisClone then
-		destroyInvisClone()
-		InvisSavedCF = nil
-		InvisPlayCF = nil
-		InvisRealChar = nil
-		task.delay(0.8, function()
-			if ST.LocalInvisEnabled then startLocalInvis() end
-		end)
-	end
-end)
-
-local function hideRealLocal(real)
-	if not real then return end
-	for _, p in ipairs(real:GetDescendants()) do
-		if p:IsA("BasePart") then
-			-- LocalTransparencyModifier is client-only; never set .Transparency (replicates → gray meshes)
-			p.LocalTransparencyModifier = 1
-		elseif p:IsA("Decal") or p:IsA("Texture") then
-			p.LocalTransparencyModifier = 1
-		end
-	end
-end
-
-function startLocalInvis()
-	local real = LocalPlayer.Character
-	if not real then return end
-	if InvisClone and LocalPlayer.Character == InvisClone then return end
-	local root = real:FindFirstChild("HumanoidRootPart")
-	local hum = real:FindFirstChildOfClass("Humanoid")
-	if not root or not hum or hum.Health <= 0 then return end
-
-	if InvisConn then pcall(function() InvisConn:Disconnect() end); InvisConn = nil end
-	destroyInvisClone()
-
-	InvisRealChar = real
-	InvisSavedCF = root.CFrame
-	InvisPlayCF = root.CFrame
-	_G.CLL_InvisPlayCF = InvisPlayCF
-
-	-- far pad under the map (classic public scripts use Y=-500)
-	local pad = Instance.new("Part")
-	pad.Name = "CLL_InvisPad"
-	pad.Anchored = true
-	pad.CanCollide = true
-	pad.CanQuery = false
-	pad.CanTouch = false
-	pad.CastShadow = false
-	pad.Transparency = 1
-	pad.Size = Vector3.new(200, 1, 200)
-	pad.CFrame = CFrame.new(0, -500, 0)
-	pad.Parent = workspace
-	InvisSafePart = pad
-
-	-- Archivable on EVERY descendant or MeshParts drop → gray HRP block
-	pcall(function() real.Archivable = true end)
-	for _, d in ipairs(real:GetDescendants()) do
-		pcall(function() d.Archivable = true end)
-	end
-	local ok, fake = pcall(function() return real:Clone() end)
-	-- leave Archivable true on real for later re-clones; public scripts keep it
-	if not ok or not fake then
-		ST.LocalInvisEnabled = false
-		pcall(function() pad:Destroy() end)
-		InvisSafePart = nil
-		return
-	end
-	InvisClone = fake
-	InvisClone.Name = LocalPlayer.Name .. "_CLLGhost"
-
-	-- strip physics constraints that block movement on the clone
-	for _, d in ipairs(InvisClone:GetDescendants()) do
-		if d:IsA("BodyVelocity") or d:IsA("BodyGyro") or d:IsA("BodyPosition")
-			or d:IsA("BodyAngularVelocity") or d:IsA("LinearVelocity")
-			or d:IsA("AlignPosition") or d:IsA("AlignOrientation") then
-			pcall(function() d:Destroy() end)
-		end
-		if d:IsA("BasePart") then
-			d.Anchored = false
-			d.CanCollide = true
-			-- slight ghost look (LocalTransparencyModifier = client only, no gray meshes)
-			if d.Name ~= "HumanoidRootPart" then
-				d.LocalTransparencyModifier = 0.35
-			end
-		end
-	end
-
-	-- public: LocalScripts on clone start disabled; clone missing ones from real
-	for _, v in ipairs(InvisClone:GetChildren()) do
-		if v:IsA("LocalScript") then
-			v.Disabled = true
-		end
-	end
-	for _, v in ipairs(real:GetChildren()) do
-		if v:IsA("LocalScript") then
-			local has = InvisClone:FindFirstChild(v.Name)
-			if not has then
-				local c = v:Clone()
-				c.Disabled = true
-				c.Parent = InvisClone
-			end
-		end
-	end
-
-	local fRoot = InvisClone:FindFirstChild("HumanoidRootPart")
-	local fHum = InvisClone:FindFirstChildOfClass("Humanoid")
-	if not fRoot or not fHum then
-		destroyInvisClone()
-		ST.LocalInvisEnabled = false
-		return
-	end
-	fHum.PlatformStand = false
-	fHum.AutoRotate = true
-	fHum.DisplayDistanceType = Enum.HumanoidDisplayDistanceType.None
-	pcall(function()
-		fHum.WalkSpeed = hum.WalkSpeed
-		fHum.JumpPower = hum.JumpPower
-		fHum.JumpHeight = hum.JumpHeight
-	end)
-
-	-- park clone on pad first, then swap CFrames (classic order)
-	InvisClone.Parent = workspace
-	fRoot.CFrame = pad.CFrame * CFrame.new(0, 5, 0)
-	fRoot.Anchored = false
-
-	local playCF = InvisSavedCF
-	pcall(function()
-		root.Anchored = false
-		-- swap: real goes to pad, clone goes to play position
-		root.CFrame = fRoot.CFrame
-		fRoot.CFrame = playCF
-		hum:UnequipTools()
-	end)
-
-	pcall(function()
-		LocalPlayer.Character = InvisClone
-	end)
-	-- enable LocalScripts + Animate on clone AFTER Character swap
-	for _, v in ipairs(InvisClone:GetChildren()) do
-		if v:IsA("LocalScript") then
-			v.Disabled = false
-		end
-		if v.Name == "Animate" then
-			pcall(function()
-				if v:IsA("LocalScript") or v:IsA("Script") then v.Disabled = false end
-			end)
-		end
-	end
-	-- move any tools from real → clone so you can equip/shoot while invisible
-	pcall(function()
-		for _, t in ipairs(real:GetChildren()) do
-			if t:IsA("Tool") then
-				t.Parent = InvisClone
-			end
-		end
-		-- Backpack stays on player; EquipTool works on current Character (clone)
-	end)
-	-- ensure every part on clone is free (no wooden/frozen rig)
-	for _, d in ipairs(InvisClone:GetDescendants()) do
-		if d:IsA("BasePart") then
-			d.Anchored = false
-			d.CanCollide = (d.Name == "HumanoidRootPart") and false or d.CanCollide
-			d.AssemblyLinearVelocity = Vector3.zero
-			d.AssemblyAngularVelocity = Vector3.zero
-		end
-	end
-	fRoot.Anchored = false
-	fHum.PlatformStand = false
-	fHum.Sit = false
-	fHum.AutoRotate = true
-	pcall(function() fHum:ChangeState(Enum.HumanoidStateType.Running) end)
-
-	local cam = workspace.CurrentCamera
-	if cam then
-		cam.CameraType = Enum.CameraType.Custom
-		cam.CameraSubject = fHum
-	end
-	hideRealLocal(real)
-	InvisPseudoAnchor = root
-	_G.CLL_InvisClone = InvisClone
-	_G.CLL_InvisActive = true
-	_G.CLL_InvisPlayCF = playCF
-
-	local lastCharFix = 0
-	InvisConn = RunService.RenderStepped:Connect(function()
-		if not ST.LocalInvisEnabled or ST.isUnloaded then return end
-		local r = InvisRealChar
-		local f = InvisClone
-		if not r or not r.Parent or not f or not f.Parent then return end
-		local rr = r:FindFirstChild("HumanoidRootPart")
-		local fr = f:FindFirstChild("HumanoidRootPart")
-		local fh = f:FindFirstChildOfClass("Humanoid")
-		if fr then
-			InvisPlayCF = fr.CFrame
-			_G.CLL_InvisPlayCF = InvisPlayCF
-		end
-		-- PseudoAnchor real body only
-		if rr and InvisSafePart and InvisSafePart.Parent then
-			rr.Anchored = false
-			rr.CFrame = InvisSafePart.CFrame * CFrame.new(0, 5, 0)
-			rr.AssemblyLinearVelocity = Vector3.zero
-			rr.AssemblyAngularVelocity = Vector3.zero
-			hideRealLocal(r)
-		end
-		-- Character swap ONCE in a while if game resets it — never every frame (stack overflow)
-		local now = os.clock()
-		if now - lastCharFix > 0.35 then
-			lastCharFix = now
-			if LocalPlayer.Character ~= f then
-				pcall(function() LocalPlayer.Character = f end)
-			end
-			if fr then fr.Anchored = false end
-			if fh then
-				if fh.PlatformStand then fh.PlatformStand = false end
-				if fh.Sit then fh.Sit = false end
-				fh.AutoRotate = true
-			end
-			-- tools that somehow stayed on real → move to clone
-			pcall(function()
-				for _, t in ipairs(r:GetChildren()) do
-					if t:IsA("Tool") then t.Parent = f end
-				end
-			end)
-		end
-		local camNow = workspace.CurrentCamera
-		if camNow and fh and camNow.CameraSubject ~= fh then
-			camNow.CameraType = Enum.CameraType.Custom
-			camNow.CameraSubject = fh
-		end
-	end)
-	table.insert(Connections, InvisConn)
-end
-
 --// ==================== SKY (void isolator) ====================
 -- Short name: SKY
 -- TP yourself to configurable height, spawn a LOCAL visual of the selected target
@@ -2782,7 +2449,7 @@ end
 RunService.Heartbeat:Connect(function()
 	if ST.isUnloaded then return end
 	-- skip almost all work when no movement/combat helpers are on
-	if not ST.VREnabled and not ST.FlyEnabled and not ST.LocalInvisEnabled
+	if not ST.VREnabled and not ST.FlyEnabled
 		and not ST.AntiSlowEnabled and not ST.AntiCCEnabled and not ST.NoClipEnabled
 		and not ST.WalkSpeedEnabled and not ST.InfiniteJumpEnabled then
 		return
@@ -2818,7 +2485,7 @@ RunService.Heartbeat:Connect(function()
 			pcall(function() if humanoid:GetAttribute("Stunned") then humanoid:SetAttribute("Stunned", nil) end end)
 		end
 	end
-	if not ST.VREnabled and not ST.FlyEnabled and not ST.LocalInvisEnabled then
+	if not ST.VREnabled and not ST.FlyEnabled then
 		-- ONLY unanchor our VR-marked parts — NEVER m.Enabled = true here (breaks ragdoll)
 		pcall(function()
 			if root:GetAttribute("CLL_VR_Anchored") then
@@ -4950,19 +4617,6 @@ oldNamecall = hookmetamethod(game, "__namecall", function(self, ...)
 					if typeof(payload.Origin) == "Vector3" then origin = payload.Origin end
 				end)
 			end
-			-- Local invis: shots from clone/play CF, not sky body
-			if ST.LocalInvisEnabled and typeof(payload) == "table" then
-				local play = _G.CLL_InvisPlayCF
-				local newOrigin = nil
-				if play then
-					newOrigin = play.Position + play.LookVector * 1.2 + Vector3.new(0, 1.2, 0)
-				end
-				if typeof(newOrigin) == "Vector3" then
-					payload.origin = newOrigin
-					payload.Origin = newOrigin
-					origin = newOrigin
-				end
-			end
 			if ST.SilentAimEnabled and typeof(origin) == "Vector3" and _G.CLL_AimPos and typeof(_G.CLL_AimPos) == "Vector3" then
 				local d = _G.CLL_AimPos - origin
 				if d.Magnitude > 0.01 then
@@ -6119,7 +5773,6 @@ local FEAT_STATE = {
 	["Hitbox Expander"] = function() return Hitbox_Config.Enabled end,
 	["No Recoil"] = function() return ST.NoRecoilEnabled end,
 	["No Spread (Spas/Remington)"] = function() return ST.NoSpreadEnabled end,
-	["Local Invis"] = function() return ST.LocalInvisEnabled end,
 	["Custom Kill Sound"] = function() return ST.CustomKillSoundEnabled end,
 	["Hit Sound"] = function() return ST.HitSoundEnabled end,
 	["Custom Gun Sounds"] = function() return ST.CustomGunSoundsEnabled end,
@@ -6336,11 +5989,7 @@ function buildCombat()
 		end },
 		{ name = "No Recoil", initial = false, getState = function() return ST.NoRecoilEnabled end, onToggle = function(v) ST.NoRecoilEnabled = v end, buildDetail = nil },
 		{ name = "Firerate", initial = false, onToggle = function(v) end, buildDetail = function(d) detailSlider(d, 1, "RPS (1-30)", 1, 30, ST.SUK_FIRERATE_RPS, 1, function(v) ST.SUK_FIRERATE_RPS = v end); detailSlider(d, 2, "Fire Delay", 0.01, 0.5, ST.SUK_FireDelay, 0.01, function(v) ST.SUK_FireDelay = v end) end },
-		{ name = "No Spread (Spas/Remington)", initial = false, getState = function() return ST.NoSpreadEnabled end, onToggle = function(v) ST.NoSpreadEnabled = v end, buildDetail = nil },
-		{ name = "Local Invis", initial = false, getState = function() return ST.LocalInvisEnabled end, onToggle = function(v)
-			if v then ST.LocalInvisEnabled = true; startLocalInvis() else stopLocalInvis() end
-		end, buildDetail = nil },
-		
+		{ name = "No Spread (Spas/Remington)", initial = false, getState = function() return ST.NoSpreadEnabled end, onToggle = function(v) ST.NoSpreadEnabled = v end, buildDetail = nil },		
 	})
 end
 
@@ -6775,7 +6424,7 @@ function buildProfile()
 			vFps.Text = tostring(math.clamp(fps, 1, 240))
 			local n = 0
 			local flags = {
-				ST.isMultiSuk, ST.SilentAimEnabled, ST.VREnabled, ST.HealEnabled, ST.LocalInvisEnabled,
+				ST.isMultiSuk, ST.SilentAimEnabled, ST.VREnabled, ST.HealEnabled,
 				ST.TracersEnabled, ST.WalkSpeedEnabled, ST.JumpPowerEnabled, ST.FlyEnabled, ST.SpinEnabled,
 				ST.NoClipEnabled, ST.InfiniteJumpEnabled, ST.AntiCCEnabled, ST.AntiSlowEnabled,
 				ST.NoRecoilEnabled, ST.NoSpreadEnabled, ST.FullbrightEnabled, ST.AntiLagEnabled,
@@ -7080,7 +6729,6 @@ function buildSettings()
 		pcall(function() RunService:UnbindFromRenderStep("CLL_VR") end)
 		pcall(function() RunService:UnbindFromRenderStep("CLL_AntiShake") end)
 		pcall(vrShutdown)
-		pcall(stopLocalInvis)
 		pcall(stopSky)
 		pcall(stopWeather)
 		pcall(function() Cosmetics.setHat(false) end)
@@ -7361,7 +7009,7 @@ pcall(function() if watermarkMain then watermarkMain:Destroy() end end)
 		for k, v in pairs(Keys) do keys[k] = keycodeToStr(v) end
 		local stSkip = {
 			isUnloaded = true, isBinding = true, reloadInProgress = true, isBlockActive = true,
-			_reloadRunning = true, _sukChamber = true, LocalInvisEnabled = true, SkyEnabled = true,
+			_reloadRunning = true, _sukChamber = true, SkyEnabled = true,
 			HealEnabled = true, FlyEnabled = true, NoClipEnabled = true, isMultiSuk = true,
 			VREnabled = true, _spasPickupBusy = true, _reloadStartedAt = true,
 		}
@@ -7452,7 +7100,7 @@ function applyConfig(data)
 			local skipKeys = {
 				isUnloaded = true, isBinding = true, reloadInProgress = true, isBlockActive = true,
 				_reloadRunning = true, _sukChamber = true, VREnabled = true,
-				LocalInvisEnabled = true, SkyEnabled = true, HealEnabled = true,
+				SkyEnabled = true, HealEnabled = true,
 				FlyEnabled = true, NoClipEnabled = true, isMultiSuk = true,
 				_spasPickupBusy = true, _reloadStartedAt = true,
 			}
@@ -7665,7 +7313,6 @@ function applyConfig(data)
 		-- always unstick after config load (menu + movement)
 		ST.isBinding = false
 		bindTarget = nil
-		ST.LocalInvisEnabled = false
 		ST.SkyEnabled = false
 		ST.HealEnabled = false
 		ST.FlyEnabled = false
@@ -7677,7 +7324,6 @@ function applyConfig(data)
 			if spinAngular then spinAngular:Destroy(); spinAngular = nil end
 		end)
 		pcall(function()
-			if stopLocalInvis then stopLocalInvis() end
 			if stopSky then stopSky() end
 			if StopHealLoop then StopHealLoop() end
 		end)
