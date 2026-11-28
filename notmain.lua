@@ -1,6 +1,6 @@
 --[[
     ╔═══════════════════════════════════════════════════════════════╗
-    ║              CLL CHEAT - FULL INTEGRATION v12.20-cm (config load: no grid kill, dedupe sync)                ║
+    ║              CLL CHEAT - FULL INTEGRATION v12.21-cm (grid anim restore, no gradient)                ║
     ╠═══════════════════════════════════════════════════════════════╣
     ║  SUK head-hit, real crosshair, tracers, ESP outline nick,     ║
     ║  ChinaHat/Wings fix, VR hands, anti-flash/shake, antibypass   ║
@@ -182,7 +182,6 @@ local ST = {
 	MenuGridColor = Color3.fromRGB(80, 140, 255),
 	MenuBgStyle = "grid",
 	MenuGridRotation = 0,
-	MenuGridGradient = false,
 	AccentH = 220, AccentS = 0.78, AccentV = 1,
 	WatermarkMainVisible = true,
 	WatermarkBindsVisible = true,
@@ -5257,7 +5256,7 @@ fit(); workspace.CurrentCamera:GetPropertyChangedSignal("ViewportSize"):Connect(
 local header = new("Frame", { Size = UDim2.new(1, 0, 0, 62), BackgroundTransparency = 1, Parent = window })
 local logoLabel = label({ Text = "CLL", Font = Enum.Font.Michroma, TextSize = 26, TextTruncate = Enum.TextTruncate.AtEnd, Size = UDim2.fromOffset(100, 62), Position = UDim2.fromOffset(23, 0), Parent = header })
 logoLabel.TextColor3 = Color3.fromRGB(255, 255, 255) -- Always white
-local verLabel = label({ Text = "v12.17-cm", Font = Enum.Font.GothamBold, TextSize = 12, TextColor3 = Theme.Dim, Size = UDim2.fromOffset(50, 62), Position = UDim2.fromOffset(85, 2), Parent = header })
+local verLabel = label({ Text = "v12.21-cm", Font = Enum.Font.GothamBold, TextSize = 12, TextColor3 = Theme.Dim, Size = UDim2.fromOffset(50, 62), Position = UDim2.fromOffset(85, 2), Parent = header })
 local timeLabel = label({ Text = "Session: 00:00", Font = Enum.Font.GothamMedium, TextSize = 13, TextColor3 = Theme.Dim, Size = UDim2.fromOffset(150, 62), Position = UDim2.fromOffset(150, 0), Parent = header })
 task.spawn(function()
 	while not ST.isUnloaded do
@@ -6372,7 +6371,7 @@ function buildProfile()
 	end
 
 	local tBuild, vBuild = row("profile_build", 1)
-	vBuild.Text = "v12.17-cm"
+	vBuild.Text = "v12.21-cm"
 	local tSess, vSess = row("profile_session", 2)
 	local tStat, vStat = row("profile_status", 3)
 	vStat.Text = L("profile_active")
@@ -6509,11 +6508,6 @@ function buildSettings()
 		BackgroundTransparency = 1, Size = UDim2.new(1, 0, 0, 48),
 		Position = UDim2.fromOffset(0, y), Visible = ST.MenuGridEnabled == true, Parent = leftScroll,
 	})
-	toggle(gradHolder, 0, "Grid Gradient", function(v)
-		ST.MenuGridGradient = v
-		if rebuildMenuGrid then pcall(rebuildMenuGrid) end
-	end, false, function() return ST.MenuGridGradient == true end, "Gradient on the grid lines only")
-	y += 54
 	toggle(leftScroll, y, "Config toasts", function(v)
 		ST.NotifyConfig = v
 	end, ST.NotifyConfig ~= false, function() return ST.NotifyConfig ~= false end, "Header notifications for save / load / delete / autoload")
@@ -7993,7 +7987,7 @@ rebuildMenuGrid = function()
 					wvd.f.Rotation = 0
 					wvd.f.Position = UDim2.fromOffset(-40 + math.sin(phase * 0.45) * 14, y)
 					wvd.f.Size = UDim2.fromOffset(w, 3)
-					wvd.f.BackgroundColor3 = gradColor(wvd.i, 28)
+					wvd.f.BackgroundColor3 = c2
 					wvd.f.BackgroundTransparency = tr2
 				end
 			end)
@@ -8025,7 +8019,7 @@ rebuildMenuGrid = function()
 				local tilt = tonumber(ST.MenuGridRotation) or 0
 				for _, c in ipairs(cells) do
 					c.f.Position = UDim2.fromOffset(c.gx * spacing - spacing - off, c.gy * spacing - spacing - off)
-					c.f.BackgroundColor3 = c.on and gradColor(c.gx + c.gy, 160) or dark2
+					c.f.BackgroundColor3 = c.on and c2 or dark2
 					c.f.BackgroundTransparency = c.on and (tr2 * 0.45 + 0.35) or (tr2 * 0.75 + 0.15)
 					c.f.Rotation = tilt
 				end
@@ -8061,7 +8055,7 @@ rebuildMenuGrid = function()
 				local tr2 = math.clamp(ST.MenuGridTransparency or tr, 0.2, 0.98)
 				holder.Rotation = tonumber(ST.MenuGridRotation) or 0
 				for _, L in ipairs(lines) do
-					L.ln.BackgroundColor3 = gradColor(L.i, 140)
+					L.ln.BackgroundColor3 = c2
 					L.ln.BackgroundTransparency = tr2
 					L.ln.Rotation = 0
 					if L.axis == "v" then
