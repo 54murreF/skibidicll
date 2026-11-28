@@ -1,6 +1,6 @@
 --[[
     ╔═══════════════════════════════════════════════════════════════╗
-    ║              CLL CHEAT - FULL INTEGRATION v12.18-cm (remove Local Invis)                ║
+    ║              CLL CHEAT - FULL INTEGRATION v12.20-cm (config load: no grid kill, dedupe sync)                ║
     ╠═══════════════════════════════════════════════════════════════╣
     ║  SUK head-hit, real crosshair, tracers, ESP outline nick,     ║
     ║  ChinaHat/Wings fix, VR hands, anti-flash/shake, antibypass   ║
@@ -104,6 +104,8 @@ local ST = {
 	AntiCCEnabled = false,
 	SUK_MaxPerTick = 1,
 	SUK_HeadExpand = true,
+	SUK_TPToTarget = false, -- continuous TP to ONE selected target while SUK on
+	SUK_TPDistance = 4,
 	SUK_HeadExpandSize = 4.5,
 	TracersEnabled = false,
 	AutoBlockEnabled = false,
@@ -410,6 +412,8 @@ local LANG = {
 		d_suk_rps = "Сколько выстрелов SUK делает в секунду.",
 		d_suk_delay = "Минимальная пауза между выстрелами SUK.",
 		d_suk_targets = "Сколько целей обрабатывать за один тик (сейчас фактически 1).",
+		t_suk_tp = "SUK TP к цели",
+		d_suk_tp = "Постоянно телепортирует к ОДНОЙ выбранной цели.",
 		d_heal = "Телепорт в зону хила при включении.",
 		d_heal_h = "Высота над зоной хила при автотелепорте.",
 		d_ignore_friends = "SUK не стреляет по игрокам из списка друзей.",
@@ -495,6 +499,8 @@ local LANG = {
 		t_suk_rps = "Firerate RPS",
 		t_suk_delay = "Fire Delay (Safe)",
 		t_suk_targets = "Targets / tick",
+		t_suk_tp = "SUK TP to target",
+		d_suk_tp = "Keeps teleporting to ONE selected target.",
 		t_heal = "Auto Healing",
 		t_heal_h = "Heal Height",
 		t_ignore_friends = "Ignore Friends",
@@ -1939,8 +1945,33 @@ task.spawn(function()
 		else
 			local rps = tonumber(ST.SUK_FIRERATE_RPS) or 12
 			local delay = tonumber(ST.SUK_FireDelay) or 0.05
-			-- cadence between single shots (faster floor so high RPS actually fires)
 			local waitT = math.max(0.03, math.max(1 / math.max(1, rps), delay))
+			-- optional: stick to ONE selected target (does not cycle all)
+			if ST.SUK_TPToTarget then
+				pcall(function()
+					local my = LocalPlayer.Character
+					local root = my and my:FindFirstChild("HumanoidRootPart")
+					if not root then return end
+					local pick, pickRoot = nil, nil
+					for plr, on in pairs(SelectedTargets) do
+						if on and plr and plr.Parent and plr ~= LocalPlayer then
+							local ch = plr.Character
+							local hum = ch and ch:FindFirstChildOfClass("Humanoid")
+							local hr = ch and ch:FindFirstChild("HumanoidRootPart")
+							if hum and hum.Health > 0 and hr then
+								pick, pickRoot = plr, hr
+								break -- ONE only
+							end
+						end
+					end
+					if not pickRoot then return end
+					local dist = math.clamp(tonumber(ST.SUK_TPDistance) or 4, 2, 12)
+					local look = pickRoot.CFrame.LookVector
+					local dest = pickRoot.Position - look * dist + Vector3.new(0, 1.5, 0)
+					root.CFrame = CFrame.new(dest, pickRoot.Position)
+					root.AssemblyLinearVelocity = Vector3.zero
+				end)
+			end
 			pcall(MultiFireAt)
 			task.wait(waitT)
 		end
@@ -4222,7 +4253,7 @@ function GetClosestAimPartInFOV()
 		if not char or not char.Parent then return end
 		local hum = char:FindFirstChildOfClass("Humanoid")
 		if not hum or hum.Health <= 0 then return end
-		if not isFirearm(char:FindFirstChildOfClass("Tool")) then return end
+		-- local player must hold a gun (silentAimLocalGun); targets do not need a gun
 		-- aim priority uses Head screen-pos (closest to crosshair / FOV center = mouse)
 		local ref = char:FindFirstChild("Head")
 			or char:FindFirstChild("HumanoidRootPart")
@@ -6000,6 +6031,7 @@ function buildTarget()
 	local scroll = new("ScrollingFrame", { Size = UDim2.new(1, 0, 1, -38), Position = UDim2.fromOffset(0, 34), BackgroundTransparency = 1, BorderSizePixel = 0, ScrollBarThickness = 3, ScrollBarImageColor3 = Theme.Stroke, CanvasSize = UDim2.fromOffset(0, 0), AutomaticCanvasSize = Enum.AutomaticSize.Y, Parent = left })
 	local y = 18
 	toggle(scroll, y, L("t_suk"), function(v) ST.isMultiSuk = v; if not v then clearSukReloadState() end end, false, function() return ST.isMultiSuk end, L("d_suk")); y += 54
+	toggle(scroll, y, L("t_suk_tp"), function(v) ST.SUK_TPToTarget = v end, false, function() return ST.SUK_TPToTarget end, L("d_suk_tp")); y += 54
 	local sukWarn = label({
 		Text = L("suk_warn"),
 		Font = Enum.Font.Gotham,
@@ -7095,7 +7127,7 @@ pcall(function() if watermarkMain then watermarkMain:Destroy() end end)
 
 function applyConfig(data)
 		if type(data) ~= "table" then return end
-		-- full ST table (v3)
+		-- full ST table (v3) — only known ST keys; never invent fields; never start freezers
 		if type(data.st) == "table" then
 			local skipKeys = {
 				isUnloaded = true, isBinding = true, reloadInProgress = true, isBlockActive = true,
@@ -7103,19 +7135,22 @@ function applyConfig(data)
 				SkyEnabled = true, HealEnabled = true,
 				FlyEnabled = true, NoClipEnabled = true, isMultiSuk = true,
 				_spasPickupBusy = true, _reloadStartedAt = true,
+				LocalInvisEnabled = true, -- removed feature
 			}
 			for k, v in pairs(data.st) do
 				if skipKeys[k] then
-					-- skip runtime-only / would freeze movement or half-enable features
-				elseif ST[k] ~= nil or type(v) == "boolean" or type(v) == "number" or type(v) == "string" or type(v) == "table" then
-					if type(v) == "table" and (v[1] ~= nil) and (ST[k] == nil or typeof(ST[k]) == "Color3") then
-						local c = arrToColor(v)
-						if c then ST[k] = c end
-					elseif type(v) == "boolean" or type(v) == "number" or type(v) == "string" then
-						ST[k] = v
-					elseif ST[k] ~= nil then
-						ST[k] = v
-					end
+					-- skip
+				elseif ST[k] == nil then
+					-- unknown key from old configs — ignore (prevents ST pollution)
+				elseif typeof(ST[k]) == "Color3" then
+					local c = (type(v) == "table") and arrToColor(v) or nil
+					if c then ST[k] = c end
+				elseif type(ST[k]) == "boolean" and type(v) == "boolean" then
+					ST[k] = v
+				elseif type(ST[k]) == "number" and type(v) == "number" then
+					ST[k] = v
+				elseif type(ST[k]) == "string" and type(v) == "string" then
+					ST[k] = v
 				end
 			end
 		end
@@ -7146,11 +7181,13 @@ function applyConfig(data)
 		if data.npcs ~= nil then ST.SUK_TargetNPCs = data.npcs end
 		if data.silent ~= nil then ST.SilentAimEnabled = data.silent end
 		if data.fov then ST.SilentAimFOV = data.fov end
-		if data.suk ~= nil then ST.isMultiSuk = data.suk end
+		-- never auto-start SUK from config (freezes / FPS); user toggles manually
+		-- if data.suk ~= nil then ST.isMultiSuk = data.suk end
 		if data.language == "en" or data.language == "ru" then ST.Language = data.language end
+		-- heal never auto-starts from config
 		if data.heal ~= nil then
-			ST.HealEnabled = data.heal
-			if ST.HealEnabled then pcall(StartHealLoop) else pcall(StopHealLoop) end
+			ST.HealEnabled = false
+			pcall(StopHealLoop)
 		end
 		if type(data.hitbox) == "table" then
 			for k, v in pairs(data.hitbox) do Hitbox_Config[k] = v end
@@ -7280,44 +7317,22 @@ function applyConfig(data)
 			end
 			if RefreshFriendsUI then pcall(RefreshFriendsUI) end
 		end
-		-- re-apply cosmetics colors/toggles from ST
-		pcall(function()
-			if Cosmetics then
-				Cosmetics.setHat(ST.ChinaHatEnabled)
-				Cosmetics.setWings(ST.WingsEnabled)
-			end
-		end)
-		pcall(updateFOVCircle)
-		-- sync feature toggles
-		if UI_SyncHooks then
-			for _, fn in ipairs(UI_SyncHooks) do pcall(fn) end
-		end
-		if refreshAllBindLabels then pcall(refreshAllBindLabels) end
-		if UI_SliderHooks then
-			for _, fn in ipairs(UI_SliderHooks) do pcall(fn) end
-		end
-		pcall(function()
-			if watermarkMain then watermarkMain.Visible = ST.WatermarkMainVisible ~= false end
-			if watermarkBinds then watermarkBinds.Visible = ST.WatermarkBindsVisible ~= false end
-			if watermarkWorld then watermarkWorld.Visible = ST.WatermarkWorldVisible ~= false end
-			if ammoLbl then ammoLbl.Visible = ST.WatermarkAmmoVisible ~= false end
-		end)
-		-- grid must follow config
-		pcall(function()
-			if rebuildMenuGrid then rebuildMenuGrid() end
-		end)
-		-- VR state from config
-		pcall(function()
-			if setVREnabled then setVREnabled(ST.VREnabled == true, false) end
-		end)
-		-- always unstick after config load (menu + movement)
+		-- never auto-start freezers (user toggles after load)
 		ST.isBinding = false
 		bindTarget = nil
 		ST.SkyEnabled = false
 		ST.HealEnabled = false
 		ST.FlyEnabled = false
 		ST.NoClipEnabled = false
-		-- destroy leftover movers from a previous session in this config
+		ST.isMultiSuk = false
+		ST.VREnabled = false
+		-- clamp movement values so a bad config cannot softlock walk
+		if type(ST.WalkSpeedValue) == "number" then
+			ST.WalkSpeedValue = math.clamp(ST.WalkSpeedValue, 8, 200)
+		end
+		if type(ST.JumpPowerValue) == "number" then
+			ST.JumpPowerValue = math.clamp(ST.JumpPowerValue, 20, 500)
+		end
 		pcall(function()
 			if flyVelocity then flyVelocity:Destroy(); flyVelocity = nil end
 			if flyGyro then flyGyro:Destroy(); flyGyro = nil end
@@ -7326,7 +7341,16 @@ function applyConfig(data)
 		pcall(function()
 			if stopSky then stopSky() end
 			if StopHealLoop then StopHealLoop() end
+			if setVREnabled then setVREnabled(false, false) end
 		end)
+		pcall(function()
+			if Cosmetics then
+				Cosmetics.setHat(ST.ChinaHatEnabled == true)
+				Cosmetics.setWings(ST.WingsEnabled == true)
+			end
+		end)
+		pcall(updateFOVCircle)
+		-- character unstick (VR anchors only — do not touch every part)
 		pcall(function()
 			local ch = LocalPlayer.Character
 			if not ch then return end
@@ -7336,23 +7360,64 @@ function applyConfig(data)
 				hum.PlatformStand = false
 				hum.Sit = false
 				hum.AutoRotate = true
+				if ST.WalkSpeedEnabled then
+					hum.WalkSpeed = ST.WalkSpeedValue or 16
+				else
+					hum.WalkSpeed = 16
+				end
+				if not ST.JumpPowerEnabled then
+					hum.UseJumpPower = true
+					hum.JumpPower = 50
+				end
 				pcall(function() hum:ChangeState(Enum.HumanoidStateType.Running) end)
 			end
 			if root then
 				root.Anchored = false
 				root.AssemblyLinearVelocity = Vector3.zero
+				root.AssemblyAngularVelocity = Vector3.zero
 			end
 			for _, bp in ipairs(ch:GetDescendants()) do
-				if bp:IsA("BasePart") then
+				if bp:IsA("BasePart") and bp:GetAttribute("CLL_VR_Anchored") then
 					bp.Anchored = false
+					bp:SetAttribute("CLL_VR_Anchored", nil)
 				end
 			end
 		end)
-		-- force menu closable (isBinding was the usual stuck cause)
+		-- menu must stay closable (isBinding was the stuck-open cause, not grid)
 		pcall(function()
-			if isOpen and setOpen then
-				-- leave menu as-is but ensure RightShift works
+			if window then
+				window.GroupTransparency = 0
+				window.Visible = true
 			end
+			if animFactor then animFactor.Value = 1 end
+			if typeof(isOpen) ~= "nil" then
+				-- ensure state matches visible menu
+				isOpen = true
+			end
+		end)
+		-- ONE deferred UI pass (was called 2–3× per load → hitch / dead input)
+		task.defer(function()
+			pcall(function()
+				for _, fn in ipairs(UI_SyncHooks or {}) do pcall(fn) end
+			end)
+			pcall(function()
+				if UI_SliderHooks then
+					for _, fn in ipairs(UI_SliderHooks) do pcall(fn) end
+				end
+			end)
+			pcall(function()
+				if refreshAllBindLabels then refreshAllBindLabels() end
+			end)
+			pcall(function()
+				if watermarkMain then watermarkMain.Visible = ST.WatermarkMainVisible ~= false end
+				if watermarkBinds then watermarkBinds.Visible = ST.WatermarkBindsVisible ~= false end
+				if watermarkWorld then watermarkWorld.Visible = ST.WatermarkWorldVisible ~= false end
+				if ammoLbl then ammoLbl.Visible = ST.WatermarkAmmoVisible ~= false end
+			end)
+			-- grid: restore from config if user had it on — do NOT force off
+			pcall(function()
+				if rebuildMenuGrid then rebuildMenuGrid() end
+			end)
 		end)
 	end
 
