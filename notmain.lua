@@ -1,6 +1,6 @@
 --[[
     ╔═══════════════════════════════════════════════════════════════╗
-    ║              CLL CHEAT - FULL INTEGRATION v12.27-cr (SUK more Hits for kill reg)                ║
+    ║              CLL CHEAT - FULL INTEGRATION v12.28-cs (SKY only SUK list + bind toggle)                ║
     ╠═══════════════════════════════════════════════════════════════╣
     ║  SUK head-hit, real crosshair, tracers, ESP outline nick,     ║
     ║  ChinaHat/Wings fix, VR hands, anti-flash/shake, antibypass   ║
@@ -2128,32 +2128,22 @@ local function skyDestroyClone()
 end
 
 local function skyPickTarget()
-	-- prefer SelectedTargets
+	-- ONLY from SUK SelectedTargets — never random / closest
+	local first = nil
 	for plr, on in pairs(SelectedTargets) do
 		if on and plr and plr.Parent and plr ~= LocalPlayer then
 			local ch = plr.Character
 			local hum = ch and ch:FindFirstChildOfClass("Humanoid")
 			if ch and hum and hum.Health > 0 then
-				return plr
+				-- prefer already tracked SkyTarget if still selected
+				if SkyTargetPlr and plr == SkyTargetPlr then
+					return plr
+				end
+				if not first then first = plr end
 			end
 		end
 	end
-	-- fallback: closest living player
-	local cam = workspace.CurrentCamera
-	local origin = (cam and cam.CFrame.Position) or Vector3.zero
-	local best, bestD = nil, math.huge
-	for _, plr in ipairs(Players:GetPlayers()) do
-		if plr ~= LocalPlayer and plr.Parent then
-			local ch = plr.Character
-			local head = ch and (ch:FindFirstChild("Head") or ch:FindFirstChild("HumanoidRootPart"))
-			local hum = ch and ch:FindFirstChildOfClass("Humanoid")
-			if head and hum and hum.Health > 0 then
-				local d = (head.Position - origin).Magnitude
-				if d < bestD then best, bestD = plr, d end
-			end
-		end
-	end
-	return best
+	return first
 end
 
 function stopSky()
@@ -5361,7 +5351,7 @@ fit(); workspace.CurrentCamera:GetPropertyChangedSignal("ViewportSize"):Connect(
 local header = new("Frame", { Size = UDim2.new(1, 0, 0, 62), BackgroundTransparency = 1, Parent = window })
 local logoLabel = label({ Text = "CLL", Font = Enum.Font.Michroma, TextSize = 26, TextTruncate = Enum.TextTruncate.AtEnd, Size = UDim2.fromOffset(100, 62), Position = UDim2.fromOffset(23, 0), Parent = header })
 logoLabel.TextColor3 = Color3.fromRGB(255, 255, 255) -- Always white
-local verLabel = label({ Text = "v12.27-cr", Font = Enum.Font.GothamBold, TextSize = 12, TextColor3 = Theme.Dim, Size = UDim2.fromOffset(50, 62), Position = UDim2.fromOffset(85, 2), Parent = header })
+local verLabel = label({ Text = "v12.28-cs", Font = Enum.Font.GothamBold, TextSize = 12, TextColor3 = Theme.Dim, Size = UDim2.fromOffset(50, 62), Position = UDim2.fromOffset(85, 2), Parent = header })
 local timeLabel = label({ Text = "Session: 00:00", Font = Enum.Font.GothamMedium, TextSize = 13, TextColor3 = Theme.Dim, Size = UDim2.fromOffset(150, 62), Position = UDim2.fromOffset(150, 0), Parent = header })
 task.spawn(function()
 	while not ST.isUnloaded do
@@ -6504,7 +6494,7 @@ function buildProfile()
 	end
 
 	local tBuild, vBuild = row("profile_build", 1)
-	vBuild.Text = "v12.27-cr"
+	vBuild.Text = "v12.28-cs"
 	local tSess, vSess = row("profile_session", 2)
 	local tStat, vStat = row("profile_status", 3)
 	vStat.Text = L("profile_active")
@@ -8680,7 +8670,17 @@ UIS.InputBegan:Connect(function(input, gp)
 			CLL_Notify("???", ST.MenuMusicEnabled and "ON" or "OFF")
 		end
 	elseif pressed(Keys.Sky) then
-		toggleSky(not ST.SkyEnabled)
+		local on = not ST.SkyEnabled
+		toggleSky(on)
+		-- sync menu toggle like other binds
+		pcall(function()
+			if UI_SyncHooks then
+				for _, fn in ipairs(UI_SyncHooks) do pcall(fn) end
+			end
+		end)
+		if CLL_Notify then
+			CLL_Notify("SKY", on and "ON" or "OFF")
+		end
 	end
 end)
 
