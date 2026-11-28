@@ -1,6 +1,6 @@
 --[[
     ╔═══════════════════════════════════════════════════════════════╗
-    ║              CLL CHEAT - FULL INTEGRATION v12.25-cp (no 2s GetDescendants hitch)                ║
+    ║              CLL CHEAT - FULL INTEGRATION v12.27-cr (SUK more Hits for kill reg)                ║
     ╠═══════════════════════════════════════════════════════════════╣
     ║  SUK head-hit, real crosshair, tracers, ESP outline nick,     ║
     ║  ChinaHat/Wings fix, VR hands, anti-flash/shake, antibypass   ║
@@ -1863,12 +1863,20 @@ function MultiFireAt()
 
 	if head and head.Parent then
 		local headPos = pred or head.Position
-		-- 2 solid Hits only (center + slight in along aim) — same reg, far less net/CPU
-		local hits = {
-			headPos,
-			headPos - tpDir * 0.15,
+		-- multi-pellet Hits (spas-like) — reg needs volume; FX stays lean (1× below)
+		local offsets = {
+			Vector3.zero,
+			tpDir * 0.2,
+			-tpDir * 0.15,
+			Vector3.new(0.25, 0.12, 0),
+			Vector3.new(-0.25, 0.12, 0),
+			Vector3.new(0, 0.35, 0),
+			Vector3.new(0, -0.12, 0),
+			tpDir * 0.08 + Vector3.new(0.1, 0.08, 0),
+			-tpDir * 0.08 + Vector3.new(-0.1, 0.08, 0),
 		}
-		for _, pos in ipairs(hits) do
+		for _, off in ipairs(offsets) do
+			local pos = headPos + off
 			local hitTbl = {
 				hit = head,
 				normal = -tpDir,
@@ -5353,7 +5361,7 @@ fit(); workspace.CurrentCamera:GetPropertyChangedSignal("ViewportSize"):Connect(
 local header = new("Frame", { Size = UDim2.new(1, 0, 0, 62), BackgroundTransparency = 1, Parent = window })
 local logoLabel = label({ Text = "CLL", Font = Enum.Font.Michroma, TextSize = 26, TextTruncate = Enum.TextTruncate.AtEnd, Size = UDim2.fromOffset(100, 62), Position = UDim2.fromOffset(23, 0), Parent = header })
 logoLabel.TextColor3 = Color3.fromRGB(255, 255, 255) -- Always white
-local verLabel = label({ Text = "v12.25-cp", Font = Enum.Font.GothamBold, TextSize = 12, TextColor3 = Theme.Dim, Size = UDim2.fromOffset(50, 62), Position = UDim2.fromOffset(85, 2), Parent = header })
+local verLabel = label({ Text = "v12.27-cr", Font = Enum.Font.GothamBold, TextSize = 12, TextColor3 = Theme.Dim, Size = UDim2.fromOffset(50, 62), Position = UDim2.fromOffset(85, 2), Parent = header })
 local timeLabel = label({ Text = "Session: 00:00", Font = Enum.Font.GothamMedium, TextSize = 13, TextColor3 = Theme.Dim, Size = UDim2.fromOffset(150, 62), Position = UDim2.fromOffset(150, 0), Parent = header })
 task.spawn(function()
 	while not ST.isUnloaded do
@@ -6496,7 +6504,7 @@ function buildProfile()
 	end
 
 	local tBuild, vBuild = row("profile_build", 1)
-	vBuild.Text = "v12.25-cp"
+	vBuild.Text = "v12.27-cr"
 	local tSess, vSess = row("profile_session", 2)
 	local tStat, vStat = row("profile_status", 3)
 	vStat.Text = L("profile_active")
@@ -7929,6 +7937,17 @@ buildFeaturePage(pages.Visual, "VISUAL", {
 
 -- Effects
 buildFeaturePage(pages.Effects, "EFFECTS", {
+	{ name = "Bullet Tracers", nameKey = "t_tracers", descKey = "d_tracers", initial = false, getState = function() return ST.TracersEnabled end, onToggle = function(v)
+		ST.TracersEnabled = v
+	end, buildDetail = function(d)
+		detailSlider(d, 1, "Duration", 0.05, 3, ST.TracerDuration or 0.5, 0.05, function(v) ST.TracerDuration = v end)
+		detailToggle(d, 2, "Self", ST.TracerSelfEnabled ~= false, function(v) ST.TracerSelfEnabled = v end)
+		detailToggle(d, 3, "Others", ST.TracerOthersEnabled ~= false, function(v) ST.TracerOthersEnabled = v; ST.TracersOthers = v end)
+		detailToggle(d, 4, "Friends", ST.TracerFriendsEnabled ~= false, function(v) ST.TracerFriendsEnabled = v end)
+		detailColor(d, 5, "Self color", function() return ST.ColorSelf or Color3.fromRGB(255, 50, 50) end, function(c) ST.ColorSelf = c end)
+		detailColor(d, 6, "Others color", function() return ST.ColorOthers or Color3.fromRGB(255, 220, 50) end, function(c) ST.ColorOthers = c end)
+		detailColor(d, 7, "Friends color", function() return ST.ColorFriends or Color3.fromRGB(85, 255, 127) end, function(c) ST.ColorFriends = c end)
+	end },
 	{ name = "Aim Visualizer", nameKey = "t_aimvis", descKey = "d_aimvis", initial = true, getState = function() return ST.TrueCrosshairEnabled end, onToggle = function(v) ST.TrueCrosshairEnabled = v; if aimDot then aimDot.Visible = v end; if aimRing then aimRing.Visible = v end end, buildDetail = nil },
 	{ name = "Kill Highlight", nameKey = "t_killhl", descKey = "d_killhl", initial = true, getState = function() return ST.KillHighlightEnabled end, onToggle = function(v) ST.KillHighlightEnabled = v end, buildDetail = function(d)
 		detailSlider(d, 1, "Hold (sec)", 0.1, 2, ST.KillHighlightDuration or 0.5, 0.05, function(v) ST.KillHighlightDuration = v end)
